@@ -1720,6 +1720,7 @@ void MainWindow::showAbout()
     QString versionHtml = QString(
         "<h3>SeqEyes</h3>"
         "<p>For viewing Pulseq sequence file, modified from <a href='https://github.com/xpjiang/PulseqViewer'>PulseqViewer</a></p>"
+        "<p>See <a href='https://github.com/xingwangyong/seqeyes'>https://github.com/xingwangyong/seqeyes</a></p>"
         "<p><b>Version:</b> %1, %2, %3<br></p>")
         .arg(QString::fromUtf8(SEQEYES_APP_VERSION))
         .arg(QString::fromUtf8(SEQEYE_GIT_DATE))
