@@ -1,9 +1,10 @@
 # SeqEyes
-Compiled windows exe can be found at https://drive.google.com/drive/folders/1J1ILayzNA9qtO6tjJwZsqCnctTrbWDHw?usp=sharing
-
 Display Pulseq sequence diagram and k-space trajectory, modified from [PulseqViewer](https://github.com/xpjiang/PulseqViewer)
 
 ![image](./doc/ui.png)
+
+## Install
+Download the compiled windows exe from [github releases](https://github.com/xingwangyong/seqeyes/releases), or from [artifacts in github actions](https://github.com/xingwangyong/seqeyes/actions). The latter is more frequently updated.
 
 ## Usage
 - Open GUI, load .seq file
