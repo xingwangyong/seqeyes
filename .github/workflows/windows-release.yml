@@ -50,16 +50,27 @@ jobs:
       shell: pwsh
       run: |
         if ("${{ github.ref }}" -match "refs/tags/") {
-          $name = "seqeyes-${{ github.ref_name }}-win64"
+          # Tag push → versioned release ZIP
+          $zipName = "seqeyes-${{ github.ref_name }}-win64.zip"
         } else {
-          $name = "seqeyes-latest-win64"
+          # Non-tag push → always latest
+          $zipName = "seqeyes-latest-win64.zip"
         }
-        Compress-Archive -Path package\seqeyes -DestinationPath "$name.zip"
+        Compress-Archive -Path package\seqeyes -DestinationPath "$zipName"
 
-    # ---- Upload to Release ----
+    # ---- Upload to Release (only for tags) ----
     - name: Upload to GitHub Release
+      if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
-        files: seqeyes-*-win64.zip
+        files: seqeyes-*.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # ---- Upload latest artifact (only for non-tags) ----
+    - name: Upload latest artifact
+      if: github.ref_type != 'tag'
+      uses: actions/upload-artifact@v6
+      with:
+        name: seqeyes-latest-win64       # artifact name always "latest"
+        path: seqeyes-latest-win64.zip   # path to zip
