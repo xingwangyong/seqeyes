@@ -1,0 +1,65 @@
+name: Build & Release SeqEyes (Windows)
+
+on:
+  push:
+    tags:
+      - 'v*'          # v1.0.0 → versioned release
+    branches:
+      - main          # main → latest release
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # ---- Qt ----
+    - name: Install Qt 6.5.3 (MSVC 2019)
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.5.3'
+        arch: 'win64_msvc2019_64'
+        cache: true
+
+    # ---- MSVC ----
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    # ---- Build ----
+    - name: Configure (CMake)
+      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    # ---- Deploy Qt ----
+    - name: Run windeployqt
+      run: |
+        cd build/Release
+        windeployqt seqeyes.exe
+
+    # ---- Prepare package ----
+    - name: Prepare package folder
+      run: |
+        mkdir package
+        xcopy build\Release package\seqeyes /E /I
+
+    - name: Create ZIP
+      shell: pwsh
+      run: |
+        if ("${{ github.ref }}" -match "refs/tags/") {
+          $name = "seqeyes-${{ github.ref_name }}-win64"
+        } else {
+          $name = "seqeyes-latest-win64"
+        }
+        Compress-Archive -Path package\seqeyes -DestinationPath "$name.zip"
+
+    # ---- Upload to Release ----
+    - name: Upload to GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: seqeyes-*-win64.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
