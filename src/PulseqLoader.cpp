@@ -137,6 +137,7 @@ void PulseqLoader::ClearPulseqCache()
     m_kTrajectoryYAdc.clear();
     m_kTrajectoryZAdc.clear();
     m_kTimeAdcSec.clear();
+    m_usedExtensions.clear();
 
     if (m_mainWindow && m_mainWindow->getTRManager())
     {
@@ -791,48 +792,15 @@ void PulseqLoader::setBlockInfoContent(EventBlockInfoDialog* dialog, int current
         blockInfo += QString("|-----------------------------------------------------------------------------------------------|\n");
         blockInfo += QString("Extensions (Current values at this block):\n");
 
-        // Show the *current* label values after applying this block, because that's what users care about.
-        const LabelSnapshot* snap = labelSnapshotAfterBlock(currentBlock);
-        auto seq = m_spPulseqSeq;
-
-        struct Spec { QString name; bool isFlag; int id; };
-        const QVector<Spec> specs = {
-            // Counters
-            {"SLC", false, SLC}, {"SEG", false, SEG}, {"REP", false, REP}, {"AVG", false, AVG},
-            {"SET", false, SET}, {"ECO", false, ECO}, {"PHS", false, PHS}, {"LIN", false, LIN},
-            {"PAR", false, PAR}, {"ACQ", false, ACQ}, {"ONCE", false, ONCE},
-            // Flags
-            {"NAV", true, NAV}, {"REV", true, REV}, {"SMS", true, SMS}, {"REF", true, REF},
-            {"IMA", true, IMA}, {"OFF", true, OFF}, {"NOISE", true, NOISE},
-            {"PMC", true, PMC}, {"NOROT", true, NOROT}, {"NOPOS", true, NOPOS}, {"NOSCL", true, NOSCL},
-        };
-
-        bool any = false;
-        for (const auto& s : specs)
+        auto activeLabels = getActiveLabels(currentBlock);
+        if (!activeLabels.isEmpty())
         {
-            if (!Settings::getInstance().isExtensionLabelEnabled(s.name))
-                continue;
-
-            if (!snap)
-                continue;
-
-            if (s.isFlag)
+            for (const auto& pair : activeLabels)
             {
-                if (s.id < 0 || s.id >= snap->flags.size()) continue;
-                const int v = snap->flags[s.id] ? 1 : 0;
-                blockInfo += QString("  %1=%2\n").arg(s.name).arg(v);
-                any = true;
-            }
-            else
-            {
-                if (s.id < 0 || s.id >= snap->counters.size()) continue;
-                const int v = snap->counters[s.id];
-                blockInfo += QString("  %1=%2\n").arg(s.name).arg(v);
-                any = true;
+                blockInfo += QString("  %1=%2\n").arg(pair.first).arg(pair.second);
             }
         }
-
-        if (!any)
+        else
         {
             blockInfo += QString("  (No enabled extension labels)\n");
         }
@@ -2417,4 +2385,53 @@ void PulseqLoader::buildShapeScaleAggregates()
             }
         }
     }
+}
+
+QList<QPair<QString, int>> PulseqLoader::getActiveLabels(int blockIdx) const
+{
+    QList<QPair<QString, int>> result;
+    const LabelSnapshot* snap = labelSnapshotAfterBlock(blockIdx);
+    if (!snap) return result;
+
+    struct Spec { QString name; bool isFlag; int id; };
+    static const QVector<Spec> specs = {
+        // Counters
+        {"SLC", false, SLC}, {"SEG", false, SEG}, {"REP", false, REP}, {"AVG", false, AVG},
+        {"SET", false, SET}, {"ECO", false, ECO}, {"PHS", false, PHS}, {"LIN", false, LIN},
+        {"PAR", false, PAR}, {"ACQ", false, ACQ}, {"ONCE", false, ONCE},
+        // Flags
+        {"NAV", true, NAV}, {"REV", true, REV}, {"SMS", true, SMS}, {"REF", true, REF},
+        {"IMA", true, IMA}, {"OFF", true, OFF}, {"NOISE", true, NOISE},
+        {"PMC", true, PMC}, {"NOROT", true, NOROT}, {"NOPOS", true, NOPOS}, {"NOSCL", true, NOSCL},
+    };
+
+    for (const auto& s : specs)
+    {
+        if (!Settings::getInstance().isExtensionLabelEnabled(s.name))
+            continue;
+
+        // SKIP if this label was never used in the sequence (avoid ghost labels like PHS=0)
+        if (!m_usedExtensions.contains(s.name))
+            continue;
+
+        if (s.isFlag)
+        {
+            if (s.id < 0 || s.id >= snap->flags.size()) continue;
+            if (snap->flags[s.id]) {
+                result.append({s.name, 1});
+            }
+        }
+        else
+        {
+            if (s.id < 0 || s.id >= snap->counters.size()) continue;
+            int v = snap->counters[s.id];
+            // Show all counters, even if 0, to match user expectation of "current state"
+            result.append({s.name, v});
+        }
+    }
+    // Sort alphabetically by name
+    std::sort(result.begin(), result.end(), [](const QPair<QString, int>& a, const QPair<QString, int>& b) {
+        return a.first < b.first;
+    });
+    return result;
 }

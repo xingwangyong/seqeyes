@@ -24,6 +24,7 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_zoomModeCombo(nullptr)
     , m_panDragCheck(nullptr)
     , m_panWheelCheck(nullptr)
+    , m_showExtensionTooltipCheck(nullptr)
     , m_applyButton(nullptr)
     , m_okButton(nullptr)
     , m_cancelButton(nullptr)
@@ -223,7 +224,11 @@ void SettingsDialog::setupUI()
     QWidget* extensionsTab = new QWidget();
     QVBoxLayout* extensionsLayout = new QVBoxLayout(extensionsTab);
 
-    QGroupBox* labelsGroup = new QGroupBox("Pulseq Extension Labels", extensionsTab);
+    // Checkbox for extension tooltip
+    m_showExtensionTooltipCheck = new QCheckBox("Show extension tooltip", extensionsTab);
+    extensionsLayout->addWidget(m_showExtensionTooltipCheck);
+
+    QGroupBox* labelsGroup = new QGroupBox("Plot the following extension labels", extensionsTab);
     QGridLayout* labelsLayout = new QGridLayout(labelsGroup);
 
     // Build checkboxes for all supported labels (three columns for compact layout)
@@ -292,7 +297,9 @@ void SettingsDialog::loadCurrentSettings()
     m_originalGamma = settings.getGamma();
     m_originalLogLevel = settings.getLogLevel();
     m_originalZoomInputMode = settings.getZoomInputMode();
+    m_originalZoomInputMode = settings.getZoomInputMode();
     m_originalPanWheelEnabled = settings.getPanWheelEnabled();
+    m_originalShowExtensionTooltip = settings.getShowExtensionTooltip();
 
     // Store original extension label states
     m_originalExtensionLabelStates.clear();
@@ -327,6 +334,9 @@ void SettingsDialog::loadCurrentSettings()
     m_settingsPathValue->setText(Settings::getInstance().getSettingsFilePath());
 
     // Extensions: sync checkboxes from settings
+    if (m_showExtensionTooltipCheck)
+        m_showExtensionTooltipCheck->setChecked(settings.getShowExtensionTooltip());
+
     for (auto it = m_extensionLabelCheckboxes.begin(); it != m_extensionLabelCheckboxes.end(); ++it)
     {
         const QString& lab = it.key();
@@ -403,6 +413,10 @@ void SettingsDialog::applySettings()
     Settings::LogLevel logLevel = static_cast<Settings::LogLevel>(m_logLevelCombo->currentData().toInt());
     settings.setLogLevel(logLevel);
 
+    // Apply extension tooltip setting
+    if (m_showExtensionTooltipCheck)
+        settings.setShowExtensionTooltip(m_showExtensionTooltipCheck->isChecked());
+
     // Apply extension label visibility
     for (auto it = m_extensionLabelCheckboxes.begin(); it != m_extensionLabelCheckboxes.end(); ++it)
     {
@@ -455,6 +469,7 @@ void SettingsDialog::onCancelClicked()
     settings.setTrajectoryColormap(m_originalTrajectoryColormap);
     settings.setGamma(m_originalGamma);
     settings.setLogLevel(m_originalLogLevel);
+    settings.setShowExtensionTooltip(m_originalShowExtensionTooltip);
     // Restore original extension label states
     for (auto it = m_originalExtensionLabelStates.constBegin(); it != m_originalExtensionLabelStates.constEnd(); ++it)
     {

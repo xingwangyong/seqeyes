@@ -407,72 +407,31 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
 	QString tip;
 	// ADC tooltip disabled by request
 
-	// Label tooltip (show all labels at this block)
-	if (blk->isLabel())
-	{
-		const auto& sets = blk->GetLabelSetEvents();
-		const auto& incs = blk->GetLabelIncEvents();
+	// Label tooltip: Show current active labels when hovering ADC axis
+    // Controlled by Settings "Show extension tooltip" (Default: invalid/false)
+    if (Settings::getInstance().getShowExtensionTooltip())
+    {
+        bool overAdc = false;
+        if (m_mainWindow && m_mainWindow->getWaveformDrawer()) {
+            auto rects = m_mainWindow->getWaveformDrawer()->getRects();
+            if (!rects.isEmpty()) {
+                QCPAxisRect* adcRect = rects[0];
+                if (adcRect && adcRect->visible() && adcRect->rect().contains(event->pos())) {
+                    overAdc = true;
+                }
+            }
+        }
 
-		// Tooltip should show *current values at this block*, not raw INC/SET operations.
-		// Otherwise users see "LIN=1" (increment) while Information shows "LIN=17" (current value).
-		QSet<QString> shown;
-		auto seq = m_mainWindow->getPulseqLoader()->getSequence();
-		auto loaderPtr = m_mainWindow->getPulseqLoader();
-
-		auto counterName = [&](int id) -> QString {
-			if (seq)
-			{
-				const std::string s = seq->getCounterIdAsString(id);
-				if (!s.empty()) return QString::fromStdString(s);
-				const std::string u = seq->GetUnknownLabelName(id);
-				if (!u.empty()) return QString::fromStdString(u);
-			}
-			return QString("Label[%1]").arg(id);
-		};
-		auto flagName = [&](int id) -> QString {
-			if (seq)
-			{
-				const std::string s = seq->getFlagIdAsString(id);
-				if (!s.empty()) return QString::fromStdString(s);
-			}
-			return QString("Flag[%1]").arg(id);
-		};
-
-		auto appendCounterCurrent = [&](int id) {
-			if (id == LABEL_UNKNOWN) return;
-			const QString name = counterName(id);
-			if (shown.contains(name)) return;
-			int curVal = 0;
-			if (loaderPtr && loaderPtr->getCounterValueAfterBlock(blockIdx, id, curVal))
-			{
-				if (!tip.isEmpty()) tip += "\n";
-				tip += QString("%1=%2").arg(name).arg(curVal);
-				shown.insert(name);
-			}
-		};
-		auto appendFlagCurrent = [&](int id) {
-			if (id == FLAG_UNKNOWN) return;
-			const QString name = flagName(id);
-			if (shown.contains(name)) return;
-			bool cur = false;
-			if (loaderPtr && loaderPtr->getFlagValueAfterBlock(blockIdx, id, cur))
-			{
-				if (!tip.isEmpty()) tip += "\n";
-				tip += QString("%1=%2").arg(name).arg(cur ? 1 : 0);
-				shown.insert(name);
-			}
-		};
-
-		for (const auto& ev : sets)
-		{
-			if (ev.numVal.first != LABEL_UNKNOWN) appendCounterCurrent(ev.numVal.first);
-			if (ev.flagVal.first != FLAG_UNKNOWN) appendFlagCurrent(ev.flagVal.first);
-		}
-		for (const auto& ev : incs)
-		{
-			if (ev.numVal.first != LABEL_UNKNOWN) appendCounterCurrent(ev.numVal.first);
-		}
-	}
+        if (overAdc)
+        {
+            // Use new helper to get all active labels for this block (even if not changing)
+            auto activeLabels = m_mainWindow->getPulseqLoader()->getActiveLabels(blockIdx);
+            for (const auto& pair : activeLabels) {
+                if (!tip.isEmpty()) tip += "\n";
+                tip += QString("%1=%2").arg(pair.first).arg(pair.second);
+            }
+        }
+    }
 
 	// Trigger tooltip
 	if (blk->isTrigger())

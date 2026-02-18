@@ -35,6 +35,8 @@ public:
     bool getCounterValueAfterBlock(int blockIdx, int counterId, int& outVal) const;
     bool getFlagValueAfterBlock(int blockIdx, int flagId, bool& outVal) const;
     QSet<QString> getUsedExtensions() const { return m_usedExtensions; }
+    // Get all active labels (counters/flags) with their current values for a block
+    QList<QPair<QString, int>> getActiveLabels(int blockIdx) const;
 
     // Getters for data needed by other handlers
     const QVector<double>& getBlockEdges() const { return vecBlockEdges; }

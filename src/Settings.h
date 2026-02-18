@@ -151,6 +151,10 @@ public:
     void setExtensionLabelEnabled(const QString& label, bool enabled);
     bool isExtensionLabelEnabled(const QString& label) const;
 
+    // Extension tooltip setting
+    void setShowExtensionTooltip(bool show);
+    bool getShowExtensionTooltip() const;
+
 signals:
     void settingsChanged();
     void timeUnitChanged();
@@ -181,6 +185,7 @@ private:
     bool m_showKnownIssuesDialog { true }; // Show known-issues dialog on startup
     bool m_showTeApproximateDialog { true }; // Show TE approximate warning for legacy sequences
     bool m_showTrajectoryApproximateDialog { true }; // Show trajectory warning for legacy sequences
+    bool m_showExtensionTooltip { false }; // Show extension tooltip on hover
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
     
     // Conversion helper functions

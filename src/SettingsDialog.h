@@ -67,6 +67,7 @@ private:
     QLabel* m_shortcutInfoLabel;
 
     // Extension tab - label visibility controls
+    QCheckBox* m_showExtensionTooltipCheck;
     QMap<QString, QCheckBox*> m_extensionLabelCheckboxes;
     
     // Buttons
@@ -81,6 +82,7 @@ private:
     Settings::TimeUnit m_originalTimeUnit;
     Settings::TrajectoryUnit m_originalTrajectoryUnit;
     Settings::TrajectoryColormap m_originalTrajectoryColormap;
+    bool m_originalShowExtensionTooltip;
     QMap<QString, bool> m_originalExtensionLabelStates;
     double m_originalGamma;
     Settings::LogLevel m_originalLogLevel;
