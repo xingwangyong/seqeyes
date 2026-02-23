@@ -137,13 +137,16 @@ void PulseqLoader::ClearPulseqCache()
     m_kTrajectoryYAdc.clear();
     m_kTrajectoryZAdc.clear();
     m_kTimeAdcSec.clear();
+    m_usedExtensions.clear();
+    m_adcPhaseCache.valid = false;
 
-    // This was in MainWindow::ClearPulseqCache, but it belongs to TRManager
     if (m_mainWindow && m_mainWindow->getTRManager())
     {
         m_mainWindow->getTRManager()->resetTimeWindow();
     }
-
+    
+    // Reset B0 to default
+    m_b0Tesla = 0.0;
 
     if (nullptr != m_spPulseqSeq.get())
     {
@@ -790,48 +793,15 @@ void PulseqLoader::setBlockInfoContent(EventBlockInfoDialog* dialog, int current
         blockInfo += QString("|-----------------------------------------------------------------------------------------------|\n");
         blockInfo += QString("Extensions (Current values at this block):\n");
 
-        // Show the *current* label values after applying this block, because that's what users care about.
-        const LabelSnapshot* snap = labelSnapshotAfterBlock(currentBlock);
-        auto seq = m_spPulseqSeq;
-
-        struct Spec { QString name; bool isFlag; int id; };
-        const QVector<Spec> specs = {
-            // Counters
-            {"SLC", false, SLC}, {"SEG", false, SEG}, {"REP", false, REP}, {"AVG", false, AVG},
-            {"SET", false, SET}, {"ECO", false, ECO}, {"PHS", false, PHS}, {"LIN", false, LIN},
-            {"PAR", false, PAR}, {"ACQ", false, ACQ}, {"ONCE", false, ONCE},
-            // Flags
-            {"NAV", true, NAV}, {"REV", true, REV}, {"SMS", true, SMS}, {"REF", true, REF},
-            {"IMA", true, IMA}, {"OFF", true, OFF}, {"NOISE", true, NOISE},
-            {"PMC", true, PMC}, {"NOROT", true, NOROT}, {"NOPOS", true, NOPOS}, {"NOSCL", true, NOSCL},
-        };
-
-        bool any = false;
-        for (const auto& s : specs)
+        auto activeLabels = getActiveLabels(currentBlock);
+        if (!activeLabels.isEmpty())
         {
-            if (!Settings::getInstance().isExtensionLabelEnabled(s.name))
-                continue;
-
-            if (!snap)
-                continue;
-
-            if (s.isFlag)
+            for (const auto& pair : activeLabels)
             {
-                if (s.id < 0 || s.id >= snap->flags.size()) continue;
-                const int v = snap->flags[s.id] ? 1 : 0;
-                blockInfo += QString("  %1=%2\n").arg(s.name).arg(v);
-                any = true;
-            }
-            else
-            {
-                if (s.id < 0 || s.id >= snap->counters.size()) continue;
-                const int v = snap->counters[s.id];
-                blockInfo += QString("  %1=%2\n").arg(s.name).arg(v);
-                any = true;
+                blockInfo += QString("  %1=%2\n").arg(pair.first).arg(pair.second);
             }
         }
-
-        if (!any)
+        else
         {
             blockInfo += QString("  (No enabled extension labels)\n");
         }
@@ -1015,6 +985,14 @@ void PulseqLoader::computeKSpaceTrajectory()
         if (!defB0.empty())
             b0Tesla = defB0[0];
     }
+    // If B0 is undefined, assume 3.0T (standard high field) for PPM calculations
+    // This maintains compatibility with sequences that use PPM but don't define B0,
+    // while remaining safe for legacy files (where freqPPM will be 0 anyway).
+    if (b0Tesla == 0.0) {
+        b0Tesla = 3.0; // Default to 3.0T to match KSpaceTrajectory
+        // qWarning() << "B0 not defined in sequence [DEFINITIONS]. Assuming 3.0T for PPM calculations.";
+    }
+    m_b0Tesla = b0Tesla; // Store for phase computation
 
     KSpaceTrajectory::Input input { m_vecDecodeSeqBlocks,
                                     vecBlockEdges,
@@ -1571,13 +1549,20 @@ const PulseqLoader::RFPhEntry& PulseqLoader::ensureRfPhCached(const float* phase
     RFPhEntry e; e.length = len; e.phNorm.resize(len);
     double mnP = std::numeric_limits<double>::infinity();
     double mxP = -std::numeric_limits<double>::infinity();
+    bool isReal = true;
     for (int i = 0; i < len; ++i) {
         float p = phase ? phase[i] : std::numeric_limits<float>::quiet_NaN();
         e.phNorm[i] = p;
-        if (!std::isnan(p)) { if (p < mnP) mnP = p; if (p > mxP) mxP = p; }
+        if (!std::isnan(p)) { 
+            if (p < mnP) mnP = p; if (p > mxP) mxP = p; 
+            // Check if logic shape is "Real" (only 0 or pi phases, ignoring small numerical noise)
+            // Relaxed threshold to 1e-2 (approx 0.5 deg) to match render logic
+            if (std::abs(std::sin(p)) > 1e-2) isReal = false;
+        }
     }
     if (!std::isfinite(mnP) || !std::isfinite(mxP)) { mnP = 0.0; mxP = 0.0; }
     e.phMin = mnP; e.phMax = mxP;
+    e.isRealLike = isReal;
     auto ins = m_rfPhCache.insert(key, e);
     return ins.value();
 }
@@ -1813,6 +1798,31 @@ bool PulseqLoader::sampleRFAtTime(double time, int blockIdx, double& ampHzOut, d
     // Outside block window
     if (time < tStart || time > tStart + (RFLength - 1) * dt) return false;
 
+    // Use cache to get isRealLike property (requires mutable access? No, ensureRfPhCached is non-const but we are const)
+    // Problem: sampleRFAtTime is const, ensureRfPhCached is not. 
+    // However, cached entry should exist if rendered. If not, we can't update cache.
+    // Solution: Look up in cache directly. If missing, default to safe assumption (not real-like) or re-scan.
+    // For status bar (mouse hover), it's likely already rendered.
+    QString key = rfPhKey(rf.phaseShape, rf.timeShape, RFLength);
+    bool isRealLike = false; // Default safe
+    // We need access to m_rfPhCache. It is mutable? No.
+    // We can cast away constness if we really need to update cache, but cleaner to check if exists.
+    auto it = m_rfPhCache.find(key);
+    if (it != m_rfPhCache.end()) {
+        isRealLike = it.value().isRealLike;
+    } else {
+        // If not cached, do quick scan? Or just assume complex?
+        // Assuming complex means we show raw phase. If real pulse has pi phase, it shows 3.14.
+        // User complained about "uncoordinated". 
+        // We can do a quick scan here.
+        bool isReal = true;
+        for (int k=0; k<RFLength; ++k) {
+             float p = phaseList[k];
+             if (!std::isnan(p) && std::abs(std::sin(p)) > 1e-2) { isReal=false; break; }
+        }
+        isRealLike = isReal;
+    }
+
     // Compute local index and interpolate linearly for maximum fidelity
     double u = (time - tStart) / dt;
     int i0 = static_cast<int>(std::floor(u));
@@ -1822,13 +1832,33 @@ bool PulseqLoader::sampleRFAtTime(double time, int blockIdx, double& ampHzOut, d
 
     auto amp0 = static_cast<double>(rfList[i0]) * static_cast<double>(rf.amplitude);
     auto ph0  = static_cast<double>(phaseList[i0]);
-    if (i1 == i0) {
-        ampHzOut = amp0; phaseRadOut = ph0; return true;
-    }
+    
     auto amp1 = static_cast<double>(rfList[i1]) * static_cast<double>(rf.amplitude);
     auto ph1  = static_cast<double>(phaseList[i1]);
+    
+    // Interpolate Amplitude
     ampHzOut = amp0 + (amp1 - amp0) * alpha;
-    phaseRadOut = ph0 + (ph1 - ph0) * alpha;
+
+    // Phase Calculation matching getRfViewportDecimated
+    // Base phase: 0 for real-like, otherwise interpolated raw phase
+    double basePh0 = isRealLike ? 0.0 : ph0;
+    double basePh1 = isRealLike ? 0.0 : ph1;
+    // Linear interp of base phase (for complex, wrap-around interp is ideal but linear is standard here)
+    double basePh = basePh0 + (basePh1 - basePh0) * alpha;
+
+    // Full Offsets
+    double gamma = Settings::getInstance().getGamma();
+    double fullFreqOff = rf.freqOffset + rf.freqPPM * 1e-6 * gamma * m_b0Tesla;
+    double fullPhaseOff = rf.phaseOffset + rf.phasePPM * 1e-6 * gamma * m_b0Tesla;
+    
+    // Time in seconds from pulse start
+    double t_local_sec = ((time - tStart) / tFactor) * 1e-6;
+    
+    double totalPhase = basePh + fullPhaseOff + 2.0 * M_PI * t_local_sec * fullFreqOff;
+    
+    // Use atan2 to wrap to [-pi, pi]
+    phaseRadOut = std::atan2(std::sin(totalPhase), std::cos(totalPhase));
+    
     return true;
 }
 
@@ -2130,6 +2160,48 @@ void PulseqLoader::getRfViewportDecimated(double visibleStart, double visibleEnd
             QVector<double> dT, dV; lttbDownsampleUniform(entryP.phNorm, tStart, dt, target, dT, dV);
             tPhBlk = dT; vPhBlk = dV;
         }
+
+        // Apply full phase offsets (MATLAB-matching)
+        {
+            double gamma = Settings::getInstance().getGamma();
+            double fullFreqOff = rf.freqOffset + rf.freqPPM * 1e-6 * gamma * m_b0Tesla;
+            double fullPhaseOff = rf.phaseOffset + rf.phasePPM * 1e-6 * gamma * m_b0Tesla;
+            
+            // Check if logic shape is "Real" (only 0 or pi phases, ignoring small numerical noise)
+            // MATLAB uses angle(s * sign(real(s))) which maps pi -> 0 for real pulses (negative lobes).
+            bool isRealLike = entryP.isRealLike;
+
+            // tStart is in display units. We need time in seconds from the start of the pulse for freq offset.
+            // ii * dt -> gives time in display units from start of pulse.
+            // Divide by tFactor to get internal units (us), then * 1e-6 to get seconds.
+            
+            double minPh = 1e9, maxPh = -1e9;
+            for (int k = 0; k < vPhBlk.size(); ++k) {
+                double t_display = tPhBlk[k];
+                // Convert display duration to seconds: (t_display - tStart) / tFactor -> us -> * 1e-6 -> seconds
+                double t_local_sec = ((t_display - tStart) / tFactor) * 1e-6;
+                
+                // If real-like, ignore the shape phase (treat pi as 0, i.e. negative amplitude)
+                // This matches MATLAB's sign(real(s)) correction.
+                double phaseVal = isRealLike ? 0.0 : vPhBlk[k];
+                
+                // Add linear phase evolution: 2*pi * t * freq
+                double totalPhase = phaseVal + fullPhaseOff + 2.0 * M_PI * t_local_sec * fullFreqOff;
+                
+                // Wrap to [-pi, pi]
+                double wrapped = std::atan2(std::sin(totalPhase), std::cos(totalPhase));
+                vPhBlk[k] = wrapped;
+                
+                if (wrapped < minPh) minPh = wrapped;
+                if (wrapped > maxPh) maxPh = wrapped;
+            }
+            // Debug print once per block (throttle maybe?)
+            // Debug print once per block (throttle maybe?)
+            // static int dbgCount = 0; if (dbgCount++ < 20) 
+            // qDebug() << "RF Block" << i << "isRealLike:" << isRealLike << "Offset:" << fullPhaseOff 
+            //          << "Freq:" << fullFreqOff << "MinPh:" << minPh << "MaxPh:" << maxPh << "B0:" << m_b0Tesla;
+
+        }
         auto appendWithBreakPh = [&](const QVector<double>& tB, const QVector<double>& vB){
             if (tB.isEmpty()) return;
             if (haveLastPh) {
@@ -2187,6 +2259,105 @@ QPair<double,double> PulseqLoader::getRfGlobalRangePh()
 }
 
 // (removed getRfViewportRangeAmp; y-axis ranges are computed once at load time)
+
+// ADC Phase viewport rendering (MATLAB-matching formula: angle(exp(i*phase)*exp(i*2*pi*t*freq)))
+// Three optimization strategies to keep rendering fast:
+//   1. Pixel-aware decimation: stride through samples when points-per-pixel > 2
+//   2. Viewport caching: if visibleStart/visibleEnd/pixelWidth unchanged, return cached result
+//   3. NaN breaks between ADC blocks: enables lsLine rendering (10x faster than scatter dots)
+//      while preventing lines from connecting unrelated ADC events
+void PulseqLoader::getAdcPhaseViewport(double visibleStart, double visibleEnd, int pixelWidth,
+                                       QVector<double>& tOut, QVector<double>& vOut)
+{
+    // Viewport cache: return cached data if viewport/pixelWidth unchanged
+    if (m_adcPhaseCache.valid &&
+        m_adcPhaseCache.visibleStart == visibleStart &&
+        m_adcPhaseCache.visibleEnd == visibleEnd &&
+        m_adcPhaseCache.pixelWidth == pixelWidth)
+    {
+        tOut = m_adcPhaseCache.tData;
+        vOut = m_adcPhaseCache.vData;
+        return;
+    }
+
+    tOut.clear(); vOut.clear();
+    if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.isEmpty() || pixelWidth <= 0) return;
+
+    // Find visible block range via binary search
+    auto itStart = std::lower_bound(vecBlockEdges.begin(), vecBlockEdges.end(), visibleStart);
+    int startBlock = std::max(0, int(std::distance(vecBlockEdges.begin(), itStart)) - 1);
+    
+    double gamma = Settings::getInstance().getGamma();
+
+    // Count total visible ADC samples for global decimation gating (like RF approach)
+    long long totalAdcSamples = 0;
+    for (int i = startBlock; i < vecBlockEdges.size() - 1; ++i) {
+        if (vecBlockEdges[i] > visibleEnd) break;
+        SeqBlock* blk = m_vecDecodeSeqBlocks[i];
+        if (!blk || !blk->isADC()) continue;
+        totalAdcSamples += blk->GetADCEvent().numSamples;
+    }
+    if (totalAdcSamples == 0) return;
+
+    // Determine stride based on points-per-pixel (ppp), mirroring RF decimation logic
+    // For line plots, ~2 samples/pixel is sufficient
+    double pppTotal = double(totalAdcSamples) / double(pixelWidth);
+    int stride = 1;
+    if (pppTotal > 2.0) {
+        int targetPoints = pixelWidth * 2;
+        stride = std::max(1, static_cast<int>(std::ceil(double(totalAdcSamples) / double(targetPoints))));
+    }
+
+    // Emit points with computed stride, NaN-break between ADC blocks for line plot
+    bool emittedAny = false;
+    for (int i = startBlock; i < vecBlockEdges.size() - 1; ++i) {
+        double blockStart = vecBlockEdges[i];
+        if (blockStart > visibleEnd) break;
+        
+        SeqBlock* blk = m_vecDecodeSeqBlocks[i];
+        if (!blk || !blk->isADC()) continue;
+
+        ADCEvent& adc = blk->GetADCEvent();
+        int nSamples = adc.numSamples;
+        double dwell = adc.dwellTime * 1e-9; // ns to seconds
+        double delay = adc.delay * 1e-6;     // us to seconds
+        
+        double fullFreqOff = adc.freqOffset + adc.freqPPM * 1e-6 * gamma * m_b0Tesla;
+        double fullPhaseOff = adc.phaseOffset + adc.phasePPM * 1e-6 * gamma * m_b0Tesla;
+
+        // Insert NaN break before this block to separate from previous block's line
+        if (emittedAny) {
+            tOut.append(tOut.last());
+            vOut.append(std::numeric_limits<double>::quiet_NaN());
+        }
+
+        bool emittedInBlock = false;
+        for (int k = 0; k < nSamples; k += stride) {
+            double t_local = delay + (k + 0.5) * dwell; // Center of dwell
+            double t_offset_us = adc.delay + (k + 0.5) * (adc.dwellTime * 1e-3);
+            double t_plot = vecBlockEdges[i] + t_offset_us * tFactor;
+            
+            if (t_plot < visibleStart) continue;
+            if (t_plot > visibleEnd) break;
+
+            double totalPhase = fullPhaseOff + 2.0 * M_PI * t_local * fullFreqOff;
+            double wrapped = std::atan2(std::sin(totalPhase), std::cos(totalPhase));
+            
+            tOut.append(t_plot);
+            vOut.append(wrapped);
+            emittedInBlock = true;
+        }
+        if (emittedInBlock) emittedAny = true;
+    }
+
+    // Store in cache for next call
+    m_adcPhaseCache.visibleStart = visibleStart;
+    m_adcPhaseCache.visibleEnd = visibleEnd;
+    m_adcPhaseCache.pixelWidth = pixelWidth;
+    m_adcPhaseCache.tData = tOut;
+    m_adcPhaseCache.vData = vOut;
+    m_adcPhaseCache.valid = true;
+}
 
 void PulseqLoader::buildShapeScaleAggregates()
 {
@@ -2259,4 +2430,53 @@ void PulseqLoader::buildShapeScaleAggregates()
             }
         }
     }
+}
+
+QList<QPair<QString, int>> PulseqLoader::getActiveLabels(int blockIdx) const
+{
+    QList<QPair<QString, int>> result;
+    const LabelSnapshot* snap = labelSnapshotAfterBlock(blockIdx);
+    if (!snap) return result;
+
+    struct Spec { QString name; bool isFlag; int id; };
+    static const QVector<Spec> specs = {
+        // Counters
+        {"SLC", false, SLC}, {"SEG", false, SEG}, {"REP", false, REP}, {"AVG", false, AVG},
+        {"SET", false, SET}, {"ECO", false, ECO}, {"PHS", false, PHS}, {"LIN", false, LIN},
+        {"PAR", false, PAR}, {"ACQ", false, ACQ}, {"ONCE", false, ONCE},
+        // Flags
+        {"NAV", true, NAV}, {"REV", true, REV}, {"SMS", true, SMS}, {"REF", true, REF},
+        {"IMA", true, IMA}, {"OFF", true, OFF}, {"NOISE", true, NOISE},
+        {"PMC", true, PMC}, {"NOROT", true, NOROT}, {"NOPOS", true, NOPOS}, {"NOSCL", true, NOSCL},
+    };
+
+    for (const auto& s : specs)
+    {
+        if (!Settings::getInstance().isExtensionLabelEnabled(s.name))
+            continue;
+
+        // SKIP if this label was never used in the sequence (avoid ghost labels like PHS=0)
+        if (!m_usedExtensions.contains(s.name))
+            continue;
+
+        if (s.isFlag)
+        {
+            if (s.id < 0 || s.id >= snap->flags.size()) continue;
+            if (snap->flags[s.id]) {
+                result.append({s.name, 1});
+            }
+        }
+        else
+        {
+            if (s.id < 0 || s.id >= snap->counters.size()) continue;
+            int v = snap->counters[s.id];
+            // Show all counters, even if 0, to match user expectation of "current state"
+            result.append({s.name, v});
+        }
+    }
+    // Sort alphabetically by name
+    std::sort(result.begin(), result.end(), [](const QPair<QString, int>& a, const QPair<QString, int>& b) {
+        return a.first < b.first;
+    });
+    return result;
 }

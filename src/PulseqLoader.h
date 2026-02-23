@@ -35,6 +35,8 @@ public:
     bool getCounterValueAfterBlock(int blockIdx, int counterId, int& outVal) const;
     bool getFlagValueAfterBlock(int blockIdx, int flagId, bool& outVal) const;
     QSet<QString> getUsedExtensions() const { return m_usedExtensions; }
+    // Get all active labels (counters/flags) with their current values for a block
+    QList<QPair<QString, int>> getActiveLabels(int blockIdx) const;
 
     // Getters for data needed by other handlers
     const QVector<double>& getBlockEdges() const { return vecBlockEdges; }
@@ -88,6 +90,24 @@ public:
     // Global RF ranges without materializing merged arrays
     QPair<double,double> getRfGlobalRangeAmp();
     QPair<double,double> getRfGlobalRangePh();
+
+    // ADC phase on-demand rendering (MATLAB-matching formula)
+    void getAdcPhaseViewport(double visibleStart, double visibleEnd, int pixelWidth,
+                             QVector<double>& tOut, QVector<double>& vOut);
+
+    // ADC phase viewport cache (invalidated on sequence reload)
+    struct AdcPhaseCache {
+        double visibleStart {0.0};
+        double visibleEnd {0.0};
+        int pixelWidth {0};
+        QVector<double> tData;
+        QVector<double> vData;
+        bool valid {false};
+    };
+    mutable AdcPhaseCache m_adcPhaseCache;
+
+    // B0 accessor (from sequence [DEFINITIONS])
+    double getB0Tesla() const { return m_b0Tesla; }
 
     // Phase 2: Gradient on-demand rendering API
     void getGradViewportDecimated(int channel, double visibleStart, double visibleEnd, int pixelWidth,
@@ -211,6 +231,9 @@ private:
     // Test/CLI behavior
     bool m_silentMode {false};
 
+    // B0 field strength from [DEFINITIONS] (Tesla); needed for PPM phase terms
+    double m_b0Tesla {0.0};
+
     // Echo-time / excitation overlay cache
     bool m_supportsRfUseMetadata {false};
     bool m_hasEchoTimeDefinition {false};
@@ -246,6 +269,7 @@ private:
         int length {0};
         double phMin {0.0};
         double phMax {0.0};
+        bool isRealLike {false};
     };
     QHash<QString, RFAmpEntry> m_rfAmpCache; // rfA:<magShapeId>:<timeShapeId>#<len>
     QHash<QString, RFPhEntry>  m_rfPhCache;  // rfP:<phaseShapeId>:<timeShapeId>#<len>

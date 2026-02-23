@@ -144,6 +144,9 @@ private:
     QCPGraph* m_graphGx {nullptr};
     QCPGraph* m_graphGy {nullptr};
     QCPGraph* m_graphGz {nullptr};
+
+    // ADC custom phase graph (scatter dots only)
+    QCPGraph* m_graphADCPh {nullptr};
     // Trigger overlay graphs on ADC/labels rect
     QCPGraph* m_graphTrigMarkers {nullptr};
     QCPGraph* m_graphTrigDurations {nullptr};

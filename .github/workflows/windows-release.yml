@@ -6,6 +6,12 @@ on:
       - 'v*'          # v1.0.0 → versioned release
     branches:
       - main          # main → latest release
+      - dev           # dev → build check (artifact only)
+    paths-ignore:
+      - '**.md'
+      - 'doc/**'
+      - 'LICENSE'
+      - '.gitignore'
 
 jobs:
   build:

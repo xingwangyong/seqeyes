@@ -26,6 +26,7 @@ Settings::Settings(QObject* parent)
     , m_trajectoryColormap(TrajectoryColormap::Jet)
     , m_gamma(42.576e6) // Hz/T for hydrogen
     , m_logLevel(LogLevel::Warning) // Default to Warning level
+    , m_showExtensionTooltip(false)
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
 {
     // Place settings in per-user home directory: ~/.seqeyes/settings.json
@@ -419,6 +420,7 @@ void Settings::saveSettings()
     obj["showKnownIssuesDialog"] = m_showKnownIssuesDialog;
     obj["showTeApproximateDialog"] = m_showTeApproximateDialog;
     obj["showTrajectoryApproximateDialog"] = m_showTrajectoryApproximateDialog;
+    obj["showExtensionTooltip"] = m_showExtensionTooltip;
     // Input behavior
     obj["zoomInputMode"] = getZoomInputModeString();
     obj["panWheelEnabled"] = m_panWheelEnabled;
@@ -540,7 +542,9 @@ void Settings::loadSettings()
     m_showKnownIssuesDialog = obj.value("showKnownIssuesDialog").toBool(true);
     // Approximate overlay dialogs (default true)
     m_showTeApproximateDialog = obj.value("showTeApproximateDialog").toBool(true);
+    m_showTeApproximateDialog = obj.value("showTeApproximateDialog").toBool(true);
     m_showTrajectoryApproximateDialog = obj.value("showTrajectoryApproximateDialog").toBool(true);
+    m_showExtensionTooltip = obj.value("showExtensionTooltip").toBool(false);
 
     // Load extension labels (merge onto defaults)
     if (obj.contains("extensionLabels") && obj.value("extensionLabels").isObject())
@@ -580,6 +584,7 @@ void Settings::resetToDefaults()
     m_showKnownIssuesDialog = true;
     m_showTeApproximateDialog = true;
     m_showTrajectoryApproximateDialog = true;
+    m_showExtensionTooltip = false;
     m_panLeftKey = QStringLiteral("A");
     m_panRightKey = QStringLiteral("D");
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
@@ -703,4 +708,18 @@ Settings::TrajectoryColormap Settings::stringToTrajectoryColormap(const QString&
     if (n == "cividis") return TrajectoryColormap::Cividis;
     if (n == "plasma")  return TrajectoryColormap::Plasma;
     return TrajectoryColormap::Jet;
+}
+
+void Settings::setShowExtensionTooltip(bool show)
+{
+    if (m_showExtensionTooltip != show) {
+        m_showExtensionTooltip = show;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+bool Settings::getShowExtensionTooltip() const
+{
+    return m_showExtensionTooltip;
 }
