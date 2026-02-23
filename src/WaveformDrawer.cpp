@@ -236,7 +236,9 @@ void WaveformDrawer::InitSequenceFigure()
         m_zoomManager->loadConfig("zoom_config.json");
         // React to settings changes (thresholds and points)
         connect(&Settings::getInstance(), &Settings::settingsChanged, this, [this]() {
-            // Thresholds/points are read at draw time. Redraw without clearing graphs to avoid flicker.
+            // Recompute Y-axis ranges with the (potentially new) gradient unit conversion,
+            // then redraw. Without this, changing e.g. mT/m → Hz/m would keep old Y-ranges.
+            computeAndLockYAxisRanges();
             DrawRFWaveform();
             DrawADCWaveform();
             DrawGWaveform();
