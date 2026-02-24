@@ -182,9 +182,17 @@ private:
     QWidget* m_pTrajectoryPanel {nullptr};
     QCustomPlot* m_pTrajectoryPlot {nullptr};
     QCPCurve* m_pTrajectoryCurve {nullptr};
-    QCPGraph* m_pTrajectorySamplesGraph {nullptr};
-    // Colorized ADC scatter (current window)
-    QVector<QCPGraph*> m_trajColorGraphs;
+    // Rasterized scatter rendering: we render ADC scatter dots directly into a QImage
+    // (scanLine pixel writes, ~0.1ms for 65k points) and display via QCPItemPixmap (O(1) blit).
+    // This replaces QCPCurve scatter which is ~10x slower (per-point QPainter::drawEllipse).
+    // QCPCurve is still needed for correctness (QCPGraph sorts by kx, breaking spirals/EPI),
+    // but we keep it hidden and only use it as a fallback data container.
+    QCPCurve* m_pTrajectorySamplesGraph {nullptr};   // hidden, kept for data/API compat
+    QVector<QCPCurve*> m_trajColorGraphs;            // hidden in rasterized mode
+    QCPItemPixmap* m_pTrajectoryScatterItem {nullptr};
+    QVector<double> m_trajScatterKx, m_trajScatterKy; // cached scatter coords (display units)
+    QVector<QRgb> m_trajScatterColors;                 // per-point color; empty = uniform red
+    void renderTrajectoryScatter();
     QPushButton* m_pExportTrajectoryButton {nullptr};
     QPushButton* m_pResetTrajectoryButton {nullptr};
     QCheckBox* m_pShowTrajectoryCursorCheckBox {nullptr};

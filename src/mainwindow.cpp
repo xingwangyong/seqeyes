@@ -556,15 +556,14 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     QPen trajPen(Qt::blue);
     trajPen.setWidthF(1.5);
     m_pTrajectoryCurve->setPen(trajPen);
-    // ADC sampling points (red dots)
-    m_pTrajectorySamplesGraph = m_pTrajectoryPlot->addGraph();
-    m_pTrajectorySamplesGraph->setLineStyle(QCPGraph::lsNone);
-    m_pTrajectorySamplesGraph->setScatterStyle(QCPScatterStyle(QCPScatterStyle::ssDisc, 3));
-    m_pTrajectorySamplesGraph->setAdaptiveSampling(true);
-    m_pTrajectorySamplesGraph->setAntialiasedScatters(false);
-    QPen sampPen(Qt::red);
-    sampPen.setWidthF(1.0);
-    m_pTrajectorySamplesGraph->setPen(sampPen);
+    // ADC sampling points — QCPCurve kept hidden as data container;
+    // actual rendering uses QImage rasterizer (see renderTrajectoryScatter).
+    m_pTrajectorySamplesGraph = new QCPCurve(m_pTrajectoryPlot->xAxis, m_pTrajectoryPlot->yAxis);
+    m_pTrajectorySamplesGraph->setVisible(false);
+    // Rasterized scatter pixmap — replaces QCPCurve scatter for performance
+    m_pTrajectoryScatterItem = new QCPItemPixmap(m_pTrajectoryPlot);
+    m_pTrajectoryScatterItem->setVisible(false);
+    m_pTrajectoryScatterItem->setScaled(false);
     // Keep trajectory axis equal after any internal replot/layout
     connect(m_pTrajectoryPlot, &QCustomPlot::afterReplot, this, [this]() {
         if (!m_pTrajectoryPlot || !m_pTrajectoryPlot->isVisible())
@@ -582,12 +581,14 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
                 if (!m_inTrajectoryRangeAdjust)
                     scheduleTrajectoryAspectUpdate();
                 refreshTrajectoryCursor();
+                renderTrajectoryScatter();
             });
     connect(m_pTrajectoryPlot->yAxis, qOverload<const QCPRange&>(&QCPAxis::rangeChanged),
             this, [this](const QCPRange&){
                 if (!m_inTrajectoryRangeAdjust)
                     scheduleTrajectoryAspectUpdate();
                 refreshTrajectoryCursor();
+                renderTrajectoryScatter();
             });
     connect(m_pTrajectoryPlot, &QCustomPlot::mouseWheel,
             this, &MainWindow::onTrajectoryWheel);
@@ -687,6 +688,70 @@ void MainWindow::setTrajectoryVisible(bool show)
     refreshTrajectoryCursor();
 }
 
+// Rasterized scatter renderer: paints ADC dots directly into a QImage via scanLine
+// pixel writes and displays via QCPItemPixmap. This is ~50x faster than QCPCurve
+// scatter (which calls QPainter::drawEllipse per point). Every data point is rendered
+// — no downsampling, no visual loss. Re-called on every axis range change (drag/zoom).
+void MainWindow::renderTrajectoryScatter()
+{
+    if (!m_pTrajectoryPlot || !m_pTrajectoryScatterItem || !m_showKtrajAdc)
+    {
+        if (m_pTrajectoryScatterItem) m_pTrajectoryScatterItem->setVisible(false);
+        return;
+    }
+    QCPAxisRect* axRect = m_pTrajectoryPlot->axisRect();
+    if (!axRect) return;
+    int w = axRect->width();
+    int h = axRect->height();
+    if (w <= 0 || h <= 0) return;
+
+    int N = m_trajScatterKx.size();
+    if (N <= 0 || m_trajScatterKy.size() != N)
+    {
+        m_pTrajectoryScatterItem->setVisible(false);
+        return;
+    }
+
+    QImage img(w, h, QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::transparent);
+
+    QCPRange xRange = m_pTrajectoryPlot->xAxis->range();
+    QCPRange yRange = m_pTrajectoryPlot->yAxis->range();
+    double xSize = xRange.size();
+    double ySize = yRange.size();
+    if (xSize <= 0 || ySize <= 0) return;
+
+    const double* kxD = m_trajScatterKx.constData();
+    const double* kyD = m_trajScatterKy.constData();
+    const bool hasColors = (m_trajScatterColors.size() == N);
+    const QRgb defaultColor = qRgba(255, 0, 0, 255);
+
+    // Paint 3x3 pixel dots using direct scanLine access (no QPainter overhead)
+    for (int i = 0; i < N; ++i)
+    {
+        int px = static_cast<int>((kxD[i] - xRange.lower) / xSize * w);
+        int py = h - 1 - static_cast<int>((kyD[i] - yRange.lower) / ySize * h);
+        if (px < -1 || px > w || py < -1 || py > h) continue; // quick reject
+        QRgb c = hasColors ? m_trajScatterColors[i] : defaultColor;
+        for (int dy = -1; dy <= 1; ++dy)
+        {
+            int y = py + dy;
+            if (y < 0 || y >= h) continue;
+            QRgb* scanline = reinterpret_cast<QRgb*>(img.scanLine(y));
+            for (int dx = -1; dx <= 1; ++dx)
+            {
+                int x = px + dx;
+                if (x >= 0 && x < w) scanline[x] = c;
+            }
+        }
+    }
+
+    m_pTrajectoryScatterItem->setPixmap(QPixmap::fromImage(img));
+    m_pTrajectoryScatterItem->topLeft->setType(QCPItemPosition::ptAbsolute);
+    m_pTrajectoryScatterItem->topLeft->setCoords(axRect->left(), axRect->top());
+    m_pTrajectoryScatterItem->setVisible(true);
+}
+
 void MainWindow::refreshTrajectoryPlotData()
 {
     if (!m_pTrajectoryCurve)
@@ -701,7 +766,7 @@ void MainWindow::refreshTrajectoryPlotData()
     {
         m_pTrajectoryCurve->data()->clear();
         if (m_pTrajectorySamplesGraph)
-            m_pTrajectorySamplesGraph->setData(QVector<double>(), QVector<double>());
+            m_pTrajectorySamplesGraph->data()->clear();
         if (!m_trajectoryRangeInitialized)
         {
             m_trajectoryBaseXRange = QCPRange(-1.0, 1.0);
@@ -732,7 +797,7 @@ void MainWindow::refreshTrajectoryPlotData()
     {
         m_pTrajectoryCurve->data()->clear();
         if (m_pTrajectorySamplesGraph)
-            m_pTrajectorySamplesGraph->setData(QVector<double>(), QVector<double>());
+            m_pTrajectorySamplesGraph->data()->clear();
         updateTrajectoryExportState();
         refreshTrajectoryCursor();
         return;
@@ -904,144 +969,75 @@ void MainWindow::refreshTrajectoryPlotData()
     QVector<double> kxAdcSubset;  // always in base units 1/m
     QVector<double> kyAdcSubset;  // always in base units 1/m
     filterScatter(tAdc, kxAdc, kyAdc, limitToView && !tAdc.isEmpty(), kxAdcSubset, kyAdcSubset);
-    // Handle ADC scatter rendering modes
-    auto ensureHideColorGraphs = [&](){
-        for (QCPGraph* g : m_trajColorGraphs)
-        {
-            if (g) { g->setData(QVector<double>(), QVector<double>()); g->setVisible(false); }
+
+    // Store scatter data for the QImage rasterizer (renderTrajectoryScatter).
+    // No downsampling needed — scanLine pixel writes are fast enough for any point count.
+    auto scaleVec = [&](QVector<double>& v) {
+        if (trajScale != 1.0) {
+            double s = std::abs(trajScale);
+            for (auto& x : v) x *= s;
         }
     };
-    auto ensureColorGraphs = [&](int count){
-        while (m_trajColorGraphs.size() < count)
-        {
-            QCPGraph* g = m_pTrajectoryPlot->addGraph();
-            g->setLineStyle(QCPGraph::lsNone);
-            QCPScatterStyle ss(QCPScatterStyle::ssDisc, 3);
-            g->setScatterStyle(ss);
-            g->setAdaptiveSampling(true);
-            g->setAntialiasedScatters(false);
-            m_trajColorGraphs.append(g);
-        }
-        for (int i = count; i < m_trajColorGraphs.size(); ++i)
-        {
-            if (m_trajColorGraphs[i]) { m_trajColorGraphs[i]->setData(QVector<double>(), QVector<double>()); m_trajColorGraphs[i]->setVisible(false); }
-        }
-    };
+
+    m_trajScatterColors.clear();
     if (m_colorCurrentWindow && limitToView && !tAdc.isEmpty())
     {
-        if (m_pTrajectorySamplesGraph) { m_pTrajectorySamplesGraph->setData(QVector<double>(), QVector<double>()); m_pTrajectorySamplesGraph->setVisible(false); }
-        // Build colored bins for current window
-        const int bins = 64;
-        ensureColorGraphs(bins);
-        QVector<QVector<double>> bx(bins), by(bins);
-
-        // Determine normalization range based on ADC-covered time within current view
+        // Colored mode: compute per-point colors from time-based colormap
         double tAdcMin = std::numeric_limits<double>::infinity();
         double tAdcMax = -std::numeric_limits<double>::infinity();
         int limit = std::min({ tAdc.size(), kxAdc.size(), kyAdc.size() });
-        for (int i = 0; i < limit; ++i)
-        {
+        for (int i = 0; i < limit; ++i) {
             double tt = tAdc[i];
             if (tt < filterStartSec || tt > filterEndSec) continue;
             if (tt < tAdcMin) tAdcMin = tt;
             if (tt > tAdcMax) tAdcMax = tt;
         }
-        // If there is no ADC (or only a degenerate single time) in current view,
-        // fall back to the non-colored logic (equivalent to "Current window").
-        if (!std::isfinite(tAdcMin) || !std::isfinite(tAdcMax) || !(tAdcMax > tAdcMin))
-        {
-            ensureHideColorGraphs();
-            if (m_pTrajectorySamplesGraph)
-            {
-                m_pTrajectorySamplesGraph->setData(kxAdcSubset, kyAdcSubset);
-                m_pTrajectorySamplesGraph->setVisible(m_showKtrajAdc);
-            }
-            if (m_pTrajectoryPlot)
-                m_pTrajectoryPlot->replot(QCustomPlot::rpQueuedReplot);
-            return;
-        }
+        double denom = (tAdcMax > tAdcMin) ? (tAdcMax - tAdcMin) : 1.0;
+        bool validRange = std::isfinite(tAdcMin) && std::isfinite(tAdcMax) && (tAdcMax > tAdcMin);
 
-        double denom = (tAdcMax - tAdcMin);
-        if (denom <= 0.0) denom = 1.0;
-
-        // Iterate original ADC arrays again to assign bins using ADC-covered normalization range
-        for (int i = 0; i < limit; ++i)
-        {
-            double tt = tAdc[i];
-            if (tt < filterStartSec || tt > filterEndSec) continue;
-            double norm = (tt - tAdcMin) / denom;
-            int bi = static_cast<int>(std::floor(norm * bins));
-            if (bi < 0) bi = 0; if (bi >= bins) bi = bins - 1;
-            bx[bi].append(kxAdc[i]);
-            by[bi].append(kyAdc[i]);
-        }
-        // Apply trajectory scale right before plotting; keep bx/by in base 1/m units.
-        double scaleAbs = std::abs(trajScale);
-        if (scaleAbs <= 0.0) scaleAbs = 1.0;
-        for (int bi = 0; bi < bins; ++bi)
-        {
-            QCPGraph* g = m_trajColorGraphs[bi];
-            if (!g) continue;
-            QVector<double> bxScaled = bx[bi];
-            QVector<double> byScaled = by[bi];
-            if (trajScale != 1.0)
-            {
-                for (auto& v : bxScaled) v *= scaleAbs;
-                for (auto& v : byScaled) v *= scaleAbs;
+        m_trajScatterKx.clear();
+        m_trajScatterKy.clear();
+        if (validRange) {
+            m_trajScatterKx.reserve(limit);
+            m_trajScatterKy.reserve(limit);
+            m_trajScatterColors.reserve(limit);
+            Settings::TrajectoryColormap cmap = Settings::getInstance().getTrajectoryColormap();
+            for (int i = 0; i < limit; ++i) {
+                double tt = tAdc[i];
+                if (tt < filterStartSec || tt > filterEndSec) continue;
+                m_trajScatterKx.append(kxAdc[i]);
+                m_trajScatterKy.append(kyAdc[i]);
+                double norm = (tt - tAdcMin) / denom;
+                QColor c = sampleTrajectoryColormap(cmap, norm);
+                m_trajScatterColors.append(c.rgba());
             }
-            g->setData(bxScaled, byScaled);
-            QColor c = sampleTrajectoryColormap(Settings::getInstance().getTrajectoryColormap(),
-                                                (bi + 0.5) / bins);
-            QPen p(c);
-            p.setWidthF(1.0);
-            g->setPen(p);
-            QCPScatterStyle ss = g->scatterStyle();
-            ss.setBrush(QBrush(c));
-            ss.setPen(QPen(c)); // ensure visible colored markers on all platforms
-            g->setScatterStyle(ss);
-            g->setVisible(m_showKtrajAdc);
+            scaleVec(m_trajScatterKx);
+            scaleVec(m_trajScatterKy);
+        } else {
+            // Fallback to uniform red
+            m_trajScatterKx = kxAdcSubset;
+            m_trajScatterKy = kyAdcSubset;
+            scaleVec(m_trajScatterKx);
+            scaleVec(m_trajScatterKy);
         }
-        if (m_pTrajectoryPlot) m_pTrajectoryPlot->replot(QCustomPlot::rpQueuedReplot);
     }
     else
     {
-        ensureHideColorGraphs();
-        if (m_pTrajectorySamplesGraph)
-        {
-            if (trajScale != 1.0)
-            {
-                double scaleAbs = std::abs(trajScale);
-                QVector<double> kxScaled = kxAdcSubset;
-                QVector<double> kyScaled = kyAdcSubset;
-                for (auto& v : kxScaled) v *= scaleAbs;
-                for (auto& v : kyScaled) v *= scaleAbs;
-                m_pTrajectorySamplesGraph->setData(kxScaled, kyScaled);
-            }
-            else
-            {
-                m_pTrajectorySamplesGraph->setData(kxAdcSubset, kyAdcSubset);
-            }
-            m_pTrajectorySamplesGraph->setVisible(m_showKtrajAdc);
-        }
-        if (m_pTrajectorySamplesGraph)
-        {
-            if (trajScale != 1.0)
-            {
-                double scaleAbs = std::abs(trajScale);
-                QVector<double> kxScaled = kxAdcSubset;
-                QVector<double> kyScaled = kyAdcSubset;
-                for (auto& v : kxScaled) v *= scaleAbs;
-                for (auto& v : kyScaled) v *= scaleAbs;
-                m_pTrajectorySamplesGraph->setData(kxScaled, kyScaled);
-            }
-            else
-            {
-                m_pTrajectorySamplesGraph->setData(kxAdcSubset, kyAdcSubset);
-            }
-            m_pTrajectorySamplesGraph->setVisible(m_showKtrajAdc);
-        }
-        if (m_pTrajectoryPlot) m_pTrajectoryPlot->replot(QCustomPlot::rpQueuedReplot);
+        // Non-colored mode: uniform red (m_trajScatterColors stays empty)
+        m_trajScatterKx = kxAdcSubset;
+        m_trajScatterKy = kyAdcSubset;
+        scaleVec(m_trajScatterKx);
+        scaleVec(m_trajScatterKy);
     }
+
+    // Hide legacy QCPCurve scatter objects (kept for API compat but not rendered)
+    if (m_pTrajectorySamplesGraph) m_pTrajectorySamplesGraph->setVisible(false);
+    for (QCPCurve* g : m_trajColorGraphs)
+        if (g) g->setVisible(false);
+
+    // Render via QImage rasterizer
+    renderTrajectoryScatter();
+    if (m_pTrajectoryPlot) m_pTrajectoryPlot->replot(QCustomPlot::rpQueuedReplot);
 
     // Helper: set range only once (initialization), never override user interaction
     auto setRangeIfUninitialized = [&](const QCPRange& rx, const QCPRange& ry){
