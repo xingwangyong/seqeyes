@@ -760,15 +760,21 @@ void PulseqLoader::setBlockInfoContent(EventBlockInfoDialog* dialog, int current
     }
 
     std::array<QString, 3> gradChannels = { "Gx", "Gy", "Gz" };
+    Settings& gradSettings = Settings::getInstance();
+    const QString gradDispUnit = gradSettings.getGradientUnitString();
     for (int channel = 0; channel < 3; ++channel)
     {
         if (pSeqBlock->isTrapGradient(channel) || pSeqBlock->isArbitraryGradient(channel) || pSeqBlock->isExtTrapGradient(channel))
         {
             blockInfo += QString("|-----------------------------------------------------------------------------------------------|\n");
             const GradEvent& grad = pSeqBlock->GetGradEvent(channel);
-            blockInfo += QString("Gradient Event (Channel %1):\nAmplitude: %2 Hz/m\nDelay: %3 us")
+            double dispAmp = grad.amplitude; // internal unit is Hz/m
+            if (gradDispUnit != "Hz/m")
+                dispAmp = gradSettings.convertGradient(dispAmp, "Hz/m", gradDispUnit);
+            blockInfo += QString("Gradient Event (Channel %1):\nAmplitude: %2 %3\nDelay: %4 us")
                 .arg(gradChannels[channel])
-                .arg(grad.amplitude)
+                .arg(dispAmp)
+                .arg(gradDispUnit)
                 .arg(grad.delay);
 
             if (pSeqBlock->isTrapGradient(channel))
