@@ -1,0 +1,30 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [
+  "setuptools>=61",
+  "setuptools_scm[toml]",
+]
+
+[project]
+name = "seqeyes"
+dynamic = ["version"]
+description = "Python wrapper for the SeqEyes Pulseq sequence viewer"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.setuptools_scm]
+write_to = "python/seqeyes/_version.py"
+fallback_version = "0.0.0"
+
+[tool.setuptools.packages.find]
+where = ["python"]
+
+[tool.setuptools.package-data]
+seqeyes = ["bin/*", "py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["python/tests"]

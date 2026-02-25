@@ -1,0 +1,117 @@
+name: Python Publish
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-wheels:
+    name: Build wheel on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            qt_arch: win64_msvc2019_64
+          - os: macos-latest
+            qt_arch: clang_64
+          - os: ubuntu-latest
+            qt_arch: linux_gcc_64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ---- Qt ----
+      - name: Install Qt 6.5.3
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.5.3'
+          arch: ${{ matrix.qt_arch }}
+          cache: true
+
+      # ---- MSVC (Windows only) ----
+      - name: Setup MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # ---- Build & install the seqeyes C++ binary into python/seqeyes/bin/ ----
+      - name: Configure (CMake)
+        run: >
+          cmake -S . -B _cmake_build
+          -DCMAKE_BUILD_TYPE=Release
+          -DSEQEYES_BUILD_TESTS=OFF
+          -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/python"
+
+      - name: Build (CMake)
+        run: cmake --build _cmake_build --config Release
+
+      - name: Install binary into package tree
+        run: cmake --install _cmake_build --config Release
+
+      # ---- Build Python wheel (pure setuptools, binary now present) ----
+      - name: Build wheel
+        run: |
+          pip install build
+          python -m build --wheel --outdir wheelhouse
+
+      # ---- Repair wheel: bundle Qt shared libraries ----
+      - name: Repair wheel (Linux – auditwheel)
+        if: runner.os == 'Linux'
+        run: |
+          pip install auditwheel
+          auditwheel repair wheelhouse/*.whl -w dist/
+
+      - name: Repair wheel (macOS – delocate)
+        if: runner.os == 'macOS'
+        run: |
+          pip install delocate
+          delocate-wheel -w dist/ wheelhouse/*.whl
+
+      - name: Copy wheel (Windows – windeployqt already ran via cmake install)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item wheelhouse\*.whl dist\
+
+      # ---- Upload ----
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: dist/*.whl
+
+  publish:
+    name: Publish to PyPI
+    needs: build-wheels
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/seqeyes/
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist/
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # TODO: finalize by parent repo owner – configure PyPI trusted publisher
+          # or set the PYPI_API_TOKEN secret in repo settings.
+          # password: ${{ secrets.PYPI_API_TOKEN }}
+          skip-existing: true

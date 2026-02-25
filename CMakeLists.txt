@@ -122,10 +122,12 @@ include_directories(${PULSEQ_DIR} ${QCUSTOM_PLOT_DIR})
 # On Windows, build as a GUI application (no separate console window)
 add_executable(${PROJECT_NAME} WIN32 ${SRC_LIST} ${HEADER_LIST} ${UI_LIST} ${EXTERNAL_LIST})
 
-# Enable Qt Test for unit tests
-enable_testing()
-
-add_subdirectory(test)
+# C++ unit tests (disabled when building the Python wheel via scikit-build-core)
+option(SEQEYES_BUILD_TESTS "Build C++ unit tests" ON)
+if(SEQEYES_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(test)
+endif()
 
 # Link Qt6
 target_link_libraries(${PROJECT_NAME} PRIVATE 
@@ -158,3 +160,34 @@ if(MSVC)
 endif()
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Installation rules – used by scikit-build-core to populate the Python wheel.
+# The seqeyes executable is placed in seqeyes/bin/ inside the wheel so that
+# viewer.py can find it without requiring a separate install.
+# ──────────────────────────────────────────────────────────────────────────────
+install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION seqeyes/bin)
+
+# Bundle Qt runtime dependencies so the wheel is self-contained.
+# On Windows we use windeployqt; on other platforms the wheel-repair tools
+# (auditwheel on Linux, delocate on macOS) are invoked in CI.
+if(WIN32)
+    get_target_property(_qmake Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(_qt_bin_dir "${_qmake}" DIRECTORY)
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${_qt_bin_dir}" REQUIRED)
+    install(CODE "
+        message(STATUS \"Running windeployqt to bundle Qt6 runtime...\")
+        execute_process(
+            COMMAND \"${WINDEPLOYQT_EXECUTABLE}\"
+                --no-translations
+                --no-system-d3d-compiler
+                --no-opengl-sw
+                --dir \"\${CMAKE_INSTALL_PREFIX}/seqeyes/bin\"
+                \"\${CMAKE_INSTALL_PREFIX}/seqeyes/bin/seqeyes.exe\"
+            RESULT_VARIABLE _wdqt_result
+        )
+        if(NOT _wdqt_result EQUAL 0)
+            message(WARNING \"windeployqt exited with code \${_wdqt_result}\")
+        endif()
+    ")
+endif()
