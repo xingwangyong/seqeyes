@@ -9,7 +9,14 @@ def detect_test_exe(bin_dir: str | None = None) -> str:
     exe_name = "TimeSliderSyncTest.exe" if os.name == "nt" else "TimeSliderSyncTest"
     if bin_dir:
         # Prefer root bin dir, then common subfolder 'test'
-        for p in [Path(bin_dir)/exe_name, Path(bin_dir)/"test"/exe_name]:
+        bin_path = Path(bin_dir)
+        for p in [bin_path/exe_name, bin_path/"test"/exe_name]:
+            if p.exists():
+                return str(p)
+        # MSVC multi-config generators put them in e.g. out/build/x64-Release/test/Release/
+        for p in [bin_path.parent/"test"/"Release"/exe_name, 
+                  bin_path.parent/"test"/"Debug"/exe_name,
+                  bin_path.parent/"test"/bin_path.name/exe_name]:
             if p.exists():
                 return str(p)
     candidates = [
