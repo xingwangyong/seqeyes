@@ -18,7 +18,7 @@ jobs:
           - os: macos-latest
             qt_arch: clang_64
           - os: ubuntu-latest
-            qt_arch: linux_gcc_64
+            qt_arch: linux_x64
 
     steps:
       - uses: actions/checkout@v4
