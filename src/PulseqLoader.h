@@ -227,6 +227,12 @@ private:
     // Cached extension label values after each block (for Information window)
     QVector<LabelSnapshot> m_labelSnapshots;
     QSet<QString> m_usedExtensions;
+    // Precomputed maximum accumulated counter value across all blocks.
+    // Computed once in buildLabelSnapshotCache; avoids per-frame scanning loops.
+    int m_maxAccumulatedCounter {0};
+public:
+    int getMaxAccumulatedCounter() const { return m_maxAccumulatedCounter; }
+private:
 
     // Test/CLI behavior
     bool m_silentMode {false};

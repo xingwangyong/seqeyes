@@ -1337,6 +1337,8 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
                 for (const auto& e : incs) { maxAbsLabel = std::max(maxAbsLabel, std::abs((double)e.numVal.second)); }
             }
         }
+        // Include precomputed max accumulated counter (e.g. LIN=63 from INC events)
+        maxAbsLabel = std::max(maxAbsLabel, (double)loader->getMaxAccumulatedCounter());
         if (maxAbsLabel <= 0.0) maxAbsLabel = 1.0;
         adcHeight = maxAbsLabel * 1.2;
     }
@@ -1483,7 +1485,13 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
             if (upperNeeded > yr.upper)
             {
                 double pad = std::max(1.0, upperNeeded * 0.05);
-                m_vecRects[0]->axis(QCPAxis::atLeft)->setRange(std::min(yr.lower, 0.0), upperNeeded + pad);
+                QCPRange expanded(std::min(yr.lower, 0.0), upperNeeded + pad);
+                m_vecRects[0]->axis(QCPAxis::atLeft)->setRange(expanded);
+                // Persist expanded range so subsequent locked-mode draws keep it.
+                // computeAndLockYAxisRanges only sees raw SET/INC values (e.g. 1),
+                // but accumulated counters (e.g. LIN=63) need a larger range.
+                if (m_fixedYRanges.size() > 0)
+                    m_fixedYRanges[0] = qMakePair(expanded.lower, expanded.upper);
             }
         }
     }
@@ -1655,6 +1663,8 @@ void WaveformDrawer::computeAndLockYAxisRanges()
             for (const auto& e : incs) maxAbsLabel = std::max(maxAbsLabel, std::abs((double)e.numVal.second));
         }
     }
+    // Include precomputed max accumulated counter (e.g. LIN=63 from INC events)
+    maxAbsLabel = std::max(maxAbsLabel, (double)loader->getMaxAccumulatedCounter());
     if (maxAbsLabel <= 0.0) maxAbsLabel = 1.0;
     double adcHeight = maxAbsLabel * 1.2;
     double adcPad = adcHeight * 0.1;

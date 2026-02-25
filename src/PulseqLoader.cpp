@@ -614,6 +614,7 @@ void PulseqLoader::buildLabelSnapshotCache()
 {
     m_labelSnapshots.clear();
     m_usedExtensions.clear();
+    m_maxAccumulatedCounter = 0;
     const int nBlocks = static_cast<int>(m_vecDecodeSeqBlocks.size());
     if (nBlocks <= 0)
         return;
@@ -682,6 +683,10 @@ void PulseqLoader::buildLabelSnapshotCache()
         snap.counters = counterVal;
         snap.flags = flagVal;
         m_labelSnapshots[i] = snap;
+
+        // Track max accumulated counter value across all blocks (used for ADC Y-range)
+        for (int c : counterVal)
+            m_maxAccumulatedCounter = std::max(m_maxAccumulatedCounter, std::abs(c));
     }
 }
 

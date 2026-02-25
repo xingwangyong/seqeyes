@@ -56,8 +56,23 @@ void ExtensionPlotter::setHostVisible(bool visible)
     m_hostVisible = visible;
     for (auto it = m_graphByName.begin(); it != m_graphByName.end(); ++it)
     {
-        if (it.value())
-            it.value()->setVisible(false);
+        QCPGraph* g = it.value();
+        if (!g) continue;
+        
+        if (!m_hostVisible)
+        {
+            g->setVisible(false);
+        }
+        else
+        {
+            // Restore visibility based on settings, usage, and whether data exists in current viewport
+            const QString& name = it.key();
+            bool enabled = Settings::getInstance().isExtensionLabelEnabled(name);
+            bool used = m_cacheByName.value(name).used;
+            bool hasData = (g->data() && !g->data()->isEmpty());
+            
+            g->setVisible(enabled && used && hasData);
+        }
     }
 }
 
@@ -136,6 +151,7 @@ void ExtensionPlotter::ensureGraphs()
         const QCPScatterStyle::ScatterShape shape = toQcpScatter(vs.marker);
         const double size = (s.isFlag ? 3.0 : 6.0);
         g->setScatterStyle(QCPScatterStyle(shape, size));
+        g->setBrush(QBrush(vs.color));
         g->setAdaptiveSampling(false);
         g->setAntialiased(false);
         g->setVisible(false);
@@ -151,6 +167,8 @@ void ExtensionPlotter::reset()
     m_cacheByName.clear();
     m_lastSeqPtr = nullptr;
     m_lastBlockCount = 0;
+    
+    ensureGraphs();
 }
 
 void ExtensionPlotter::sliceStepSeries(const QVector<double>& tIn,
