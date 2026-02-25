@@ -1,6 +1,8 @@
 # SeqEyes
 Display Pulseq sequence diagram and k-space trajectory, modified from [PulseqViewer](https://github.com/xpjiang/PulseqViewer)
 
+A brief overview of SeqEyes can be found at the  [2026 pulseq virtual meeting](https://github.com/pulseq/ISMRM-Virtual-Meeting--February-24-26-2026/blob/main/slides/day2_Seqeyes_sequence_and_trajectory_viewer_tool.pdf).
+
 ![image](./doc/ui.png)
 
 ## Install
