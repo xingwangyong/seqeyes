@@ -46,6 +46,10 @@ jobs:
         cd build/Release
         windeployqt seqeyes.exe
 
+    # ---- Test ----
+    - name: Run Headless Load Test
+      run: python test/test_load_all.py --bin-dir build/Release
+
     # ---- Prepare package ----
     - name: Prepare package folder
       run: |
