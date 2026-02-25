@@ -33,12 +33,19 @@ jobs:
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
 
+    # ---- sccache ----
+    - name: Setup sccache
+      uses: mozilla-actions/sccache-action@v0.0.4
+
     # ---- Build ----
     - name: Configure (CMake)
-      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
 
     - name: Build
       run: cmake --build build --config Release
+
+    - name: Print sccache stats
+      run: sccache --show-stats
 
     # ---- Deploy Qt ----
     - name: Run windeployqt
