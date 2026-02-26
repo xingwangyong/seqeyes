@@ -55,6 +55,11 @@ jobs:
           echo "QT_DIR=${QT_PREFIX}/lib/cmake/Qt6" >> $GITHUB_ENV
           echo "CMAKE_PREFIX_PATH=${QT_PREFIX}" >> $GITHUB_ENV
 
+      # ---- Clean stale build artifacts (prevents moc version mismatch) ----
+      - name: Clean build directories
+        shell: bash
+        run: rm -rf _cmake_build seqeyes_autogen
+
       # ---- Build & install the seqeyes C++ binary into python/seqeyes/bin/ ----
       - name: Configure (CMake)
         run: >
