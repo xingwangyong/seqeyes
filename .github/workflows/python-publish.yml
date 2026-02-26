@@ -86,7 +86,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           pip install delocate
-          delocate-wheel -w dist/ --lib-path "${QT_ROOT_DIR}/lib" wheelhouse/*.whl
+          delocate-wheel -w dist/ wheelhouse/*.whl
 
       - name: Copy wheel (Windows – windeployqt already ran via cmake install)
         if: runner.os == 'Windows'
