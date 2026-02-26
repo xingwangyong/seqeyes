@@ -119,6 +119,7 @@ public slots:
     void DrawADCWaveform(const double& dStartTime = 0, double dEndTime = -1);
     void DrawGWaveform(const double& dStartTime = 0, double dEndTime = -1);
     void DrawBlockEdges();
+    void DrawTriggerOverlay();
 
 private:
     // Old time-based LOD functions removed - replaced with complexity-based LOD system

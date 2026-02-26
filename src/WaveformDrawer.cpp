@@ -1496,68 +1496,104 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
         }
     }
 
-    // Trigger overlay: draw trigger markers (and duration segments if duration>0) in ADC/labels panel, aligned with SeqPlot.m.
-    if (m_graphTrigMarkers || m_graphTrigDurations)
+    // Trigger overlay is now drawn by DrawTriggerOverlay(), called independently
+    // from ensureRenderedForCurrentViewport() so it works even when ADC data is empty.
+}
+
+void WaveformDrawer::DrawTriggerOverlay()
+{
+    // Draw trigger markers (and duration segments if duration>0) in ADC/labels panel,
+    // aligned with SeqPlot.m.  This function is intentionally independent of ADC data
+    // so that sequences containing only trigger blocks (no ADC) still show markers.
+    if (!m_graphTrigMarkers && !m_graphTrigDurations)
+        return;
+
+    PulseqLoader* loader = m_mainWindow->getPulseqLoader();
+    if (!loader || loader->getDecodedSeqBlocks().empty())
+        return;
+
+    if (m_vecRects.isEmpty() || !m_vecRects[0])
+        return;
+
+    // Determine visible viewport
+    QCPRange viewport = m_vecRects[0]->axis(QCPAxis::atBottom)->range();
+    double visibleStart = viewport.lower;
+    double visibleEnd   = viewport.upper;
+
+    // Clamp viewport to TR bounds if TR-Segmented mode is active
+    TRManager* trm = m_mainWindow->getTRManager();
+    if (trm && m_mainWindow->getPulseqLoader()->hasRepetitionTime() && trm->isTrBasedMode())
     {
-        QVector<double> xMarks, yMarks;
-        QVector<double> xSeg, ySeg;
-        xMarks.reserve(64);
-        yMarks.reserve(64);
-        xSeg.reserve(128);
-        ySeg.reserve(128);
+        int startTr = trm->getTrStartInput()->text().toInt();
+        int endTr   = trm->getTrEndInput()->text().toInt();
+        double trStart = (startTr - 1) * loader->getRepetitionTime_us() * loader->getTFactor();
+        double trEnd   = endTr * loader->getRepetitionTime_us() * loader->getTFactor();
+        visibleStart = std::max(visibleStart, trStart);
+        visibleEnd   = std::min(visibleEnd,   trEnd);
+        if (visibleEnd <= visibleStart) {
+            visibleStart = trStart;
+            visibleEnd   = std::max(trStart + 1e-6, trEnd);
+        }
+    }
 
-        const auto& edges = loader->getBlockEdges();
-        if (edges.size() > 1)
+    QVector<double> xMarks, yMarks;
+    QVector<double> xSeg,   ySeg;
+    xMarks.reserve(64);
+    yMarks.reserve(64);
+    xSeg.reserve(128);
+    ySeg.reserve(128);
+
+    const auto& edges = loader->getBlockEdges();
+    if (edges.size() > 1)
+    {
+        auto itL = std::upper_bound(edges.begin(), edges.end(), visibleStart);
+        int b0   = std::max(0, int(std::distance(edges.begin(), itL)) - 1);
+        auto itU = std::upper_bound(edges.begin(), edges.end(), visibleEnd);
+        int b1   = std::min(int(loader->getDecodedSeqBlocks().size()) - 1,
+                            std::max(b0, int(std::distance(edges.begin(), itU)) - 1));
+
+        for (int b = b0; b <= b1; ++b)
         {
-            auto itL = std::upper_bound(edges.begin(), edges.end(), visibleStart);
-            int b0 = std::max(0, int(std::distance(edges.begin(), itL)) - 1);
-            auto itU = std::upper_bound(edges.begin(), edges.end(), visibleEnd);
-            int b1 = std::min(int(loader->getDecodedSeqBlocks().size()) - 1,
-                              std::max(b0, int(std::distance(edges.begin(), itU)) - 1));
+            SeqBlock* blk = loader->getDecodedSeqBlocks()[b];
+            if (!blk || !blk->isTrigger())
+                continue;
+            const TriggerEvent& trg = blk->GetTriggerEvent();
+            const double t0  = edges[b] + trg.delay    * loader->getTFactor();
+            const double dur  =            trg.duration * loader->getTFactor();
 
-            for (int b = b0; b <= b1; ++b)
+            // Marker at trigger start
+            xMarks.append(t0);
+            yMarks.append(0.0);
+
+            // Duration segment if any
+            if (dur > 0)
             {
-                SeqBlock* blk = loader->getDecodedSeqBlocks()[b];
-                if (!blk || !blk->isTrigger())
-                    continue;
-                const TriggerEvent& trg = blk->GetTriggerEvent();
-                const double t0 = edges[b] + trg.delay * loader->getTFactor();
-                const double dur = trg.duration * loader->getTFactor();
-
-                // Marker at trigger start
-                xMarks.append(t0);
-                yMarks.append(0.0);
-
-                // Duration segment if any
-                if (dur > 0)
+                const double t1 = t0 + dur;
+                if (t1 >= visibleStart && t0 <= visibleEnd)
                 {
-                    const double t1 = t0 + dur;
-                    // Only add if it intersects viewport
-                    if (t1 >= visibleStart && t0 <= visibleEnd)
-                    {
-                        xSeg.append(t0); ySeg.append(0.0);
-                        xSeg.append(t1); ySeg.append(0.0);
-                        xSeg.append(t1); ySeg.append(std::numeric_limits<double>::quiet_NaN()); // break
-                    }
+                    xSeg.append(t0); ySeg.append(0.0);
+                    xSeg.append(t1); ySeg.append(0.0);
+                    xSeg.append(t1); ySeg.append(std::numeric_limits<double>::quiet_NaN()); // break
                 }
             }
         }
+    }
 
-        const bool show = m_curveVisibility.value(0, true);
-        if (m_graphTrigMarkers)
-        {
-            m_graphTrigMarkers->setData(xMarks, yMarks);
-            m_graphTrigMarkers->setVisible(show && !xMarks.isEmpty());
-        }
-        if (m_graphTrigDurations)
-        {
-            // Remove trailing NaN for cleanliness
-            if (!ySeg.isEmpty() && std::isnan(ySeg.last())) { xSeg.removeLast(); ySeg.removeLast(); }
-            m_graphTrigDurations->setData(xSeg, ySeg);
-            m_graphTrigDurations->setVisible(show && !xSeg.isEmpty());
-        }
+    const bool show = m_curveVisibility.value(0, true);
+    if (m_graphTrigMarkers)
+    {
+        m_graphTrigMarkers->setData(xMarks, yMarks);
+        m_graphTrigMarkers->setVisible(show && !xMarks.isEmpty());
+    }
+    if (m_graphTrigDurations)
+    {
+        // Remove trailing NaN for cleanliness
+        if (!ySeg.isEmpty() && std::isnan(ySeg.last())) { xSeg.removeLast(); ySeg.removeLast(); }
+        m_graphTrigDurations->setData(xSeg, ySeg);
+        m_graphTrigDurations->setVisible(show && !xSeg.isEmpty());
     }
 }
+
 
 void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
 {
@@ -1928,6 +1964,7 @@ void WaveformDrawer::ensureRenderedForCurrentViewport()
         DrawRFWaveform();
         DrawADCWaveform();
         DrawGWaveform();
+        DrawTriggerOverlay();
         if (getShowBlockEdges()) DrawBlockEdges();
         m_mainWindow->ui->customPlot->replot();
     } catch (const std::exception& e) {
