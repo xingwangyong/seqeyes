@@ -43,6 +43,18 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      # ---- Install Qt via Homebrew and set env vars (macOS only) ----
+      - name: Install Qt via Homebrew (macOS)
+        if: runner.os == 'macOS'
+        run: brew install qt
+
+      - name: Set Qt environment variables (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          QT_PREFIX=$(brew --prefix qt)
+          echo "QT_DIR=${QT_PREFIX}/lib/cmake/Qt6" >> $GITHUB_ENV
+          echo "CMAKE_PREFIX_PATH=${QT_PREFIX}" >> $GITHUB_ENV
+
       # ---- Build & install the seqeyes C++ binary into python/seqeyes/bin/ ----
       - name: Configure (CMake)
         run: >
