@@ -43,18 +43,6 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
-      # ---- Install Qt via Homebrew and set env vars (macOS only) ----
-      - name: Install Qt via Homebrew (macOS)
-        if: runner.os == 'macOS'
-        run: brew install qt
-
-      - name: Set Qt environment variables (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          QT_PREFIX=$(brew --prefix qt)
-          echo "QT_DIR=${QT_PREFIX}/lib/cmake/Qt6" >> $GITHUB_ENV
-          echo "CMAKE_PREFIX_PATH=${QT_PREFIX}" >> $GITHUB_ENV
-
       # ---- Clean stale build artifacts (prevents moc version mismatch) ----
       - name: Clean build directories
         shell: bash
