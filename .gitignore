@@ -45,3 +45,6 @@ dist/
 .eggs/
 *.egg
 _version.py
+
+# macOS wheel build artifacts (Qt frameworks copied by CI for delocate)
+python/seqeyes/bin/QtFrameworks/

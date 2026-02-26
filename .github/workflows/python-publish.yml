@@ -18,7 +18,7 @@ jobs:
           - os: macos-latest
             qt_arch: clang_64
           - os: ubuntu-latest
-            qt_arch: linux_gcc_64
+            qt_arch: gcc_64
 
     steps:
       - uses: actions/checkout@v4
@@ -38,10 +38,30 @@ jobs:
           arch: ${{ matrix.qt_arch }}
           cache: true
 
+      # ---- Set Qt environment variables (macOS only, for delocate) ----
+      # Derive QT_ROOT_DIR from QML2_IMPORT_PATH since install-qt-action may
+      # not export QT_ROOT_DIR reliably in all cache/version combinations.
+      - name: Set Qt environment for macOS
+        if: runner.os == 'macOS'
+        run: |
+          if [ -n "${QML2_IMPORT_PATH}" ]; then
+            QT_ROOT="${QML2_IMPORT_PATH%/qml}"
+          else
+            QT_ROOT="$(qmake -query QT_INSTALL_PREFIX)"
+          fi
+          echo "QT_ROOT_DIR=${QT_ROOT}" >> $GITHUB_ENV
+          echo "DYLD_LIBRARY_PATH=${QT_ROOT}/lib:${DYLD_LIBRARY_PATH}" >> $GITHUB_ENV
+          echo "QT_PLUGIN_PATH=${QT_ROOT}/plugins:${QT_PLUGIN_PATH}" >> $GITHUB_ENV
+
       # ---- MSVC (Windows only) ----
       - name: Setup MSVC
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+
+      # ---- Clean stale build artifacts (prevents moc version mismatch) ----
+      - name: Clean build directories
+        shell: bash
+        run: rm -rf _cmake_build seqeyes_autogen
 
       # ---- Build & install the seqeyes C++ binary into python/seqeyes/bin/ ----
       - name: Configure (CMake)
@@ -56,6 +76,19 @@ jobs:
 
       - name: Install binary into package tree
         run: cmake --install _cmake_build --config Release
+
+      # ---- Copy Qt frameworks so delocate can bundle them into the wheel ----
+      # The seqeyes binary's RPATH is set to @executable_path/QtFrameworks,
+      # so delocate resolves Qt*.framework dependencies from that subdirectory.
+      - name: Copy Qt frameworks for macOS wheel
+        if: runner.os == 'macOS'
+        run: |
+          QT_FW_DST="${{ github.workspace }}/python/seqeyes/bin/QtFrameworks"
+          mkdir -p "${QT_FW_DST}"
+          for fw in QtCore QtGui QtWidgets QtPrintSupport; do
+            cp -R "${QT_ROOT_DIR}/lib/${fw}.framework" "${QT_FW_DST}/"
+          done
+          echo "DYLD_FRAMEWORK_PATH=${QT_FW_DST}:${DYLD_FRAMEWORK_PATH}" >> $GITHUB_ENV
 
       # ---- Build Python wheel (pure setuptools, binary now present) ----
       - name: Build wheel

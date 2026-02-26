@@ -197,7 +197,7 @@ extern "C" {
 		MD5Transform (ctx->buf, (uint32 *) ctx->in);
 		byteReverse ((unsigned char *) ctx->buf, 4);
 		memcpy (digest, ctx->buf, 16);
-		memset (ctx, 0, sizeof (ctx));      /* In case it's sensitive */
+		memset (ctx, 0, sizeof (*ctx));      /* In case it's sensitive */
 	}
 
 	#ifndef ASM_MD5
@@ -221,7 +221,7 @@ extern "C" {
 	 */
 	void MD5Transform (uint32 buf[4], uint32 const in[16])
 	{
-		register uint32 a, b, c, d;
+		uint32 a, b, c, d;
 
 		a = buf[0];
 		b = buf[1];
@@ -304,3 +304,4 @@ extern "C" {
 
 	#endif
 }
+

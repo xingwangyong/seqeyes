@@ -166,6 +166,15 @@ set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT $
 # The seqeyes executable is placed in seqeyes/bin/ inside the wheel so that
 # viewer.py can find it without requiring a separate install.
 # ──────────────────────────────────────────────────────────────────────────────
+
+# On macOS, set the install RPATH so delocate can resolve Qt frameworks that
+# are bundled alongside the binary under seqeyes/bin/QtFrameworks/.
+if(APPLE)
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        INSTALL_RPATH "@executable_path/QtFrameworks"
+    )
+endif()
+
 install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION seqeyes/bin)
 
 # Bundle Qt runtime dependencies so the wheel is self-contained.
