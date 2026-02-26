@@ -12,6 +12,11 @@ on:
       - 'doc/**'
       - 'LICENSE'
       - '.gitignore'
+  pull_request:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:      
 
 jobs:
   build:
@@ -90,4 +95,5 @@ jobs:
       uses: actions/upload-artifact@v6
       with:
         name: seqeyes-latest-win64       # artifact name always "latest"
+
         path: seqeyes-latest-win64.zip   # path to zip
