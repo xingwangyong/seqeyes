@@ -104,6 +104,8 @@ def main():
     ap.add_argument("--seq-dir", type=Path, default=None, help="Directory containing .seq files to test (non-recursive)")
     ap.add_argument("--out", type=Path, default=Path("perf_results.json"), help="Path to write aggregated results JSON")
     ap.add_argument("--github-benchmark-out", type=Path, default=None, help="Path to write GitHub Benchmark format JSON")
+    ap.add_argument("--repeat", type=int, default=1, help="Number of times to repeat each test (for statistical stability)")
+    ap.add_argument("--warmup", action="store_true", help="Run once before starting measurements to warm up caches")
     ap.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE, help="Baseline JSON (default: test/perf_baseline.json if exists)")
     ap.add_argument("--threshold-ms", type=float, default=None, help="Absolute regression threshold in ms; if omitted, use 10% of baseline")
     args = ap.parse_args()
@@ -142,15 +144,43 @@ def main():
             return hexv, reasons.get(rc, "Unknown NTSTATUS")
         return None, None
 
+    import statistics
+
+    def run_multi(exe: Path, seq_path: Path, count: int, warmup: bool):
+        if warmup:
+            print(f"  [Warmup] {seq_path.name}...")
+            run_one(exe, seq_path)
+        
+        times = []
+        last_rc = 0
+        last_out = ""
+        last_err = ""
+        
+        for i in range(count):
+            label = f"Iteration {i+1}/{count}" if count > 1 else "Running"
+            rc, out, err, zoom_ms = run_one(exe, seq_path)
+            last_rc, last_out, last_err = rc, out, err
+            if rc != 0:
+                return rc, out, err, None, []
+            if zoom_ms is not None:
+                times.append(zoom_ms)
+                if count > 1:
+                    print(f"    {label}: {zoom_ms:.2f} ms")
+            else:
+                return 1, out, err, None, times
+        
+        median_ms = statistics.median(times) if times else None
+        return last_rc, last_out, last_err, median_ms, times
+
     # Single-file mode
     if args.seq is not None:
         seq_abs = args.seq.resolve()
         print("Running single file:", seq_abs)
-        rc, out, err, zoom_ms = run_one(exe, seq_abs)
+        rc, out, err, median_ms, all_times = run_multi(exe, seq_abs, args.repeat, args.warmup)
         sys.stdout.write(out)
         sys.stderr.write(err)
         hexv, reason = decode_exit(rc)
-        entry = {"file": str(seq_abs), "zoom_ms": zoom_ms, "exit": rc}
+        entry = {"file": str(seq_abs), "zoom_ms": median_ms, "exit": rc, "runs": all_times}
         if hexv:
             entry["exit_hex"] = hexv
             entry["exit_reason"] = reason
@@ -159,15 +189,18 @@ def main():
             msg = f"Exit code: {rc}"
             if hexv:
                 msg += f" ({hexv} {reason})"
-            if zoom_ms is not None:
-                msg += f"; measured={zoom_ms:.2f} ms then crash"
+            if median_ms is not None:
+                msg += f"; median={median_ms:.2f} ms then crash"
             print(msg)
             overall_fail = 1
-        elif zoom_ms is None or (zoom_ms != zoom_ms) or (zoom_ms in (float('inf'), float('-inf'))):
+        elif median_ms is None:
             print("[FAIL] Did not find valid ZOOM_MS in output")
             overall_fail = 1
         else:
-            print(f"[OK] Zoom-in time: {zoom_ms:.2f} ms")
+            if args.repeat > 1:
+                print(f"[OK] Median Zoom-in time: {median_ms:.2f} ms (from {len(all_times)} runs)")
+            else:
+                print(f"[OK] Zoom-in time: {median_ms:.2f} ms")
 
     # Directory mode
     if args.seq_dir is not None:
@@ -181,9 +214,10 @@ def main():
         print(f"Found {len(seq_files)} .seq files under {args.seq_dir}")
         for seq_file in seq_files:
             seq_abs = seq_file.resolve()
-            rc, out, err, zoom_ms = run_one(exe, seq_abs)
+            print(f"Testing {seq_abs.name}...")
+            rc, out, err, median_ms, all_times = run_multi(exe, seq_abs, args.repeat, args.warmup)
             hexv, reason = decode_exit(rc)
-            entry = {"file": str(seq_abs), "zoom_ms": zoom_ms, "exit": rc}
+            entry = {"file": str(seq_abs), "zoom_ms": median_ms, "exit": rc, "runs": all_times}
             if hexv:
                 entry["exit_hex"] = hexv
                 entry["exit_reason"] = reason
@@ -192,16 +226,19 @@ def main():
                 line = f"{seq_abs.name}: [FAIL] exit {rc}"
                 if hexv:
                     line += f" ({hexv} {reason})"
-                if zoom_ms is not None:
-                    line += f"; measured={zoom_ms:.2f} ms then crash"
+                if median_ms is not None:
+                    line += f"; median={median_ms:.2f} ms then crash"
                 print(line)
                 overall_fail = 1
                 continue
-            if zoom_ms is None or (zoom_ms != zoom_ms) or (zoom_ms in (float('inf'), float('-inf'))):
+            if median_ms is None:
                 print(f"{seq_abs.name}: [FAIL] invalid or missing ZOOM_MS")
                 overall_fail = 1
             else:
-                print(f"{seq_abs.name}: {zoom_ms:.2f} ms")
+                if args.repeat > 1:
+                    print(f"{seq_abs.name}: median {median_ms:.2f} ms")
+                else:
+                    print(f"{seq_abs.name}: {median_ms:.2f} ms")
 
     # Save results
     try:

@@ -68,7 +68,7 @@ jobs:
     - name: Run Performance Test
       run: |
         # Ensure bin-dir points to build/Release
-        python test/test_perf_zoom.py --bin-dir build/Release --github-benchmark-out test/perf_bench.json
+        python test/test_perf_zoom.py --bin-dir build/Release --github-benchmark-out test/perf_bench.json --repeat 5 --warmup
 
     - name: Store Benchmark Results
       uses: benchmark-action/github-action-benchmark@v1
