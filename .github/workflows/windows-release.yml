@@ -21,6 +21,9 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
     - name: Checkout
@@ -61,6 +64,27 @@ jobs:
     # ---- Test ----
     - name: Run Headless Load Test
       run: python test/test_load_all.py --bin-dir build/Release
+
+    - name: Run Performance Test
+      run: |
+        # Ensure bin-dir points to build/Release
+        python test/test_perf_zoom.py --bin-dir build/Release --github-benchmark-out test/perf_bench.json
+
+    - name: Store Benchmark Results
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: SeqEyes Zoom Performance
+        tool: 'customGeneric'
+        output-file-path: test/perf_bench.json
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        auto-push: true
+        # Performance regression alert
+        alert-threshold: '120%'
+        comment-on-alert: true
+        fail-on-alert: true
+        # Store in gh-pages branch
+        gh-pages-branch: gh-pages
+        benchmark-data-dir-path: dev/benchmarks
 
     # ---- Prepare package ----
     - name: Prepare package folder

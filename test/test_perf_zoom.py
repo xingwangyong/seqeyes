@@ -103,6 +103,7 @@ def main():
     ap.add_argument("--seq", type=Path, default=None, help="Optional .seq file to use")
     ap.add_argument("--seq-dir", type=Path, default=None, help="Directory containing .seq files to test (non-recursive)")
     ap.add_argument("--out", type=Path, default=Path("perf_results.json"), help="Path to write aggregated results JSON")
+    ap.add_argument("--github-benchmark-out", type=Path, default=None, help="Path to write GitHub Benchmark format JSON")
     ap.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE, help="Baseline JSON (default: test/perf_baseline.json if exists)")
     ap.add_argument("--threshold-ms", type=float, default=None, help="Absolute regression threshold in ms; if omitted, use 10% of baseline")
     args = ap.parse_args()
@@ -209,6 +210,25 @@ def main():
         print(f"Saved results to {args.out}")
     except Exception as e:
         print(f"[WARN] Failed to save results: {e}")
+
+    # Save format for github-action-benchmark
+    if args.github_benchmark_out:
+        try:
+            bench_data = []
+            for e in results["entries"]:
+                name = Path(e["file"]).name
+                val = e.get("zoom_ms")
+                if val is not None:
+                    bench_data.append({
+                        "name": f"Zoom Performance: {name}",
+                        "unit": "ms",
+                        "value": val
+                    })
+            args.github_benchmark_out.parent.mkdir(parents=True, exist_ok=True)
+            args.github_benchmark_out.write_text(json.dumps(bench_data, indent=2), encoding="utf-8")
+            print(f"Saved GitHub Benchmark data to {args.github_benchmark_out}")
+        except Exception as e:
+            print(f"[WARN] Failed to save benchmark results: {e}")
 
     # Compare with baseline if provided
     if args.baseline and args.baseline.exists():
