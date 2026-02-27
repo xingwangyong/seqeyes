@@ -5,8 +5,11 @@ on:
     tags:
       - 'v*'          # v1.0.0 → versioned release
     branches:
-      - main          # main → latest release
-      - dev           # dev → build check (artifact only)
+      - main          
+      - dev          
+      - feature/*     
+      - fix/*         
+      - test/*        
     paths-ignore:
       - '**.md'
       - 'doc/**'
