@@ -46,13 +46,19 @@ jobs:
 
     # ---- sccache ----
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.4
+      uses: mozilla-actions/sccache-action@v0.0.9
+      with:
+        version: "v0.10.0"
 
     # ---- Build ----
     - name: Configure (CMake)
-      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+      env:
+        SCCACHE_GHA_ENABLED: "true"
+      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
 
     - name: Build
+      env:
+        SCCACHE_GHA_ENABLED: "true"
       run: cmake --build build --config Release
 
     - name: Print sccache stats
