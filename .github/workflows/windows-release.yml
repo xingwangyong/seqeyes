@@ -74,7 +74,7 @@ jobs:
       uses: benchmark-action/github-action-benchmark@v1
       with:
         name: SeqEyes Zoom Performance
-        tool: 'customGeneric'
+        tool: 'customSmallerIsBetter'
         output-file-path: test/perf_bench.json
         github-token: ${{ secrets.GITHUB_TOKEN }}
         auto-push: true
