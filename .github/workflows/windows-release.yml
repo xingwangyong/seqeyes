@@ -68,17 +68,17 @@ jobs:
     # ---- Deploy Qt ----
     - name: Run windeployqt
       run: |
-        cd build/Release
+        cd build
         windeployqt seqeyes.exe
 
     # ---- Test ----
     - name: Run Headless Load Test
-      run: python test/test_load_all.py --bin-dir build/Release
+      run: python test/test_load_all.py --bin-dir build
 
     - name: Run Performance Test
       run: |
-        # Ensure bin-dir points to build/Release
-        python test/test_perf_zoom.py --bin-dir build/Release --github-benchmark-out test/perf_bench.json --repeat 5 --warmup
+        # Ensure bin-dir points to build
+        python test/test_perf_zoom.py --bin-dir build --github-benchmark-out test/perf_bench.json --repeat 5 --warmup
 
     - name: Store Benchmark Results
       uses: benchmark-action/github-action-benchmark@v1
@@ -100,7 +100,7 @@ jobs:
     - name: Prepare package folder
       run: |
         mkdir package
-        xcopy build\Release package\seqeyes /E /I
+        xcopy build package\seqeyes /E /I
 
     - name: Create ZIP
       shell: pwsh
