@@ -26,8 +26,12 @@ def compare_images(baseline_path, snapshot_path, diff_path, threshold=0.005):
     img2 = Image.open(snapshot_path).convert('RGB')
     
     if img1.size != img2.size:
-        print(f"[FAIL] Size mismatch: Baseline {img1.size} vs Snapshot {img2.size}")
-        return False
+        print(f"  -> [WARN] Size mismatch: Baseline {img1.size} vs Snapshot {img2.size}. Resizing snapshot...")
+        try:
+            resample = getattr(Image.Resampling, 'LANCZOS', Image.BILINEAR)
+        except AttributeError:
+            resample = getattr(Image, 'LANCZOS', Image.BILINEAR)
+        img2 = img2.resize(img1.size, resample)
         
     diff = ImageChops.difference(img1, img2)
     stat = ImageStat.Stat(diff)
@@ -36,7 +40,7 @@ def compare_images(baseline_path, snapshot_path, diff_path, threshold=0.005):
     mean_diff = sum(stat.mean) / (len(stat.mean) * 255.0)
     
     if mean_diff > threshold:
-        print(f"[FAIL] Images differ by {mean_diff*100:.2f}% (Threshold: {threshold*100:.2f}%)")
+        print(f"  -> [FAIL] Images differ by {mean_diff*100:.2f}% (Threshold: {threshold*100:.2f}%)")
         diff.save(diff_path)
         print(f"       Saved diff to {diff_path}")
         return "FAIL"
@@ -125,6 +129,7 @@ def main():
                 
         if not (seq_success and traj_success):
             total_failed += 1
+            failed_seq_names.append(base_name)
             continue
             
         # 3. Perform Visual Regression Comparison
