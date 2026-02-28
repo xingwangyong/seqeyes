@@ -5,8 +5,11 @@ on:
     tags:
       - 'v*'          # v1.0.0 → versioned release
     branches:
-      - main          # main → latest release
-      - dev           # dev → build check (artifact only)
+      - main          
+      - dev          
+      - feature/*     
+      - fix/*         
+      - test/*        
     paths-ignore:
       - '**.md'
       - 'doc/**'
@@ -21,6 +24,9 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
     - name: Checkout
@@ -38,15 +44,22 @@ jobs:
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
 
+
     # ---- sccache ----
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.4
+      uses: mozilla-actions/sccache-action@v0.0.9
+      with:
+        version: "v0.10.0"
 
     # ---- Build ----
     - name: Configure (CMake)
-      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+      env:
+        SCCACHE_GHA_ENABLED: "true"
+      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
 
     - name: Build
+      env:
+        SCCACHE_GHA_ENABLED: "true"
       run: cmake --build build --config Release
 
     - name: Print sccache stats
@@ -55,18 +68,44 @@ jobs:
     # ---- Deploy Qt ----
     - name: Run windeployqt
       run: |
-        cd build/Release
+        cd build
         windeployqt seqeyes.exe
 
     # ---- Test ----
     - name: Run Headless Load Test
-      run: python test/test_load_all.py --bin-dir build/Release
+      run: python test/test_load_all.py --bin-dir build
+
+    - name: Run Performance Test
+      # Skip if this is a PR that doesn't target main/dev (though our workflow triggers only on main/dev PRs)
+      # Or you can just run it to let PR authors see their performance impact in the console.
+      run: |
+        # Ensure bin-dir points to build
+        python test/test_perf_zoom.py --bin-dir build --github-benchmark-out test/perf_bench.json --repeat 5 --warmup
+
+    - name: Store Benchmark Results
+      # Only push benchmark data to gh-pages if we are on main or dev branches,
+      # NOT for pull requests from forks or feature branches.
+      if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: SeqEyes Zoom Performance
+        tool: 'customSmallerIsBetter'
+        output-file-path: test/perf_bench.json
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        auto-push: true
+        # Performance regression alert
+        alert-threshold: '120%'
+        comment-on-alert: true
+        fail-on-alert: true
+        # Store in gh-pages branch
+        gh-pages-branch: gh-pages
+        benchmark-data-dir-path: dev/benchmarks
 
     # ---- Prepare package ----
     - name: Prepare package folder
       run: |
         mkdir package
-        xcopy build\Release package\seqeyes /E /I
+        xcopy build package\seqeyes /E /I
 
     - name: Create ZIP
       shell: pwsh

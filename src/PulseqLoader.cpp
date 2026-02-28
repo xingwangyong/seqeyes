@@ -152,7 +152,7 @@ void PulseqLoader::ClearPulseqCache()
     {
         m_spPulseqSeq->reset();
         // m_spPulseqSeq will be recreated based on file version
-        for (uint16_t ushBlockIndex = 0; ushBlockIndex < m_vecDecodeSeqBlocks.size(); ushBlockIndex++)
+        for (size_t ushBlockIndex = 0; ushBlockIndex < m_vecDecodeSeqBlocks.size(); ushBlockIndex++)
         {
             SAFE_DELETE(m_vecDecodeSeqBlocks[ushBlockIndex]);
         }
