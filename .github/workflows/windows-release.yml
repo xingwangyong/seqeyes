@@ -87,8 +87,7 @@ jobs:
     - name: Run Visual Regression Test
       id: visual_test
       run: |
-        # test_visual_regression.py expects seqeyes.exe in build\Release\
-        python test/test_visual_regression.py
+        python test/test_visual_regression.py --bin-dir build
         
     - name: Upload Visual Diff Artifacts on Failure
       if: failure() && steps.visual_test.outcome == 'failure'
