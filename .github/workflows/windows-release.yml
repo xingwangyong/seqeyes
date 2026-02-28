@@ -95,7 +95,6 @@ jobs:
       with:
         name: visual-regression-diffs
         path: test/snapshots/*_diff.png
-        retention-days: 5
 
     # ---- Test (Other) ----
     - name: Run Headless Load Test
