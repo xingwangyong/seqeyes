@@ -73,7 +73,7 @@ jobs:
 
     # ---- Visual Regression (Google Drive Baselines) ----
     - name: Setup Python Dependencies for Testing
-      run: pip install Pillow gdown
+      run: pip install Pillow cairosvg gdown
 
     - name: Download Baselines from Google Drive
       env:
@@ -94,7 +94,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: visual-regression-diffs
-        path: test/snapshots/*_diff.png
+        path: test/snapshots/**/*_diff.png
 
     # ---- Test (Other) ----
     - name: Run Headless Load Test

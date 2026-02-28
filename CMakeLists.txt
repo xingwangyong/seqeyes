@@ -64,6 +64,7 @@ find_package(Qt6 COMPONENTS
     Gui
     Widgets
     PrintSupport  # For QCustomPlot
+    Svg           # For QSvgGenerator (visual regression test export)
     REQUIRED
 )
 
@@ -134,7 +135,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
-    Qt6::PrintSupport)
+    Qt6::PrintSupport
+    Qt6::Svg)
 
 # Ensure version header is generated before building the app
 add_dependencies(${PROJECT_NAME} gen_version)

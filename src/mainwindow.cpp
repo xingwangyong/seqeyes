@@ -35,6 +35,7 @@
 #include <limits>
 #include <algorithm>
 #include <QPainter>
+#include <QtSvg/QSvgGenerator>
 
 // Lightweight overlay widget for drawing trajectory crosshair without forcing full plot replots
 class TrajectoryCrosshairOverlay : public QWidget
@@ -1966,33 +1967,40 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         QString baseName = QFileInfo(m_loadedSeqFilePath).baseName();
         if (baseName.isEmpty()) baseName = "unnamed";
 
-        // 1. Sequence Diagram Snapshot
+        // 1. Sequence Diagram SVG Export
         // (Time range and mode are already configured by CLI arguments in main.cpp)
-        ui->customPlot->setFixedSize(1000, 600);
         ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
 
-        QString seqPath = dir.absoluteFilePath(baseName + "_seq.png");
-        QPixmap seqPix = ui->customPlot->grab();
-        if (seqPix.save(seqPath)) {
-            qInfo() << "Saved sequence snapshot to" << seqPath;
-        } else {
-            qWarning() << "Failed to save sequence snapshot to" << seqPath;
+        QString seqPath = dir.absoluteFilePath(baseName + "_seq.svg");
+        {
+            QSvgGenerator generator;
+            generator.setFileName(seqPath);
+            generator.setSize(QSize(1000, 600));
+            generator.setViewBox(QRect(0, 0, 1000, 600));
+            generator.setTitle(baseName + " Sequence Diagram");
+            QCPPainter painter;
+            painter.begin(&generator);
+            ui->customPlot->toPainter(&painter, 1000, 600);
+            painter.end();
+            qInfo() << "Saved sequence SVG to" << seqPath;
         }
 
-        // 2. Trajectory Diagram Snapshot
+        // 2. Trajectory Diagram SVG Export
         setTrajectoryVisible(true);
-        // We use a small delay to let the initial rendering and aspect ratio correction kick in
         QTimer::singleShot(300, this, [this, dir, baseName]() {
             if (m_pTrajectoryPlot) {
-                m_pTrajectoryPlot->setFixedSize(1000, 600);
                 m_pTrajectoryPlot->replot(QCustomPlot::rpImmediateRefresh);
-                QString trajPath = dir.absoluteFilePath(baseName + "_traj.png");
-                QPixmap trajPix = m_pTrajectoryPlot->grab();
-                if (trajPix.save(trajPath)) {
-                    qInfo() << "Saved trajectory snapshot to" << trajPath;
-                } else {
-                    qWarning() << "Failed to save trajectory snapshot to" << trajPath;
-                }
+                QString trajPath = dir.absoluteFilePath(baseName + "_traj.svg");
+                QSvgGenerator generator;
+                generator.setFileName(trajPath);
+                generator.setSize(QSize(1000, 600));
+                generator.setViewBox(QRect(0, 0, 1000, 600));
+                generator.setTitle(baseName + " Trajectory Diagram");
+                QCPPainter painter;
+                painter.begin(&generator);
+                m_pTrajectoryPlot->toPainter(&painter, 1000, 600);
+                painter.end();
+                qInfo() << "Saved trajectory SVG to" << trajPath;
             }
             // Done capturing
             QApplication::quit();
