@@ -44,6 +44,7 @@ jobs:
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
 
+
     # ---- sccache ----
     - name: Setup sccache
       uses: mozilla-actions/sccache-action@v0.0.9
@@ -54,7 +55,7 @@ jobs:
     - name: Configure (CMake)
       env:
         SCCACHE_GHA_ENABLED: "true"
-      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
+      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
 
     - name: Build
       env:
