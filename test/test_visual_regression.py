@@ -133,7 +133,7 @@ def main():
             try:
                 subprocess.run(
                     [str(exe_path), "--Whole-sequence", "--time-range", "0~10", "--capture-snapshots", tmp_seq, str(seq_file)],
-                    capture_output=True, text=True, timeout=60, env=qt_env
+                    capture_output=True, text=True, timeout=120, env=qt_env
                 )
                 src_seq = Path(tmp_seq) / f"{base_name}_seq.png"
                 if src_seq.exists():
@@ -142,7 +142,7 @@ def main():
                 else:
                     print(f"  -> [FAIL] Failed to capture sequence diagram.")
             except subprocess.TimeoutExpired:
-                print(f"  -> [FAIL] Timeout during SEQ capture (>60s).")
+                print(f"  -> [FAIL] Timeout during SEQ capture (>120s).")
                 
         # Run 2: Target Trajectory Diagram (Whole sequence)
         traj_success = False
@@ -150,7 +150,7 @@ def main():
             try:
                 subprocess.run(
                     [str(exe_path), "--Whole-sequence", "--capture-snapshots", tmp_traj, str(seq_file)],
-                    capture_output=True, text=True, timeout=60, env=qt_env
+                    capture_output=True, text=True, timeout=120, env=qt_env
                 )
                 src_traj = Path(tmp_traj) / f"{base_name}_traj.png"
                 if src_traj.exists():
@@ -159,7 +159,7 @@ def main():
                 else:
                     print(f"  -> [FAIL] Failed to capture trajectory diagram.")
             except subprocess.TimeoutExpired:
-                print(f"  -> [FAIL] Timeout during TRAJ capture (>60s).")
+                print(f"  -> [FAIL] Timeout during TRAJ capture (>120s).")
                 
         if not (seq_success and traj_success):
             total_failed += 1

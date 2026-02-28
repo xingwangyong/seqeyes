@@ -1955,7 +1955,7 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
 {
     // Ensure the window has a deterministic size and is shown so QCustomPlot layouts correctly
     this->resize(1280, 800);
-    this->showMinimized();
+    this->show();
 
     QTimer::singleShot(200, this, [this, outDir]() {
         QDir dir(outDir);
