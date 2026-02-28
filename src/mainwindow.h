@@ -145,6 +145,7 @@ private slots:
 public:
     void openFileFromCommandLine(const QString& filePath);
     void applyCommandLineOptions(const QCommandLineParser& parser);
+    void captureSnapshotsAndExit(const QString& outDir);
     void setTrajectoryVisible(bool show);
     bool sampleTrajectoryAtInternalTime(double internalTime,
                                         double& kxOut,

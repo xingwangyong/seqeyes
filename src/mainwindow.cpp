@@ -1950,3 +1950,50 @@ void MainWindow::applyCommandLineOptions(const QCommandLineParser& parser)
         }
     }
 }
+
+void MainWindow::captureSnapshotsAndExit(const QString& outDir)
+{
+    // Ensure the window has a deterministic size and is shown so QCustomPlot layouts correctly
+    this->resize(1280, 800);
+    this->showMinimized();
+
+    QTimer::singleShot(200, this, [this, outDir]() {
+        QDir dir(outDir);
+        if (!dir.exists()) {
+            dir.mkpath(".");
+        }
+
+        QString baseName = QFileInfo(m_loadedSeqFilePath).baseName();
+        if (baseName.isEmpty()) baseName = "unnamed";
+
+        // 1. Sequence Diagram Snapshot
+        // (Time range and mode are already configured by CLI arguments in main.cpp)
+        ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+
+        QString seqPath = dir.absoluteFilePath(baseName + "_seq.png");
+        QPixmap seqPix = ui->customPlot->grab();
+        if (seqPix.save(seqPath)) {
+            qInfo() << "Saved sequence snapshot to" << seqPath;
+        } else {
+            qWarning() << "Failed to save sequence snapshot to" << seqPath;
+        }
+
+        // 2. Trajectory Diagram Snapshot
+        setTrajectoryVisible(true);
+        // We use a small delay to let the initial rendering and aspect ratio correction kick in
+        QTimer::singleShot(300, this, [this, dir, baseName]() {
+            if (m_pTrajectoryPlot) {
+                m_pTrajectoryPlot->replot(QCustomPlot::rpImmediateRefresh);
+                QString trajPath = dir.absoluteFilePath(baseName + "_traj.png");
+                QPixmap trajPix = m_pTrajectoryPlot->grab();
+                if (trajPix.save(trajPath)) {
+                    qInfo() << "Saved trajectory snapshot to" << trajPath;
+                } else {
+                    qWarning() << "Failed to save trajectory snapshot to" << trajPath;
+                }
+            }
+            // Done capturing
+            QApplication::quit();
+        });
+    });
+}

@@ -71,7 +71,34 @@ jobs:
         cd build
         windeployqt seqeyes.exe
 
-    # ---- Test ----
+    # ---- Visual Regression (Google Drive Baselines) ----
+    - name: Setup Python Dependencies for Testing
+      run: pip install Pillow gdown
+
+    - name: Download Baselines from Google Drive
+      env:
+        # Hardcoded public folder ID to ensure it works automatically in forks
+        GDRIVE_BASELINE_FOLDER_ID: "1Lhbd8zXQlI6z_o0f6HQPDb1umb_zLush"
+      run: |
+        mkdir test/baselines -ErrorAction SilentlyContinue
+        # We assume the ID is always set since it's hardcoded above
+        gdown --folder "https://drive.google.com/drive/folders/$env:GDRIVE_BASELINE_FOLDER_ID" -O test/baselines/
+
+    - name: Run Visual Regression Test
+      id: visual_test
+      run: |
+        # test_visual_regression.py expects seqeyes.exe in build\Release\
+        python test/test_visual_regression.py
+        
+    - name: Upload Visual Diff Artifacts on Failure
+      if: failure() && steps.visual_test.outcome == 'failure'
+      uses: actions/upload-artifact@v4
+      with:
+        name: visual-regression-diffs
+        path: test/snapshots/*_diff.png
+        retention-days: 5
+
+    # ---- Test (Other) ----
     - name: Run Headless Load Test
       run: python test/test_load_all.py --bin-dir build
 
