@@ -76,11 +76,16 @@ jobs:
       run: python test/test_load_all.py --bin-dir build
 
     - name: Run Performance Test
+      # Skip if this is a PR that doesn't target main/dev (though our workflow triggers only on main/dev PRs)
+      # Or you can just run it to let PR authors see their performance impact in the console.
       run: |
         # Ensure bin-dir points to build
         python test/test_perf_zoom.py --bin-dir build --github-benchmark-out test/perf_bench.json --repeat 5 --warmup
 
     - name: Store Benchmark Results
+      # Only push benchmark data to gh-pages if we are on main or dev branches,
+      # NOT for pull requests from forks or feature branches.
+      if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
       uses: benchmark-action/github-action-benchmark@v1
       with:
         name: SeqEyes Zoom Performance
