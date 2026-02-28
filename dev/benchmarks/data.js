@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772242206197,
+  "lastUpdate": 1772243176239,
   "repoUrl": "https://github.com/xingwangyong/seqeyes",
   "entries": {
     "SeqEyes Zoom Performance": [
@@ -545,6 +545,173 @@ window.BENCHMARK_DATA = {
           {
             "name": "Zoom Performance: writeCineGradientEcho.seq",
             "value": 17,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpi.seq",
+            "value": 5,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpiDiffusionRS.seq",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpiRS.seq",
+            "value": 1,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpiRS_label.seq",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpiRS_label_softdelay.seq",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpiSpinEcho.seq",
+            "value": 1,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpiSpinEchoRS.seq",
+            "value": 18,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeFastRadialGradientEcho.seq",
+            "value": 35,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeFastRadialGradientEcho_rotExt.seq",
+            "value": 34,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeFid.seq",
+            "value": 2,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeGradientEcho.seq",
+            "value": 2,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeGradientEcho_grappa.seq",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeGradientEcho_label.seq",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeGRE_live_demo.seq",
+            "value": 2,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeGRE_live_demo_step0.seq",
+            "value": 2,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeHASTE.seq",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeRadialGradientEcho.seq",
+            "value": 5,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeRadialGradientEcho_rotExt.seq",
+            "value": 4,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeSemiLaser.seq",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeSpiral.seq",
+            "value": 11,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeTrufi.seq",
+            "value": 52,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeTSE.seq",
+            "value": 4,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeUTE.seq",
+            "value": 4,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeUTE_rs.seq",
+            "value": 8,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "xingwangyong@zju.edu.cn",
+            "name": "Xingwang Yong"
+          },
+          "committer": {
+            "email": "xingwangyong@zju.edu.cn",
+            "name": "Xingwang Yong"
+          },
+          "distinct": true,
+          "id": "cb18a65cb4a9a9194fa09b74e0af6ed90730e64f",
+          "message": "chore(ci): do not write performance data on some branches",
+          "timestamp": "2026-02-27T20:42:41-05:00",
+          "tree_id": "53da5110a2ffe67e67669c474469639ee2653628",
+          "url": "https://github.com/xingwangyong/seqeyes/commit/cb18a65cb4a9a9194fa09b74e0af6ed90730e64f"
+        },
+        "date": 1772243174124,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Zoom Performance: epi.seq",
+            "value": 26,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: spi.seq",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: spi_sub.seq",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: write_QA_Sag_Localizer.seq",
+            "value": 8,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeCineGradientEcho.seq",
+            "value": 16,
             "unit": "ms"
           },
           {
