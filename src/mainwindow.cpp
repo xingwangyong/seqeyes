@@ -1968,6 +1968,7 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
 
         // 1. Sequence Diagram Snapshot
         // (Time range and mode are already configured by CLI arguments in main.cpp)
+        ui->customPlot->setFixedSize(1000, 600);
         ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
 
         QString seqPath = dir.absoluteFilePath(baseName + "_seq.png");
@@ -1983,6 +1984,7 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         // We use a small delay to let the initial rendering and aspect ratio correction kick in
         QTimer::singleShot(300, this, [this, dir, baseName]() {
             if (m_pTrajectoryPlot) {
+                m_pTrajectoryPlot->setFixedSize(1000, 600);
                 m_pTrajectoryPlot->replot(QCustomPlot::rpImmediateRefresh);
                 QString trajPath = dir.absoluteFilePath(baseName + "_traj.png");
                 QPixmap trajPix = m_pTrajectoryPlot->grab();

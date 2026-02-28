@@ -30,29 +30,29 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     
     TARGET_SEQS = [
-        "writeEpiRS_label_softdelay",
-        "writeEpiRS_label",
-        "writeEpiSpinEchoRS",
-        "writeFastRadialGradientEcho",
-        "writeFid",
-        "writeGradientEcho_grappa",
+        # "writeEpiRS_label_softdelay",
+        # "writeEpiRS_label",
+        # "writeEpiSpinEchoRS",
+        # "writeFastRadialGradientEcho",
+        # "writeFid",
+        # "writeGradientEcho_grappa",
         "writeGradientEcho_label",
-        "writeGradientEcho",
-        "writeGRE_live_demo",
-        "writeGRE_live_demo_step0",
-        "writeHASTE",
-        "writeRadialGradientEcho_rotExt",
-        "writeRadialGradientEcho",
-        "writeSemiLaser",
-        "writeSpiral",
-        "writeTrufi",
-        "writeTSE",
-        "writeUTE_rs",
-        "writeUTE",
-        "epi",
-        "spi",
-        "spi_sub",
-        "writeCineGradientEcho"
+        # "writeGradientEcho",
+        # "writeGRE_live_demo",
+        # "writeGRE_live_demo_step0",
+        # "writeHASTE",
+        # "writeRadialGradientEcho_rotExt",
+        # "writeRadialGradientEcho",
+        # "writeSemiLaser",
+        # "writeSpiral",
+        # "writeTrufi",
+        # "writeTSE",
+        # "writeUTE_rs",
+        # "writeUTE",
+        # "epi",
+        # "spi",
+        # "spi_sub",
+        # "writeCineGradientEcho"
     ]
     
     seq_files = []
@@ -77,6 +77,11 @@ def main():
     qt_env["QT_SCALE_FACTOR"] = "1"
     qt_env["QT_AUTO_SCREEN_SCALE_FACTOR"] = "0"
     
+    # Inject Qt6 bin path into the environment to prevent STATUS_DLL_NOT_FOUND (0xC0000135)
+    qt_bin_path = r"C:\Qt\6.5.3\msvc2019_64\bin"
+    if os.path.exists(qt_bin_path):
+        qt_env["PATH"] = qt_bin_path + os.pathsep + qt_env.get("PATH", "")
+    
     for seq_file in seq_files:
         base_name = seq_file.stem
         print(f"\n[{base_name}] Processing...")
@@ -85,10 +90,14 @@ def main():
         seq_success = False
         with tempfile.TemporaryDirectory() as tmp_seq:
             try:
-                subprocess.run(
+                res = subprocess.run(
                     [str(exe_path), "--Whole-sequence", "--time-range", "0~10", "--capture-snapshots", tmp_seq, str(seq_file)],
                     capture_output=True, text=True, timeout=60, env=qt_env
                 )
+                if res.returncode != 0:
+                    print(f"  -> [CRASH] seqeyes.exe exited with code {res.returncode}. Stderr: {res.stderr.strip()}")
+                elif res.stderr:
+                    print(f"  -> [STDERR/STDOUT] {res.stderr.strip()}")
                 src_seq = Path(tmp_seq) / f"{base_name}_seq.png"
                 dst_seq = out_dir / f"{base_name}_seq.png"
                 if src_seq.exists():

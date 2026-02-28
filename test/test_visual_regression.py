@@ -118,6 +118,11 @@ def main():
     qt_env["QT_SCALE_FACTOR"] = "1"
     qt_env["QT_AUTO_SCREEN_SCALE_FACTOR"] = "0"
     
+    # Inject Qt6 bin path into the environment to prevent STATUS_DLL_NOT_FOUND (0xC0000135)
+    qt_bin_path = r"C:\Qt\6.5.3\msvc2019_64\bin"
+    if os.path.exists(qt_bin_path):
+        qt_env["PATH"] = qt_bin_path + os.pathsep + qt_env.get("PATH", "")
+    
     total_passed = 0
     total_failed = 0
     total_skipped = 0
