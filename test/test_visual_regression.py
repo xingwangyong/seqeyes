@@ -26,12 +26,8 @@ def compare_images(baseline_path, snapshot_path, diff_path, threshold=0.005):
     img2 = Image.open(snapshot_path).convert('RGB')
     
     if img1.size != img2.size:
-        print(f"  -> [WARN] Size mismatch: Baseline {img1.size} vs Snapshot {img2.size}. Resizing snapshot...")
-        try:
-            resample = getattr(Image.Resampling, 'LANCZOS', Image.BILINEAR)
-        except AttributeError:
-            resample = getattr(Image, 'LANCZOS', Image.BILINEAR)
-        img2 = img2.resize(img1.size, resample)
+        print(f"  -> [FAIL] Size mismatch: Baseline {img1.size} vs Snapshot {img2.size}. (DPI Scaling Issue?)")
+        return "FAIL"
         
     diff = ImageChops.difference(img1, img2)
     stat = ImageStat.Stat(diff)
@@ -77,12 +73,50 @@ def main():
     if not HAS_PILLOW:
         print("\n[WARNING] Pillow is not installed. Will skip image comparison.")
         
-    seq_files = list(seq_dir.glob("*.seq"))
+    TARGET_SEQS = [
+        "writeEpiRS_label_softdelay",
+        "writeEpiRS_label",
+        "writeEpiSpinEchoRS",
+        "writeFastRadialGradientEcho",
+        "writeFid",
+        "writeGradientEcho_grappa",
+        "writeGradientEcho_label",
+        "writeGradientEcho",
+        "writeGRE_live_demo",
+        "writeGRE_live_demo_step0",
+        "writeHASTE",
+        "writeRadialGradientEcho_rotExt",
+        "writeRadialGradientEcho",
+        "writeSemiLaser",
+        "writeSpiral",
+        "writeTrufi",
+        "writeTSE",
+        "writeUTE_rs",
+        "writeUTE",
+        "epi",
+        "spi",
+        "spi_sub",
+        "writeCineGradientEcho"
+    ]
+    
+    seq_files = []
+    for name in TARGET_SEQS:
+        fpath = seq_dir / f"{name}.seq"
+        if fpath.exists():
+            seq_files.append(fpath)
+        else:
+            print(f"[WARNING] Target sequence not found: {fpath}")
+            
     if not seq_files:
-        print(f"[WARNING] No .seq files found in {seq_dir}")
+        print(f"[WARNING] No target .seq files found in {seq_dir}")
         sys.exit(0)
         
-    print(f"Found {len(seq_files)} sequence files. Running visual regression tests...")
+    print(f"Found {len(seq_files)} sequence files from the target list. Running visual regression tests...")
+    
+    qt_env = os.environ.copy()
+    qt_env["QT_ENABLE_HIGHDPI_SCALING"] = "0"
+    qt_env["QT_SCALE_FACTOR"] = "1"
+    qt_env["QT_AUTO_SCREEN_SCALE_FACTOR"] = "0"
     
     total_passed = 0
     total_failed = 0
@@ -99,7 +133,7 @@ def main():
             try:
                 subprocess.run(
                     [str(exe_path), "--Whole-sequence", "--time-range", "0~10", "--capture-snapshots", tmp_seq, str(seq_file)],
-                    capture_output=True, text=True, timeout=60
+                    capture_output=True, text=True, timeout=60, env=qt_env
                 )
                 src_seq = Path(tmp_seq) / f"{base_name}_seq.png"
                 if src_seq.exists():
@@ -116,7 +150,7 @@ def main():
             try:
                 subprocess.run(
                     [str(exe_path), "--Whole-sequence", "--capture-snapshots", tmp_traj, str(seq_file)],
-                    capture_output=True, text=True, timeout=60
+                    capture_output=True, text=True, timeout=60, env=qt_env
                 )
                 src_traj = Path(tmp_traj) / f"{base_name}_traj.png"
                 if src_traj.exists():

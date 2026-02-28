@@ -29,15 +29,53 @@ def main():
         
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    seq_files = list(seq_dir.glob("*.seq"))
+    TARGET_SEQS = [
+        "writeEpiRS_label_softdelay",
+        "writeEpiRS_label",
+        "writeEpiSpinEchoRS",
+        "writeFastRadialGradientEcho",
+        "writeFid",
+        "writeGradientEcho_grappa",
+        "writeGradientEcho_label",
+        "writeGradientEcho",
+        "writeGRE_live_demo",
+        "writeGRE_live_demo_step0",
+        "writeHASTE",
+        "writeRadialGradientEcho_rotExt",
+        "writeRadialGradientEcho",
+        "writeSemiLaser",
+        "writeSpiral",
+        "writeTrufi",
+        "writeTSE",
+        "writeUTE_rs",
+        "writeUTE",
+        "epi",
+        "spi",
+        "spi_sub",
+        "writeCineGradientEcho"
+    ]
+    
+    seq_files = []
+    for name in TARGET_SEQS:
+        fpath = seq_dir / f"{name}.seq"
+        if fpath.exists():
+            seq_files.append(fpath)
+        else:
+            print(f"[WARNING] Target sequence not found: {fpath}")
+            
     if not seq_files:
-        print(f"[WARNING] No .seq files found in {seq_dir}")
+        print(f"[WARNING] No target .seq files found in {seq_dir}")
         sys.exit(0)
         
-    print(f"Found {len(seq_files)} sequence files. Generating baselines...")
+    print(f"Found {len(seq_files)} sequence files from the target list. Generating baselines...")
     
     success_count = 0
     fail_count = 0
+    
+    qt_env = os.environ.copy()
+    qt_env["QT_ENABLE_HIGHDPI_SCALING"] = "0"
+    qt_env["QT_SCALE_FACTOR"] = "1"
+    qt_env["QT_AUTO_SCREEN_SCALE_FACTOR"] = "0"
     
     for seq_file in seq_files:
         base_name = seq_file.stem
@@ -49,7 +87,7 @@ def main():
             try:
                 subprocess.run(
                     [str(exe_path), "--Whole-sequence", "--time-range", "0~10", "--capture-snapshots", tmp_seq, str(seq_file)],
-                    capture_output=True, text=True, timeout=15
+                    capture_output=True, text=True, timeout=60, env=qt_env
                 )
                 src_seq = Path(tmp_seq) / f"{base_name}_seq.png"
                 dst_seq = out_dir / f"{base_name}_seq.png"
@@ -67,7 +105,7 @@ def main():
             try:
                 subprocess.run(
                     [str(exe_path), "--Whole-sequence", "--capture-snapshots", tmp_traj, str(seq_file)],
-                    capture_output=True, text=True, timeout=15
+                    capture_output=True, text=True, timeout=60, env=qt_env
                 )
                 src_traj = Path(tmp_traj) / f"{base_name}_traj.png"
                 dst_traj = out_dir / f"{base_name}_traj.png"
