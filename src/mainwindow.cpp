@@ -37,7 +37,6 @@
 #include <limits>
 #include <algorithm>
 #include <QPainter>
-#include <QCoreApplication>
 
 // Lightweight overlay widget for drawing trajectory crosshair without forcing full plot replots
 class TrajectoryCrosshairOverlay : public QWidget
@@ -1969,74 +1968,6 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         QString baseName = QFileInfo(m_loadedSeqFilePath).baseName();
         if (baseName.isEmpty()) baseName = "unnamed";
 
-        // Load deterministic font only for snapshot capture path.
-        auto resolveSnapshotFont = []() -> QString {
-            const int qrcFontId = QFontDatabase::addApplicationFont(":/fonts/NotoSans-Variable.ttf");
-            if (qrcFontId >= 0) {
-                const QStringList qrcFamilies = QFontDatabase::applicationFontFamilies(qrcFontId);
-                if (!qrcFamilies.isEmpty()) {
-                    qInfo() << "Deterministic snapshot font loaded from qrc family:" << qrcFamilies.first();
-                    return qrcFamilies.first();
-                }
-            }
-
-            const QString rel = "test/assets/fonts/Noto_Sans/NotoSans-VariableFont_wdth,wght.ttf";
-            QStringList candidates;
-            candidates << QDir::current().absoluteFilePath(rel);
-
-            const QDir appDir(QCoreApplication::applicationDirPath());
-            candidates << appDir.absoluteFilePath("../" + rel);
-            candidates << appDir.absoluteFilePath("../../" + rel);
-            candidates << appDir.absoluteFilePath("../../../" + rel);
-
-            for (const QString& p : candidates) {
-                QFileInfo fi(QDir::cleanPath(p));
-                if (!fi.exists()) {
-                    continue;
-                }
-                const int fontId = QFontDatabase::addApplicationFont(fi.absoluteFilePath());
-                if (fontId < 0) {
-                    continue;
-                }
-                const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
-                if (!families.isEmpty()) {
-                    qInfo() << "Deterministic snapshot font loaded from" << fi.absoluteFilePath()
-                            << "family:" << families.first();
-                    return families.first();
-                }
-            }
-            qWarning() << "Deterministic snapshot font not found, fallback to Segoe UI.";
-            return "Segoe UI";
-        };
-
-        const QString snapshotFontFamily = resolveSnapshotFont();
-        const QFont snapshotFont(snapshotFontFamily, 9);
-
-        auto applySnapshotFont = [snapshotFont](QCustomPlot* plot) {
-            if (!plot) {
-                return;
-            }
-            plot->setFont(snapshotFont);
-            const auto axisRects = plot->axisRects();
-            for (QCPAxisRect* rect : axisRects) {
-                if (!rect) continue;
-                const QList<QCPAxis*> axes{
-                    rect->axis(QCPAxis::atLeft),
-                    rect->axis(QCPAxis::atRight),
-                    rect->axis(QCPAxis::atTop),
-                    rect->axis(QCPAxis::atBottom)
-                };
-                for (QCPAxis* axis : axes) {
-                    if (!axis) continue;
-                    axis->setLabelFont(snapshotFont);
-                    axis->setTickLabelFont(snapshotFont);
-                }
-            }
-            if (plot->legend) {
-                plot->legend->setFont(snapshotFont);
-            }
-        };
-
         auto savePlotViaPainter = [](QCustomPlot* plot, const QString& path, int width, int height) -> bool {
             if (!plot) {
                 return false;
@@ -2096,7 +2027,6 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
                 m_interactionHandler->synchronizeXAxes(QCPRange(startMs * tf * 1000.0, endMs * tf * 1000.0));
             }
         }
-        applySnapshotFont(ui->customPlot);
         ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
 
         QString seqPath = dir.absoluteFilePath(baseName + "_seq.png");
@@ -2109,9 +2039,8 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         // 2. Trajectory Diagram Snapshot
         setTrajectoryVisible(true);
         // We use a small delay to let the initial rendering and aspect ratio correction kick in
-        QTimer::singleShot(300, this, [this, dir, baseName, applySnapshotFont, savePlotDeterministic]() {
+        QTimer::singleShot(300, this, [this, dir, baseName, savePlotDeterministic]() {
             if (m_pTrajectoryPlot) {
-                applySnapshotFont(m_pTrajectoryPlot);
                 if (QCPAxisRect* axisRect = m_pTrajectoryPlot->axisRect()) {
                     axisRect->setAutoMargins(QCP::msNone);
                     axisRect->setMargins(QMargins(70, 20, 20, 50));
