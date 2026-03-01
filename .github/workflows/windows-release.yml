@@ -216,12 +216,13 @@ jobs:
     - name: Create Final ZIP Name
       shell: pwsh
       run: |
+        Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath runtime_unpack -Force
         if ("${{ github.ref }}" -match "refs/tags/") {
           $zipName = "seqeyes-${{ github.ref_name }}-win64.zip"
         } else {
           $zipName = "seqeyes-latest-win64.zip"
         }
-        Copy-Item -Path seqeyes-ci-runtime.zip -Destination $zipName -Force
+        Compress-Archive -Path runtime_unpack\seqeyes -DestinationPath $zipName -Force
 
     # ---- Upload to Release (only for tags) ----
     - name: Upload to GitHub Release
