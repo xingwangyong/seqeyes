@@ -1967,10 +1967,12 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         if (baseName.isEmpty()) baseName = "unnamed";
 
         // 1. Sequence Diagram Snapshot
-        // (Time range and mode are already configured by CLI arguments in main.cpp)
         // IMPORTANT: setFixedSize triggers a resize/layout event that can reset the axis range.
         // Re-apply the stored time range immediately before grabbing.
         ui->customPlot->setFixedSize(1000, 600);
+        // Fix margins so font differences across machines don't shift the plot area.
+        ui->customPlot->axisRect()->setAutoMargins(QCP::msNone);
+        ui->customPlot->axisRect()->setMargins(QMargins(80, 20, 20, 40));
         if (m_trManager && m_interactionHandler && m_pulseqLoader) {
             bool ok1 = false, ok2 = false;
             double startMs = m_trManager->getTimeStartInput()->text().toDouble(&ok1);
