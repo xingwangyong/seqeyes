@@ -72,6 +72,14 @@ jobs:
         windeployqt seqeyes.exe
 
     # ---- Visual Regression (Google Drive Baselines) ----
+    # cairosvg requires native libcairo-2.dll which is NOT bundled with the pip package.
+    # MSYS2 is pre-installed on all GitHub Actions Windows runners, so we use it to
+    # install Cairo and expose it to the PATH.
+    - name: Install Cairo native library (required by cairosvg)
+      run: |
+        C:\msys64\usr\bin\pacman --noconfirm -Sy mingw-w64-x86_64-cairo
+        "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
     - name: Setup Python Dependencies for Testing
       run: pip install Pillow cairosvg gdown
 
