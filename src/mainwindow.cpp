@@ -1968,7 +1968,18 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
 
         // 1. Sequence Diagram Snapshot
         // (Time range and mode are already configured by CLI arguments in main.cpp)
+        // IMPORTANT: setFixedSize triggers a resize/layout event that can reset the axis range.
+        // Re-apply the stored time range immediately before grabbing.
         ui->customPlot->setFixedSize(1000, 600);
+        if (m_trManager && m_interactionHandler && m_pulseqLoader) {
+            bool ok1 = false, ok2 = false;
+            double startMs = m_trManager->getTimeStartInput()->text().toDouble(&ok1);
+            double endMs   = m_trManager->getTimeEndInput()->text().toDouble(&ok2);
+            if (ok1 && ok2 && endMs > startMs) {
+                double tf = m_pulseqLoader->getTFactor();
+                m_interactionHandler->synchronizeXAxes(QCPRange(startMs * tf * 1000.0, endMs * tf * 1000.0));
+            }
+        }
         ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
 
         QString seqPath = dir.absoluteFilePath(baseName + "_seq.png");

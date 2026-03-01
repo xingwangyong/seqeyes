@@ -74,29 +74,7 @@ def main():
         print("\n[WARNING] Pillow is not installed. Will skip image comparison.")
         
     TARGET_SEQS = [
-        "writeEpiRS_label_softdelay",
-        "writeEpiRS_label",
-        "writeEpiSpinEchoRS",
-        "writeFastRadialGradientEcho",
-        "writeFid",
-        "writeGradientEcho_grappa",
         "writeGradientEcho_label",
-        "writeGradientEcho",
-        "writeGRE_live_demo",
-        "writeGRE_live_demo_step0",
-        "writeHASTE",
-        "writeRadialGradientEcho_rotExt",
-        "writeRadialGradientEcho",
-        "writeSemiLaser",
-        "writeSpiral",
-        "writeTrufi",
-        "writeTSE",
-        "writeUTE_rs",
-        "writeUTE",
-        "epi",
-        "spi",
-        "spi_sub",
-        "writeCineGradientEcho"
     ]
     
     seq_files = []
