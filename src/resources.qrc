@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/fonts">
+    <file alias="NotoSans-Variable.ttf">../test/assets/fonts/Noto_Sans/NotoSans-VariableFont_wdth,wght.ttf</file>
+  </qresource>
+</RCC>
