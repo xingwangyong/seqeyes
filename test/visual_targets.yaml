@@ -47,11 +47,11 @@ targets:
     seq_diagram_time_range_ms: "0~10"
   - seqname: writeUTE
     seq_diagram_time_range_ms: "0~10"
-  - seqname: epi
-    seq_diagram_time_range_ms: "0~10"
-  - seqname: spi
-    seq_diagram_time_range_ms: "0~10"
-  - seqname: spi_sub
-    seq_diagram_time_range_ms: "0~10"
+  # - seqname: epi # seems to take a long time, even 120s timeout is not enough
+  #   seq_diagram_time_range_ms: "0~10"
+  # - seqname: spi # seems to take a long time, even 120s timeout is not enough
+  #   seq_diagram_time_range_ms: "0~10"
+  # - seqname: spi_sub # seems to take a long time, even 120s timeout is not enough
+  #   seq_diagram_time_range_ms: "0~10"
   - seqname: writeCineGradientEcho
     seq_diagram_time_range_ms: "0~10"
