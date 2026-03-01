@@ -239,3 +239,29 @@ jobs:
       with:
         name: seqeyes-latest-win64
         path: seqeyes-latest-win64.zip
+
+  cleanup_internal_artifacts:
+    if: ${{ always() }}
+    needs: [build_runtime, visual_regression, headless_load, performance, package_release]
+    runs-on: windows-latest
+    permissions:
+      actions: write
+      contents: read
+
+    steps:
+    - name: Delete Internal Runtime Artifact
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        $repo = "${{ github.repository }}"
+        $runId = "${{ github.run_id }}"
+        $ids = gh api "repos/$repo/actions/runs/$runId/artifacts" --paginate --jq '.artifacts[] | select(.name=="seqeyes-ci-runtime") | .id'
+        if (-not $ids) {
+          Write-Host "No internal runtime artifact found to delete."
+          exit 0
+        }
+        foreach ($id in $ids) {
+          gh api -X DELETE "repos/$repo/actions/artifacts/$id"
+          Write-Host "Deleted internal artifact id=$id"
+        }
