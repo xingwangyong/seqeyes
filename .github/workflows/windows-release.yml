@@ -72,16 +72,17 @@ jobs:
         windeployqt seqeyes.exe
 
     # ---- Visual Regression (Google Drive Baselines) ----
+    # Install Python deps FIRST, before MSYS2 step can shadow the hosted Python with its own Python binary.
+    - name: Setup Python Dependencies for Testing
+      run: pip install Pillow cairosvg gdown
+
     # cairosvg requires native libcairo-2.dll which is NOT bundled with the pip package.
-    # MSYS2 is pre-installed on all GitHub Actions Windows runners, so we use it to
-    # install Cairo and expose it to the PATH.
+    # MSYS2 is pre-installed on all GitHub Actions Windows runners.
+    # NOTE: we add MSYS2 to path AFTER pip install, so MSYS2's own Python doesn't shadow the hosted Python.
     - name: Install Cairo native library (required by cairosvg)
       run: |
         C:\msys64\usr\bin\pacman --noconfirm -Sy mingw-w64-x86_64-cairo
         "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-
-    - name: Setup Python Dependencies for Testing
-      run: pip install Pillow cairosvg gdown
 
     - name: Download Baselines from Google Drive
       env:
