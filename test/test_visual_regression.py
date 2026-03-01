@@ -33,6 +33,11 @@ def normalize_svg_text(svg_path: str) -> str:
     # Strip timestamp metadata that SVG generators embed
     content = re.sub(r"<dc:date>.*?</dc:date>", "", content, flags=re.DOTALL)
 
+    # Strip ALL <text> elements — these contain axis tick labels whose positions
+    # are computed from system font metrics, which differ between Windows 11 (local)
+    # and Windows Server (CI). We don't need to test text labels; we test waveform paths.
+    content = re.sub(r"<text\b[^>]*>.*?</text>", "", content, flags=re.DOTALL)
+
     # Round all floating-point literals to 2 dp so tiny FP jitter doesn't matter
     def _round(m: re.Match) -> str:
         return f"{float(m.group(0)):.2f}"
