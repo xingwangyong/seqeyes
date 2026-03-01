@@ -80,6 +80,12 @@ def compare_svgs(baseline_path: str, snapshot_path: str, diff_threshold: float =
         return "PASS"
     else:
         print(f"  -> [FAIL] SVG files differ ({diff_count}/{total_lines} lines, {diff_pct*100:.2f}%).")
+        # Print the first 40 differing lines so we can diagnose platform differences in CI logs
+        import difflib
+        diffs = list(difflib.unified_diff(b_lines, s_lines, fromfile="baseline", tofile="snapshot", lineterm=""))
+        print("       --- First 40 diff lines ---")
+        for line in diffs[:40]:
+            print(f"       {line}")
         return "FAIL"
 
 
