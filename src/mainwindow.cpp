@@ -31,10 +31,12 @@
 #include <QDir>
 #include <QResizeEvent>
 #include <QTimer>
+#include <QImage>
 #include <cmath>
 #include <limits>
 #include <algorithm>
 #include <QPainter>
+#include <QCoreApplication>
 
 // Lightweight overlay widget for drawing trajectory crosshair without forcing full plot replots
 class TrajectoryCrosshairOverlay : public QWidget
@@ -1966,11 +1968,83 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         QString baseName = QFileInfo(m_loadedSeqFilePath).baseName();
         if (baseName.isEmpty()) baseName = "unnamed";
 
+        // Load deterministic font only for snapshot capture path.
+        auto resolveSnapshotFont = []() -> QString {
+            const QString rel = "test/assets/fonts/Noto_Sans/NotoSans-VariableFont_wdth,wght.ttf";
+            QStringList candidates;
+            candidates << QDir::current().absoluteFilePath(rel);
+
+            const QDir appDir(QCoreApplication::applicationDirPath());
+            candidates << appDir.absoluteFilePath("../" + rel);
+            candidates << appDir.absoluteFilePath("../../" + rel);
+            candidates << appDir.absoluteFilePath("../../../" + rel);
+
+            for (const QString& p : candidates) {
+                QFileInfo fi(QDir::cleanPath(p));
+                if (!fi.exists()) {
+                    continue;
+                }
+                const int fontId = QFontDatabase::addApplicationFont(fi.absoluteFilePath());
+                if (fontId < 0) {
+                    continue;
+                }
+                const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+                if (!families.isEmpty()) {
+                    qInfo() << "Deterministic snapshot font loaded from" << fi.absoluteFilePath()
+                            << "family:" << families.first();
+                    return families.first();
+                }
+            }
+            qWarning() << "Deterministic snapshot font not found, fallback to Segoe UI.";
+            return "Segoe UI";
+        };
+
+        const QString snapshotFontFamily = resolveSnapshotFont();
+        const QFont snapshotFont(snapshotFontFamily, 9);
+
+        auto applySnapshotFont = [snapshotFont](QCustomPlot* plot) {
+            if (!plot) {
+                return;
+            }
+            plot->setFont(snapshotFont);
+            const auto axisRects = plot->axisRects();
+            for (QCPAxisRect* rect : axisRects) {
+                if (!rect) continue;
+                const QList<QCPAxis*> axes{
+                    rect->axis(QCPAxis::atLeft),
+                    rect->axis(QCPAxis::atRight),
+                    rect->axis(QCPAxis::atTop),
+                    rect->axis(QCPAxis::atBottom)
+                };
+                for (QCPAxis* axis : axes) {
+                    if (!axis) continue;
+                    axis->setLabelFont(snapshotFont);
+                    axis->setTickLabelFont(snapshotFont);
+                }
+            }
+            if (plot->legend) {
+                plot->legend->setFont(snapshotFont);
+            }
+        };
+
+        auto savePlotViaPainter = [](QCustomPlot* plot, const QString& path, int width, int height) -> bool {
+            if (!plot) {
+                return false;
+            }
+            QImage image(width, height, QImage::Format_ARGB32_Premultiplied);
+            image.setDevicePixelRatio(1.0);
+            image.fill(Qt::white);
+
+            QCPPainter painter(&image);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.setRenderHint(QPainter::TextAntialiasing, true);
+            plot->toPainter(&painter, width, height);
+
+            return image.save(path);
+        };
+
         // 1. Sequence Diagram Snapshot
-        // IMPORTANT: setFixedSize triggers a resize/layout event that can reset the axis range.
-        // Re-apply the stored time range immediately before grabbing.
-        ui->customPlot->setFixedSize(1000, 600);
-        // Fix margins so font differences across machines don't shift the plot area.
+        // Re-apply the stored time range immediately before rendering.
         ui->customPlot->axisRect()->setAutoMargins(QCP::msNone);
         ui->customPlot->axisRect()->setMargins(QMargins(80, 20, 20, 40));
         if (m_trManager && m_interactionHandler && m_pulseqLoader) {
@@ -1982,11 +2056,11 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
                 m_interactionHandler->synchronizeXAxes(QCPRange(startMs * tf * 1000.0, endMs * tf * 1000.0));
             }
         }
+        applySnapshotFont(ui->customPlot);
         ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
 
         QString seqPath = dir.absoluteFilePath(baseName + "_seq.png");
-        QPixmap seqPix = ui->customPlot->grab();
-        if (seqPix.save(seqPath)) {
+        if (savePlotViaPainter(ui->customPlot, seqPath, 1000, 600)) {
             qInfo() << "Saved sequence snapshot to" << seqPath;
         } else {
             qWarning() << "Failed to save sequence snapshot to" << seqPath;
@@ -1995,13 +2069,12 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         // 2. Trajectory Diagram Snapshot
         setTrajectoryVisible(true);
         // We use a small delay to let the initial rendering and aspect ratio correction kick in
-        QTimer::singleShot(300, this, [this, dir, baseName]() {
+        QTimer::singleShot(300, this, [this, dir, baseName, applySnapshotFont, savePlotViaPainter]() {
             if (m_pTrajectoryPlot) {
-                m_pTrajectoryPlot->setFixedSize(1000, 600);
+                applySnapshotFont(m_pTrajectoryPlot);
                 m_pTrajectoryPlot->replot(QCustomPlot::rpImmediateRefresh);
                 QString trajPath = dir.absoluteFilePath(baseName + "_traj.png");
-                QPixmap trajPix = m_pTrajectoryPlot->grab();
-                if (trajPix.save(trajPath)) {
+                if (savePlotViaPainter(m_pTrajectoryPlot, trajPath, 1000, 600)) {
                     qInfo() << "Saved trajectory snapshot to" << trajPath;
                 } else {
                     qWarning() << "Failed to save trajectory snapshot to" << trajPath;

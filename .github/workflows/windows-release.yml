@@ -86,7 +86,7 @@ jobs:
     - name: Run Visual Regression Test
       id: visual_test
       run: |
-        python test/test_visual_regression.py --bin-dir build
+        python test/test_visual_regression.py --bin-dir build --threshold 0.005
 
     - name: Upload Visual Diff Artifacts on Failure
       if: failure() && steps.visual_test.outcome == 'failure'

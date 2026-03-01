@@ -50,6 +50,7 @@ def main():
     parser.add_argument("--bin-dir", type=str, default="build/Release", help="Directory containing seqeyes.exe")
     parser.add_argument("--out-dir", type=str, default="test/snapshots", help="Directory to save the generated snapshots")
     parser.add_argument("--baseline-dir", type=str, default="test/baselines", help="Directory containing golden baselines")
+    parser.add_argument("--threshold", type=float, default=0.005, help="Mean pixel diff threshold (default: 0.005 => 0.5%)")
     
     args = parser.parse_args()
     
@@ -165,7 +166,7 @@ def main():
             diff_path = out_dir / f"{base_name}{suffix}_diff.png"
             
             if snap_path.exists():
-                res = compare_images(str(base_path), str(snap_path), str(diff_path))
+                res = compare_images(str(base_path), str(snap_path), str(diff_path), threshold=args.threshold)
                 if res == "FAIL":
                     has_fail = True
                 elif res == "SKIP":
