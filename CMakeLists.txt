@@ -59,12 +59,11 @@ SET(EXTERNAL_LIST
 source_group("External" FILES ${EXTERNAL_LIST})
 
 # find QT6
-find_package(Qt6 COMPONENTS 
+find_package(Qt6 COMPONENTS
     Core
     Gui
     Widgets
     PrintSupport  # For QCustomPlot
-    Svg           # For QSvgGenerator (visual regression test export)
     REQUIRED
 )
 
@@ -135,8 +134,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
-    Qt6::PrintSupport
-    Qt6::Svg)
+    Qt6::PrintSupport)
 
 # Ensure version header is generated before building the app
 add_dependencies(${PROJECT_NAME} gen_version)

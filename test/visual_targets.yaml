@@ -1,0 +1,57 @@
+# Visual regression targets.
+# Read only the "targets" list.
+# Each target has only two fields:
+#   - seqname
+#   - seq_diagram_time_range_ms
+#
+# Sequence diagram uses seq_diagram_time_range_ms via --time-range.
+# Trajectory diagram is always whole-sequence.
+
+targets:
+  - seqname: writeGradientEcho_label
+    seq_diagram_time_range_ms: "0~10"
+
+  - seqname: writeEpiRS_label_softdelay
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeEpiRS_label
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeEpiSpinEchoRS
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeFastRadialGradientEcho
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeFid
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeGradientEcho_grappa
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeGradientEcho
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeGRE_live_demo
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeGRE_live_demo_step0
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeHASTE
+    seq_diagram_time_range_ms: "0~10"
+  # - seqname: writeRadialGradientEcho_rotExt
+  #   seq_diagram_time_range_ms: "0~10"
+  - seqname: writeRadialGradientEcho
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeSemiLaser
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeSpiral
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeTrufi
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeTSE
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeUTE_rs
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeUTE
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: epi
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: spi
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: spi_sub
+    seq_diagram_time_range_ms: "0~10"
+  - seqname: writeCineGradientEcho
+    seq_diagram_time_range_ms: "0~10"

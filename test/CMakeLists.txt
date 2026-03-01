@@ -10,7 +10,7 @@ set(CMAKE_AUTOUIC ON)
 # Set AutoUic search paths so it can find UI files in src directory
 set(CMAKE_AUTOUIC_SEARCH_PATHS ${PROJECT_SOURCE_DIR}/src)
 
-find_package(Qt6 COMPONENTS Test Core Gui Widgets PrintSupport Svg REQUIRED)
+find_package(Qt6 COMPONENTS Test Core Gui Widgets PrintSupport REQUIRED)
 
 # External libraries from the main project
 set(EXTERNAL_PULSEQ_DIR ${PROJECT_SOURCE_DIR}/src/external/pulseq)
@@ -59,7 +59,6 @@ target_link_libraries(${TEST_NAME} PRIVATE
     Qt6::Gui
     Qt6::Widgets
     Qt6::PrintSupport
-    Qt6::Svg
 )
 
 add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
@@ -104,5 +103,4 @@ target_link_libraries(${PERF_TEST_NAME} PRIVATE
     Qt6::Gui
     Qt6::Widgets
     Qt6::PrintSupport
-    Qt6::Svg
 )

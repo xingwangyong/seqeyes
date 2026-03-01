@@ -5,12 +5,56 @@ import tempfile
 import shutil
 import argparse
 from pathlib import Path
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 try:
     from PIL import Image, ImageChops, ImageStat
     HAS_PILLOW = True
 except ImportError:
     HAS_PILLOW = False
+
+
+def load_visual_targets(config_path: Path):
+    # Shared visual targets format:
+    # - Read only "targets" list.
+    # - Each item has only two fields:
+    #   "seqname" and "seq_diagram_time_range_ms".
+    if yaml is None:
+        print("[ERROR] Missing dependency: pyyaml. Install it in CI before running this script.")
+        sys.exit(2)
+
+    if not config_path.exists():
+        print(f"[ERROR] Targets config not found: {config_path}")
+        sys.exit(1)
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as e:
+        print(f"[ERROR] Failed to parse YAML config {config_path}: {e}")
+        sys.exit(1)
+
+    targets = data.get("targets", [])
+    if not isinstance(targets, list):
+        print(f"[ERROR] Invalid format in {config_path}: 'targets' must be a list")
+        sys.exit(1)
+
+    parsed = []
+    for i, t in enumerate(targets, start=1):
+        if not isinstance(t, dict):
+            print(f"[ERROR] Invalid target at index {i}: expected mapping")
+            sys.exit(1)
+        seqname = str(t.get("seqname", "")).strip()
+        seq_range = str(t.get("seq_diagram_time_range_ms", "")).strip()
+        if not seqname or not seq_range:
+            print(f"[ERROR] Invalid target at index {i}: seqname and seq_diagram_time_range_ms are required")
+            sys.exit(1)
+        parsed.append({"seqname": seqname, "seq_diagram_time_range_ms": seq_range})
+
+    return parsed
 
 def compare_images(baseline_path, snapshot_path, diff_path, threshold=0.005):
     """
@@ -63,6 +107,7 @@ def main():
     parser.add_argument("--out-dir", type=str, default="test/snapshots", help="Directory to save the generated snapshots")
     parser.add_argument("--baseline-dir", type=str, default="test/baselines", help="Directory containing golden baselines")
     parser.add_argument("--threshold", type=float, default=0.005, help="Mean pixel diff threshold (default: 0.005 => 0.5%)")
+    parser.add_argument("--targets-config", type=str, default="test/visual_targets.yaml", help="YAML file containing visual regression targets")
     
     args = parser.parse_args()
     
@@ -70,6 +115,7 @@ def main():
     exe_path = Path(args.bin_dir) / "seqeyes.exe"
     out_dir = Path(args.out_dir)
     baseline_dir = Path(args.baseline_dir)
+    targets_config = Path(args.targets_config)
     
     # Ensure binary exists
     if not exe_path.exists():
@@ -85,24 +131,23 @@ def main():
     
     if not HAS_PILLOW:
         print("\n[WARNING] Pillow is not installed. Will skip image comparison.")
-        
-    TARGET_SEQS = [
-        "writeGradientEcho_label",
-    ]
-    
-    seq_files = []
-    for name in TARGET_SEQS:
+
+    targets = load_visual_targets(targets_config)
+
+    seq_items = []
+    for t in targets:
+        name = t["seqname"]
         fpath = seq_dir / f"{name}.seq"
         if fpath.exists():
-            seq_files.append(fpath)
+            seq_items.append((fpath, t["seq_diagram_time_range_ms"]))
         else:
             print(f"[WARNING] Target sequence not found: {fpath}")
             
-    if not seq_files:
+    if not seq_items:
         print(f"[WARNING] No target .seq files found in {seq_dir}")
         sys.exit(0)
         
-    print(f"Found {len(seq_files)} sequence files from the target list. Running visual regression tests...")
+    print(f"Found {len(seq_items)} sequence files from targets config. Running visual regression tests...")
     
     qt_env = os.environ.copy()
     qt_env["QT_ENABLE_HIGHDPI_SCALING"] = "0"
@@ -119,16 +164,16 @@ def main():
     total_skipped = 0
     failed_seq_names = []
     
-    for seq_file in seq_files:
+    for seq_file, seq_range in seq_items:
         base_name = seq_file.stem
-        print(f"\n--- [{base_name}] ---")
+        print(f"\n--- [{base_name}] --- (seq range: {seq_range})")
         
-        # Run 1: Target Sequence Diagram (0-10ms)
+        # Sequence diagram uses seq_diagram_time_range_ms from YAML.
         seq_success = False
         with tempfile.TemporaryDirectory() as tmp_seq:
             try:
                 subprocess.run(
-                    [str(exe_path), "--Whole-sequence", "--time-range", "0~10", "--capture-snapshots", tmp_seq, str(seq_file)],
+                    [str(exe_path), "--Whole-sequence", "--time-range", seq_range, "--capture-snapshots", tmp_seq, str(seq_file)],
                     capture_output=True, text=True, timeout=120, env=qt_env
                 )
                 src_seq = Path(tmp_seq) / f"{base_name}_seq.png"
@@ -140,7 +185,7 @@ def main():
             except subprocess.TimeoutExpired:
                 print(f"  -> [FAIL] Timeout during SEQ capture (>120s).")
                 
-        # Run 2: Target Trajectory Diagram (Whole sequence)
+        # Trajectory diagram is always captured in whole-sequence mode.
         traj_success = False
         with tempfile.TemporaryDirectory() as tmp_traj:
             try:
@@ -195,7 +240,7 @@ def main():
     print("\n==========================================")
     print("      Visual Regression Summary           ")
     print("==========================================")
-    print(f"Total Sequences: {len(seq_files)}")
+    print(f"Total Sequences: {len(seq_items)}")
     print(f"Passed Checks:   {total_passed}")
     print(f"Skipped Checks:  {total_skipped}")
     print(f"Failed Checks:   {total_failed}")

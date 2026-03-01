@@ -6,17 +6,64 @@ import tempfile
 import shutil
 from pathlib import Path
 
+try:
+    import yaml
+except ImportError:
+    yaml = None
+
+
+def load_visual_targets(config_path: Path):
+    # Shared visual targets format:
+    # - Read only "targets" list.
+    # - Each item has only two fields:
+    #   "seqname" and "seq_diagram_time_range_ms".
+    if yaml is None:
+        print("[ERROR] Missing dependency: pyyaml. Install it in CI before running this script.")
+        sys.exit(2)
+
+    if not config_path.exists():
+        print(f"[ERROR] Targets config not found: {config_path}")
+        sys.exit(1)
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as e:
+        print(f"[ERROR] Failed to parse YAML config {config_path}: {e}")
+        sys.exit(1)
+
+    targets = data.get("targets", [])
+    if not isinstance(targets, list):
+        print(f"[ERROR] Invalid format in {config_path}: 'targets' must be a list")
+        sys.exit(1)
+
+    parsed = []
+    for i, t in enumerate(targets, start=1):
+        if not isinstance(t, dict):
+            print(f"[ERROR] Invalid target at index {i}: expected mapping")
+            sys.exit(1)
+        seqname = str(t.get("seqname", "")).strip()
+        seq_range = str(t.get("seq_diagram_time_range_ms", "")).strip()
+        if not seqname or not seq_range:
+            print(f"[ERROR] Invalid target at index {i}: seqname and seq_diagram_time_range_ms are required")
+            sys.exit(1)
+        parsed.append({"seqname": seqname, "seq_diagram_time_range_ms": seq_range})
+
+    return parsed
+
 def main():
     parser = argparse.ArgumentParser(description="Batch generate visual regression baselines for SeqEyes.")
     parser.add_argument("--seq-dir", type=str, required=True, help="Directory containing .seq files")
     parser.add_argument("--bin-dir", type=str, required=True, help="Directory containing seqeyes.exe")
     parser.add_argument("--out-dir", type=str, required=True, help="Directory to save the generated baselines")
+    parser.add_argument("--targets-config", type=str, default="test/visual_targets.yaml", help="YAML file containing visual regression targets")
     
     args = parser.parse_args()
     
     seq_dir = Path(args.seq_dir)
     bin_dir = Path(args.bin_dir)
     out_dir = Path(args.out_dir)
+    targets_config = Path(args.targets_config)
     
     exe_path = bin_dir / "seqeyes.exe"
     if not exe_path.exists():
@@ -28,46 +75,23 @@ def main():
         sys.exit(1)
         
     out_dir.mkdir(parents=True, exist_ok=True)
-    
-    TARGET_SEQS = [
-        # "writeEpiRS_label_softdelay",
-        # "writeEpiRS_label",
-        # "writeEpiSpinEchoRS",
-        # "writeFastRadialGradientEcho",
-        # "writeFid",
-        # "writeGradientEcho_grappa",
-        "writeGradientEcho_label",
-        # "writeGradientEcho",
-        # "writeGRE_live_demo",
-        # "writeGRE_live_demo_step0",
-        # "writeHASTE",
-        # "writeRadialGradientEcho_rotExt",
-        # "writeRadialGradientEcho",
-        # "writeSemiLaser",
-        # "writeSpiral",
-        # "writeTrufi",
-        # "writeTSE",
-        # "writeUTE_rs",
-        # "writeUTE",
-        # "epi",
-        # "spi",
-        # "spi_sub",
-        # "writeCineGradientEcho"
-    ]
-    
-    seq_files = []
-    for name in TARGET_SEQS:
+
+    targets = load_visual_targets(targets_config)
+
+    seq_items = []
+    for t in targets:
+        name = t["seqname"]
         fpath = seq_dir / f"{name}.seq"
         if fpath.exists():
-            seq_files.append(fpath)
+            seq_items.append((fpath, t["seq_diagram_time_range_ms"]))
         else:
             print(f"[WARNING] Target sequence not found: {fpath}")
             
-    if not seq_files:
+    if not seq_items:
         print(f"[WARNING] No target .seq files found in {seq_dir}")
         sys.exit(0)
         
-    print(f"Found {len(seq_files)} sequence files from the target list. Generating baselines...")
+    print(f"Found {len(seq_items)} sequence files from targets config. Generating baselines...")
     
     success_count = 0
     fail_count = 0
@@ -82,16 +106,16 @@ def main():
     if os.path.exists(qt_bin_path):
         qt_env["PATH"] = qt_bin_path + os.pathsep + qt_env.get("PATH", "")
     
-    for seq_file in seq_files:
+    for seq_file, seq_range in seq_items:
         base_name = seq_file.stem
-        print(f"\n[{base_name}] Processing...")
+        print(f"\n[{base_name}] Processing... (seq range: {seq_range})")
         
-        # 1. Capture Sequence Diagram (0-10ms)
+        # Sequence diagram uses seq_diagram_time_range_ms from YAML.
         seq_success = False
         with tempfile.TemporaryDirectory() as tmp_seq:
             try:
                 res = subprocess.run(
-                    [str(exe_path), "--Whole-sequence", "--time-range", "0~10", "--capture-snapshots", tmp_seq, str(seq_file)],
+                    [str(exe_path), "--Whole-sequence", "--time-range", seq_range, "--capture-snapshots", tmp_seq, str(seq_file)],
                     capture_output=True, text=True, timeout=60, env=qt_env
                 )
                 if res.returncode != 0:
@@ -108,7 +132,7 @@ def main():
             except subprocess.TimeoutExpired:
                 print(f"  -> [FAIL] Sequence capture timeout for {base_name}")
                 
-        # 2. Capture Trajectory Diagram (Whole sequence)
+        # Trajectory diagram is always captured in whole-sequence mode.
         traj_success = False
         with tempfile.TemporaryDirectory() as tmp_traj:
             try:
@@ -133,8 +157,8 @@ def main():
             fail_count += 1
             
     print(f"\n=== Batch Generation Complete ===")
-    print(f"Successful: {success_count}/{len(seq_files)}")
-    print(f"Failed:     {fail_count}/{len(seq_files)}")
+    print(f"Successful: {success_count}/{len(seq_items)}")
+    print(f"Failed:     {fail_count}/{len(seq_items)}")
     print(f"Output saved to: {out_dir.absolute()}")
 
 if __name__ == "__main__":
