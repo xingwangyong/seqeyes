@@ -1,0 +1,43 @@
+name: Capture Visual Baselines (Windows)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  capture:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install Qt 6.5.3 (MSVC 2019)
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.5.3'
+        arch: 'win64_msvc2019_64'
+        cache: true
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Configure (CMake)
+      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    - name: Run windeployqt
+      run: |
+        cd build
+        windeployqt seqeyes.exe
+
+    - name: Generate Baselines in CI
+      run: |
+        python test/generate_baselines_batch.py --seq-dir test/seq_files --bin-dir build --out-dir test/baselines
+
+    - name: Upload Baseline Images
+      uses: actions/upload-artifact@v4
+      with:
+        name: visual-baselines-windows-latest
+        path: test/baselines/*.png
