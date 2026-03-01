@@ -2016,8 +2016,9 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
 
         // 1. Sequence Diagram Snapshot
         // Re-apply the stored time range immediately before rendering.
-        ui->customPlot->axisRect()->setAutoMargins(QCP::msNone);
-        ui->customPlot->axisRect()->setMargins(QMargins(80, 20, 20, 40));
+        // Do not override per-rect margins here: waveform rows are aligned by
+        // WaveformDrawer's margin group. Forcing only axisRect() (first row)
+        // causes row misalignment in captures.
         if (m_trManager && m_interactionHandler && m_pulseqLoader) {
             bool ok1 = false, ok2 = false;
             double startMs = m_trManager->getTimeStartInput()->text().toDouble(&ok1);
@@ -2041,10 +2042,6 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         // We use a small delay to let the initial rendering and aspect ratio correction kick in
         QTimer::singleShot(300, this, [this, dir, baseName, savePlotDeterministic]() {
             if (m_pTrajectoryPlot) {
-                if (QCPAxisRect* axisRect = m_pTrajectoryPlot->axisRect()) {
-                    axisRect->setAutoMargins(QCP::msNone);
-                    axisRect->setMargins(QMargins(70, 20, 20, 50));
-                }
                 m_pTrajectoryPlot->replot(QCustomPlot::rpImmediateRefresh);
                 QString trajPath = dir.absoluteFilePath(baseName + "_traj.png");
                 if (savePlotDeterministic(m_pTrajectoryPlot, trajPath, 1000, 600)) {
