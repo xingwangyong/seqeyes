@@ -84,7 +84,7 @@ jobs:
     - name: Generate Baselines (baseline_only mode)
       if: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_only }}
       run: |
-        python test/generate_baselines_batch.py --seq-dir test/seq_files --bin-dir build --out-dir test/baselines
+        python test/tools/generate_baselines_batch.py --seq-dir test/seq_files --bin-dir build --out-dir test/baselines
 
     - name: Upload Baseline Artifact (baseline_only mode)
       if: ${{ github.event_name == 'workflow_dispatch' && inputs.baseline_only }}
