@@ -72,9 +72,8 @@ jobs:
         windeployqt seqeyes.exe
 
     # ---- Visual Regression (Google Drive Baselines) ----
-    # The SVG comparison uses only Python stdlib (re, xml) — no native libraries needed.
     - name: Setup Python Dependencies for Testing
-      run: pip install gdown
+      run: pip install Pillow gdown
 
     - name: Download Baselines from Google Drive
       env:
@@ -89,12 +88,12 @@ jobs:
       run: |
         python test/test_visual_regression.py --bin-dir build
 
-    - name: Upload Snapshot SVGs on Failure
+    - name: Upload Visual Diff Artifacts on Failure
       if: failure() && steps.visual_test.outcome == 'failure'
       uses: actions/upload-artifact@v4
       with:
-        name: visual-regression-snapshots
-        path: test/snapshots/*.svg
+        name: visual-regression-diffs
+        path: test/snapshots/*_diff.png
 
     # ---- Test (Other) ----
     - name: Run Headless Load Test
