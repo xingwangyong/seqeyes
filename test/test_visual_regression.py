@@ -34,14 +34,26 @@ def compare_images(baseline_path, snapshot_path, diff_path, threshold=0.005):
     
     # Calculate mean difference across all channels as a percentage
     mean_diff = sum(stat.mean) / (len(stat.mean) * 255.0)
+    # Ratio of changed pixels (at least one channel differs)
+    gray = diff.convert("L")
+    hist = gray.histogram()
+    total_pixels = img1.size[0] * img1.size[1]
+    changed_pixels = total_pixels - hist[0]
+    changed_ratio = changed_pixels / total_pixels if total_pixels > 0 else 0.0
     
     if mean_diff > threshold:
-        print(f"  -> [FAIL] Images differ by {mean_diff*100:.2f}% (Threshold: {threshold*100:.2f}%)")
+        print(
+            f"  -> [FAIL] Mean diff {mean_diff*100:.2f}% (Threshold: {threshold*100:.2f}%), "
+            f"changed pixels {changed_ratio*100:.2f}%"
+        )
         diff.save(diff_path)
         print(f"       Saved diff to {diff_path}")
         return "FAIL"
         
-    print(f"  -> [PASS] Images match (Difference: {mean_diff*100:.4f}%)")
+    print(
+        f"  -> [PASS] Images match (Mean diff: {mean_diff*100:.4f}%, "
+        f"changed pixels: {changed_ratio*100:.4f}%)"
+    )
     return "PASS"
 
 def main():

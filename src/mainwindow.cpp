@@ -32,6 +32,7 @@
 #include <QResizeEvent>
 #include <QTimer>
 #include <QImage>
+#include <QVector>
 #include <cmath>
 #include <limits>
 #include <algorithm>
@@ -1970,6 +1971,15 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
 
         // Load deterministic font only for snapshot capture path.
         auto resolveSnapshotFont = []() -> QString {
+            const int qrcFontId = QFontDatabase::addApplicationFont(":/fonts/NotoSans-Variable.ttf");
+            if (qrcFontId >= 0) {
+                const QStringList qrcFamilies = QFontDatabase::applicationFontFamilies(qrcFontId);
+                if (!qrcFamilies.isEmpty()) {
+                    qInfo() << "Deterministic snapshot font loaded from qrc family:" << qrcFamilies.first();
+                    return qrcFamilies.first();
+                }
+            }
+
             const QString rel = "test/assets/fonts/Noto_Sans/NotoSans-VariableFont_wdth,wght.ttf";
             QStringList candidates;
             candidates << QDir::current().absoluteFilePath(rel);
@@ -2043,6 +2053,36 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
             return image.save(path);
         };
 
+        auto savePlotDeterministic = [savePlotViaPainter](QCustomPlot* plot, const QString& path, int width, int height) -> bool {
+            if (!plot) {
+                return false;
+            }
+
+            QVector<QCPLayer::LayerMode> originalModes;
+            originalModes.reserve(plot->layerCount());
+            for (int i = 0; i < plot->layerCount(); ++i) {
+                QCPLayer* layer = plot->layer(i);
+                if (!layer) {
+                    originalModes.push_back(QCPLayer::lmLogical);
+                    continue;
+                }
+                originalModes.push_back(layer->mode());
+                layer->setMode(QCPLayer::lmLogical);
+            }
+
+            plot->replot(QCustomPlot::rpImmediateRefresh);
+            const bool ok = savePlotViaPainter(plot, path, width, height);
+
+            for (int i = 0; i < plot->layerCount() && i < originalModes.size(); ++i) {
+                QCPLayer* layer = plot->layer(i);
+                if (layer) {
+                    layer->setMode(originalModes[i]);
+                }
+            }
+            plot->replot(QCustomPlot::rpImmediateRefresh);
+            return ok;
+        };
+
         // 1. Sequence Diagram Snapshot
         // Re-apply the stored time range immediately before rendering.
         ui->customPlot->axisRect()->setAutoMargins(QCP::msNone);
@@ -2060,7 +2100,7 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
 
         QString seqPath = dir.absoluteFilePath(baseName + "_seq.png");
-        if (savePlotViaPainter(ui->customPlot, seqPath, 1000, 600)) {
+        if (savePlotDeterministic(ui->customPlot, seqPath, 1000, 600)) {
             qInfo() << "Saved sequence snapshot to" << seqPath;
         } else {
             qWarning() << "Failed to save sequence snapshot to" << seqPath;
@@ -2069,12 +2109,16 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         // 2. Trajectory Diagram Snapshot
         setTrajectoryVisible(true);
         // We use a small delay to let the initial rendering and aspect ratio correction kick in
-        QTimer::singleShot(300, this, [this, dir, baseName, applySnapshotFont, savePlotViaPainter]() {
+        QTimer::singleShot(300, this, [this, dir, baseName, applySnapshotFont, savePlotDeterministic]() {
             if (m_pTrajectoryPlot) {
                 applySnapshotFont(m_pTrajectoryPlot);
+                if (QCPAxisRect* axisRect = m_pTrajectoryPlot->axisRect()) {
+                    axisRect->setAutoMargins(QCP::msNone);
+                    axisRect->setMargins(QMargins(70, 20, 20, 50));
+                }
                 m_pTrajectoryPlot->replot(QCustomPlot::rpImmediateRefresh);
                 QString trajPath = dir.absoluteFilePath(baseName + "_traj.png");
-                if (savePlotViaPainter(m_pTrajectoryPlot, trajPath, 1000, 600)) {
+                if (savePlotDeterministic(m_pTrajectoryPlot, trajPath, 1000, 600)) {
                     qInfo() << "Saved trajectory snapshot to" << trajPath;
                 } else {
                     qWarning() << "Failed to save trajectory snapshot to" << trajPath;

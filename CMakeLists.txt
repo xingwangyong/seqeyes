@@ -73,6 +73,11 @@ set(UI_LIST
 )
 source_group("Form" FILES ${UI_LIST})
 
+set(RESOURCE_LIST
+    ${PROJECT_ROOT}/src/resources.qrc
+)
+source_group("Resource" FILES ${RESOURCE_LIST})
+
 set(SRC_LIST
     ${PROJECT_ROOT}/src/main.cpp
     ${PROJECT_ROOT}/src/InteractionHandler.cpp
@@ -121,7 +126,7 @@ set(HEADER_LIST
 include_directories(${PULSEQ_DIR} ${QCUSTOM_PLOT_DIR})
 
 # On Windows, build as a GUI application (no separate console window)
-add_executable(${PROJECT_NAME} WIN32 ${SRC_LIST} ${HEADER_LIST} ${UI_LIST} ${EXTERNAL_LIST})
+add_executable(${PROJECT_NAME} WIN32 ${SRC_LIST} ${HEADER_LIST} ${UI_LIST} ${RESOURCE_LIST} ${EXTERNAL_LIST})
 
 # C++ unit tests (disabled when building the Python wheel via scikit-build-core)
 option(SEQEYES_BUILD_TESTS "Build C++ unit tests" ON)

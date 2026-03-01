@@ -93,7 +93,9 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: visual-regression-diffs
-        path: test/snapshots/*_diff.png
+        path: |
+          test/snapshots/*.png
+          test/baselines/*.png
 
     # ---- Test (Other) ----
     - name: Run Headless Load Test
