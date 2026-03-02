@@ -35,6 +35,8 @@ private slots:
     void onGammaComboChanged(int index);
     void onZoomModeChanged(int index);
     void onPanWheelToggled(bool checked);
+    void onBrowsePnsAscPath();
+    void onRemoveInvalidPnsAscPaths();
 
 private:
     void setupUI();
@@ -69,6 +71,11 @@ private:
     // Extension tab - label visibility controls
     QCheckBox* m_showExtensionTooltipCheck;
     QMap<QString, QCheckBox*> m_extensionLabelCheckboxes;
+
+    // Safety/PNS tab
+    QComboBox* m_pnsAscPathCombo;
+    QPushButton* m_pnsBrowseButton;
+    QPushButton* m_pnsRemoveInvalidButton;
     
     // Buttons
     QPushButton* m_applyButton;
@@ -88,6 +95,8 @@ private:
     Settings::LogLevel m_originalLogLevel;
     Settings::ZoomInputMode m_originalZoomInputMode;
     bool m_originalPanWheelEnabled;
+    QString m_originalPnsAscPath;
+    QStringList m_originalPnsAscHistory;
 };
 
 #endif // SETTINGSDIALOG_H

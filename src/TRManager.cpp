@@ -34,6 +34,7 @@
 #include <limits>
 #include <QIntValidator>
 #include <algorithm>
+#include <QFileInfo>
 
 TRManager::TRManager(MainWindow* mainWindow)
     : QObject(mainWindow),
@@ -46,7 +47,7 @@ TRManager::TRManager(MainWindow* mainWindow)
     m_pTrLabel(nullptr), m_pIntraTrSlider(nullptr), m_pIntraTrLabel(nullptr), m_bTrRangeMode(false),
     m_dTimeWindowPosition(0.0), m_dTimeWindowSize(0.0), m_bUserSetTimeWindow(false),
     m_pUpdateTimer(nullptr), m_bPendingUpdate(false),
-    m_pShowBlockEdgesCheckBox(nullptr), m_pShowTeCheckBox(nullptr)
+    m_pShowBlockEdgesCheckBox(nullptr), m_pShowTeCheckBox(nullptr), m_pShowPnsCheckBox(nullptr)
 {
 }
 
@@ -280,6 +281,8 @@ void TRManager::createWidgets()
     m_pShowGyCheckBox->setChecked(true);
     m_pShowGzCheckBox = new QCheckBox("GZ", m_mainWindow);
     m_pShowGzCheckBox->setChecked(true);
+    m_pShowPnsCheckBox = new QCheckBox("PNS", m_mainWindow);
+    m_pShowPnsCheckBox->setChecked(true);
 
     // Debounce Timer
     m_pUpdateTimer = new QTimer(this);
@@ -393,6 +396,7 @@ void TRManager::setupLayouts(QVBoxLayout* mainLayout)
     curveVisibilityLayout->addWidget(m_pShowGxCheckBox);
     curveVisibilityLayout->addWidget(m_pShowGyCheckBox);
     curveVisibilityLayout->addWidget(m_pShowGzCheckBox);
+    curveVisibilityLayout->addWidget(m_pShowPnsCheckBox);
     curveVisibilityLayout->addSpacing(12);
     curveVisibilityLayout->addWidget(m_pShowBlockEdgesCheckBox);
     // Remove toolbar-level Undersample (menu contains the single source of truth)
@@ -438,6 +442,7 @@ void TRManager::connectSignals()
     connect(m_pShowGxCheckBox, &QCheckBox::toggled, this, &TRManager::onShowGxToggled);
     connect(m_pShowGyCheckBox, &QCheckBox::toggled, this, &TRManager::onShowGyToggled);
     connect(m_pShowGzCheckBox, &QCheckBox::toggled, this, &TRManager::onShowGzToggled);
+    connect(m_pShowPnsCheckBox, &QCheckBox::toggled, this, &TRManager::onShowPnsToggled);
     connect(m_pShowTeCheckBox, &QCheckBox::toggled, this, &TRManager::onShowTeToggled);
     connect(m_pShowKxKyZeroCheckBox, &QCheckBox::toggled, this, &TRManager::onShowKxKyZeroToggled);
     connect(m_pShowTrajectoryCheckBox, &QCheckBox::toggled, this, &TRManager::onShowTrajectoryToggled);
@@ -530,6 +535,16 @@ void TRManager::setShowGz(bool visible)
 {
     if (m_pShowGzCheckBox) m_pShowGzCheckBox->setChecked(visible);
     onShowGzToggled(visible);
+}
+void TRManager::setShowPns(bool visible)
+{
+    if (m_pShowPnsCheckBox) m_pShowPnsCheckBox->setChecked(visible);
+    onShowPnsToggled(visible);
+}
+
+bool TRManager::isShowPnsChecked() const
+{
+    return m_pShowPnsCheckBox && m_pShowPnsCheckBox->isChecked();
 }
 
 void TRManager::refreshShowTeOverlay()
@@ -1759,6 +1774,54 @@ void TRManager::onShowGzToggled(bool checked)
     {
         drawer->setShowCurve(5, checked); // GZ is at index 5
         drawer->updateCurveVisibility();
+    }
+}
+
+void TRManager::onShowPnsToggled(bool checked)
+{
+    if (checked)
+    {
+        const QString ascPath = Settings::getInstance().getPnsAscPath().trimmed();
+        if (ascPath.isEmpty() || !QFileInfo::exists(ascPath))
+        {
+            QMessageBox::warning(
+                m_mainWindow,
+                "Show PNS unavailable",
+                "PNS requires a valid ASC profile.\n"
+                "Open Settings > Safety and select a valid .asc file.");
+            if (m_pShowPnsCheckBox)
+            {
+                QSignalBlocker blocker(m_pShowPnsCheckBox);
+                m_pShowPnsCheckBox->setChecked(false);
+            }
+            checked = false;
+        }
+        else
+        {
+            PulseqLoader* loader = m_mainWindow ? m_mainWindow->getPulseqLoader() : nullptr;
+            const QString status = loader ? loader->getPnsStatusMessage() : QString();
+            if (!status.isEmpty() && status.contains("ASC", Qt::CaseInsensitive))
+            {
+                QMessageBox::warning(m_mainWindow, "Show PNS unavailable", status);
+                if (m_pShowPnsCheckBox)
+                {
+                    QSignalBlocker blocker(m_pShowPnsCheckBox);
+                    m_pShowPnsCheckBox->setChecked(false);
+                }
+                checked = false;
+            }
+        }
+    }
+
+    WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer();
+    if (drawer)
+    {
+        drawer->setShowCurve(6, checked); // PNS is at index 6
+        drawer->updateCurveVisibility();
+    }
+    if (m_mainWindow)
+    {
+        m_mainWindow->updatePnsStatusIndicator();
     }
 }
 

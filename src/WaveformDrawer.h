@@ -129,7 +129,7 @@ private:
 
     // Member variables moved from MainWindow
     // Plot rects and items
-    QVector<QCPAxisRect*> m_vecRects; // 0: ADC label, 1: RF Mag, 2: RF ADC phase, 3: Gx, 4: Gy, 5: Gz
+    QVector<QCPAxisRect*> m_vecRects; // 0: ADC label, 1: RF Mag, 2: RF ADC phase, 3: Gx, 4: Gy, 5: Gz, 6: PNS
     QVector<QCPItemTracer*> m_vecTracers;
     QVector<QCPItemStraightLine*> m_vecVerticalLine;
     QCPAxisRect* m_pADCLabelsRect;
@@ -138,6 +138,7 @@ private:
     QCPAxisRect* m_pGxRect;
     QCPAxisRect* m_pGyRect;
     QCPAxisRect* m_pGzRect;
+    QCPAxisRect* m_pPnsRect;
     // Persistent graphs to avoid flicker on redraws
     QCPGraph* m_graphADC {nullptr};
     QCPGraph* m_graphRFMag {nullptr};
@@ -145,6 +146,10 @@ private:
     QCPGraph* m_graphGx {nullptr};
     QCPGraph* m_graphGy {nullptr};
     QCPGraph* m_graphGz {nullptr};
+    QCPGraph* m_graphPnsX {nullptr};
+    QCPGraph* m_graphPnsY {nullptr};
+    QCPGraph* m_graphPnsZ {nullptr};
+    QCPGraph* m_graphPnsNorm {nullptr};
 
     // ADC custom phase graph (scatter dots only)
     QCPGraph* m_graphADCPh {nullptr};
@@ -162,7 +167,7 @@ private:
     // Plotting state
     QVector<QColor> colors;
     bool bShowBlocksEdges;
-    QVector<bool> m_curveVisibility; // Track visibility of each curve (0: ADC, 1: RF Mag, 2: RF Phase, 3: GX, 4: GY, 5: GZ)
+    QVector<bool> m_curveVisibility; // Track visibility of each curve (0: ADC, 1: RF Mag, 2: RF Phase, 3: GX, 4: GY, 5: GZ, 6: PNS)
     bool m_autoExpandMode; // Control behavior: true = auto expand remaining curves, false = just hide curves
 
     // Performance optimization data
