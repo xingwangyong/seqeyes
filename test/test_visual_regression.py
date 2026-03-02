@@ -56,7 +56,13 @@ def load_visual_targets(config_path: Path):
 
     return parsed
 
-def compare_images(baseline_path, snapshot_path, diff_path, threshold=0.005):
+def compare_images(
+    baseline_path,
+    snapshot_path,
+    diff_path,
+    mean_threshold=0.005,
+    changed_threshold=0.0001,
+):
     """
     Compares two images using Pillow. 
     Returns 'PASS', 'FAIL', or 'SKIP'.
@@ -85,10 +91,18 @@ def compare_images(baseline_path, snapshot_path, diff_path, threshold=0.005):
     changed_pixels = total_pixels - hist[0]
     changed_ratio = changed_pixels / total_pixels if total_pixels > 0 else 0.0
     
-    if mean_diff > threshold:
+    fail_mean = mean_diff > mean_threshold
+    fail_changed = changed_ratio > changed_threshold
+
+    if fail_mean or fail_changed:
+        reasons = []
+        if fail_mean:
+            reasons.append(f"mean diff {mean_diff*100:.4f}% > {mean_threshold*100:.4f}%")
+        if fail_changed:
+            reasons.append(f"changed pixels {changed_ratio*100:.4f}% > {changed_threshold*100:.4f}%")
         print(
-            f"  -> [FAIL] Mean diff {mean_diff*100:.2f}% (Threshold: {threshold*100:.2f}%), "
-            f"changed pixels {changed_ratio*100:.2f}%"
+            f"  -> [FAIL] Mean diff {mean_diff*100:.4f}%, changed pixels {changed_ratio*100:.4f}% "
+            f"({'; '.join(reasons)})"
         )
         diff.save(diff_path)
         print(f"       Saved diff to {diff_path}")
@@ -107,6 +121,7 @@ def main():
     parser.add_argument("--out-dir", type=str, default="test/snapshots", help="Directory to save the generated snapshots")
     parser.add_argument("--baseline-dir", type=str, default="test/baselines", help="Directory containing golden baselines")
     parser.add_argument("--threshold", type=float, default=0.005, help="Mean pixel diff threshold (default: 0.005 => 0.5%)")
+    parser.add_argument("--changed-threshold", type=float, default=0.0001, help="Changed-pixel ratio threshold (default: 0.0001 => 0.01%)")
     parser.add_argument("--targets-config", type=str, default="test/visual_targets.yaml", help="YAML file containing visual regression targets")
     
     args = parser.parse_args()
@@ -223,7 +238,13 @@ def main():
             diff_path = out_dir / f"{base_name}{suffix}_diff.png"
             
             if snap_path.exists():
-                res = compare_images(str(base_path), str(snap_path), str(diff_path), threshold=args.threshold)
+                res = compare_images(
+                    str(base_path),
+                    str(snap_path),
+                    str(diff_path),
+                    mean_threshold=args.threshold,
+                    changed_threshold=args.changed_threshold,
+                )
                 if res == "FAIL":
                     has_fail = True
                 elif res == "SKIP":
