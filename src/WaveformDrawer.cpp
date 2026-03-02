@@ -18,6 +18,7 @@
 #include <QPen>
 #include <QtGlobal>
 #include <chrono>
+#include <algorithm>
 
 // Debug control for LTTB algorithm
 static const bool DEBUG_LTTB = false; // Set to true to enable LTTB debug output
@@ -79,12 +80,12 @@ WaveformDrawer::WaveformDrawer(MainWindow* mainWindow)
     : QObject(mainWindow),
       m_mainWindow(mainWindow),
       m_pADCLabelsRect(nullptr), m_pRfMagRect(nullptr), m_pRfADCPhaseRect(nullptr),
-      m_pGxRect(nullptr), m_pGyRect(nullptr), m_pGzRect(nullptr),
+      m_pGxRect(nullptr), m_pGyRect(nullptr), m_pGzRect(nullptr), m_pPnsRect(nullptr),
       bShowBlocksEdges(false), m_nCurrentMaxPoints(MAX_POINTS_PER_GRAPH)
 {
     // Initialize curve visibility - all curves visible by default
-    m_curveVisibility.resize(6);
-    for (int i = 0; i < 6; i++)
+    m_curveVisibility.resize(7);
+    for (int i = 0; i < 7; i++)
     {
         m_curveVisibility[i] = true;
     }
@@ -93,9 +94,9 @@ WaveformDrawer::WaveformDrawer(MainWindow* mainWindow)
     m_autoExpandMode = true;
 
     // Default axes order (UI config default)
-    m_axesOrder = QStringList() << "RF mag" << "GZ" << "GY" << "GX" << "RF/ADC ph" << "ADC/labels";
+    m_axesOrder = QStringList() << "RF mag" << "PNS" << "GZ" << "GY" << "GX" << "RF/ADC ph" << "ADC/labels";
     // Initialize fixed Y ranges container
-    m_fixedYRanges.resize(6);
+    m_fixedYRanges.resize(7);
 }
 
 WaveformDrawer::~WaveformDrawer()
@@ -119,6 +120,7 @@ void WaveformDrawer::InitSequenceFigure()
     m_pGxRect = new QCPAxisRect(customPlot);
     m_pGyRect = new QCPAxisRect(customPlot);
     m_pGzRect = new QCPAxisRect(customPlot);
+    m_pPnsRect = new QCPAxisRect(customPlot);
 
     m_vecRects.append(m_pADCLabelsRect);
     m_vecRects.append(m_pRfMagRect);
@@ -126,6 +128,7 @@ void WaveformDrawer::InitSequenceFigure()
     m_vecRects.append(m_pGxRect);
     m_vecRects.append(m_pGyRect);
     m_vecRects.append(m_pGzRect);
+    m_vecRects.append(m_pPnsRect);
 
     auto m_pMarginGroup = new QCPMarginGroup(customPlot);
     // Single-column grid: only plot rects; drag will target axis label area directly
@@ -176,6 +179,7 @@ void WaveformDrawer::InitSequenceFigure()
         else if (lastAxisName == "GX") targetRect = m_pGxRect;
         else if (lastAxisName == "GY") targetRect = m_pGyRect;
         else if (lastAxisName == "GZ") targetRect = m_pGzRect;
+        else if (lastAxisName == "PNS") targetRect = m_pPnsRect;
         
         if (targetRect) {
             targetRect->axis(QCPAxis::atBottom)->setTickLabels(true);
@@ -215,6 +219,7 @@ void WaveformDrawer::InitSequenceFigure()
     m_pGxRect->axis(QCPAxis::atLeft)->setLabel("GX (" + gradientUnit + ")");
     m_pGyRect->axis(QCPAxis::atLeft)->setLabel("GY (" + gradientUnit + ")");
     m_pGzRect->axis(QCPAxis::atLeft)->setLabel("GZ (" + gradientUnit + ")");
+    m_pPnsRect->axis(QCPAxis::atLeft)->setLabel("PNS (%)");
 
     for (int i = 0; i < m_vecRects.count(); ++i)
     {
@@ -357,6 +362,60 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphGz->setAntialiased(true);
         m_graphGz->setVisible(m_curveVisibility.value(5, true));
     }
+    // PNS (rect 6) draws X/Y/Z and norm in one axis
+    m_graphPnsX = customPlot->addGraph(m_pPnsRect->axis(QCPAxis::atBottom), m_pPnsRect->axis(QCPAxis::atLeft));
+    if (m_graphPnsX)
+    {
+        // Match PNS-X color to GX color
+        QPen pen(colors.isEmpty() ? Qt::blue : colors[2 % colors.size()]);
+        pen.setWidthF(1.4);
+        m_graphPnsX->setPen(pen);
+        m_graphPnsX->setLineStyle(QCPGraph::lsLine);
+        m_graphPnsX->setScatterStyle(QCPScatterStyle::ssNone);
+        m_graphPnsX->setAdaptiveSampling(false);
+        m_graphPnsX->setAntialiased(true);
+        m_graphPnsX->setVisible(m_curveVisibility.value(6, true));
+    }
+    m_graphPnsY = customPlot->addGraph(m_pPnsRect->axis(QCPAxis::atBottom), m_pPnsRect->axis(QCPAxis::atLeft));
+    if (m_graphPnsY)
+    {
+        // Match PNS-Y color to GY color
+        QPen pen(colors.isEmpty() ? Qt::darkYellow : colors[3 % colors.size()]);
+        pen.setWidthF(1.4);
+        m_graphPnsY->setPen(pen);
+        m_graphPnsY->setLineStyle(QCPGraph::lsLine);
+        m_graphPnsY->setScatterStyle(QCPScatterStyle::ssNone);
+        m_graphPnsY->setAdaptiveSampling(false);
+        m_graphPnsY->setAntialiased(true);
+        m_graphPnsY->setVisible(m_curveVisibility.value(6, true));
+    }
+    m_graphPnsZ = customPlot->addGraph(m_pPnsRect->axis(QCPAxis::atBottom), m_pPnsRect->axis(QCPAxis::atLeft));
+    if (m_graphPnsZ)
+    {
+        // Match PNS-Z color to GZ color
+        QPen pen(colors.isEmpty() ? Qt::darkCyan : colors[4 % colors.size()]);
+        pen.setWidthF(1.4);
+        m_graphPnsZ->setPen(pen);
+        m_graphPnsZ->setLineStyle(QCPGraph::lsLine);
+        m_graphPnsZ->setScatterStyle(QCPScatterStyle::ssNone);
+        m_graphPnsZ->setAdaptiveSampling(false);
+        m_graphPnsZ->setAntialiased(true);
+        m_graphPnsZ->setVisible(m_curveVisibility.value(6, true));
+    }
+    m_graphPnsNorm = customPlot->addGraph(m_pPnsRect->axis(QCPAxis::atBottom), m_pPnsRect->axis(QCPAxis::atLeft));
+    if (m_graphPnsNorm)
+    {
+        // MATLAB safe_plot style: k--
+        QPen pen(Qt::black);
+        pen.setWidthF(1.6);
+        pen.setStyle(Qt::DashLine);
+        m_graphPnsNorm->setPen(pen);
+        m_graphPnsNorm->setLineStyle(QCPGraph::lsLine);
+        m_graphPnsNorm->setScatterStyle(QCPScatterStyle::ssNone);
+        m_graphPnsNorm->setAdaptiveSampling(false);
+        m_graphPnsNorm->setAntialiased(true);
+        m_graphPnsNorm->setVisible(m_curveVisibility.value(6, true));
+    }
 
     // Persistent block-edge graphs for each rect
     m_blockEdgeGraphs.resize(m_vecRects.size());
@@ -431,6 +490,7 @@ void WaveformDrawer::setAxesOrder(const QStringList& order)
     labelToRect["GX"] = m_pGxRect;
     labelToRect["GY"] = m_pGyRect;
     labelToRect["GZ"] = m_pGzRect;
+    labelToRect["PNS"] = m_pPnsRect;
     for (int row = 0; row < m_axesOrder.size(); ++row)
     {
         // single column rect grid
@@ -681,7 +741,7 @@ void WaveformDrawer::loadUiConfig()
     if (!f.open(QIODevice::ReadOnly))
     {
         // Initialize with default order and persist a default ui_config.json
-        setAxesOrder(QStringList() << "RF mag" << "GZ" << "GY" << "GX" << "RF/ADC ph" << "ADC/labels");
+        setAxesOrder(QStringList() << "RF mag" << "PNS" << "GZ" << "GY" << "GX" << "RF/ADC ph" << "ADC/labels");
         saveUiConfig();
         return;
     }
@@ -716,8 +776,8 @@ void WaveformDrawer::saveUiConfig() const
 void WaveformDrawer::InitTracers()
 {
     QCustomPlot* customPlot = m_mainWindow->ui->customPlot;
-    m_vecVerticalLine.resize(6);
-    for (int i = 0; i < 6; i++)
+    m_vecVerticalLine.resize(m_vecRects.size());
+    for (int i = 0; i < m_vecVerticalLine.size(); i++)
     {
         auto verticalLine = new QCPItemStraightLine(customPlot);
         verticalLine->setVisible(false);
@@ -1673,6 +1733,116 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
             }
         }
     }
+
+    // PNS curve (single axis with X/Y/Z/norm)
+    if (m_graphPnsX && m_graphPnsY && m_graphPnsZ && m_graphPnsNorm)
+    {
+        QVector<double> pnsT;
+        QVector<double> pnsX;
+        QVector<double> pnsY;
+        QVector<double> pnsZ;
+        QVector<double> pnsN;
+        const QVector<double>& tSec = loader->getPnsTimeSec();
+        const QVector<double>& sx = loader->getPnsX();
+        const QVector<double>& sy = loader->getPnsY();
+        const QVector<double>& sz = loader->getPnsZ();
+        const QVector<double>& sn = loader->getPnsNorm();
+        const int n = std::min({tSec.size(), sx.size(), sy.size(), sz.size(), sn.size()});
+        const double secStart = visibleStart / (1e6 * tFactor);
+        const double secEnd = visibleEnd / (1e6 * tFactor);
+        int i0 = 0;
+        int i1 = n;
+        if (n > 0)
+        {
+            i0 = static_cast<int>(std::lower_bound(tSec.constBegin(), tSec.constBegin() + n, secStart) - tSec.constBegin());
+            i1 = static_cast<int>(std::upper_bound(tSec.constBegin() + i0, tSec.constBegin() + n, secEnd) - tSec.constBegin());
+        }
+        const int visibleCount = std::max(0, i1 - i0);
+
+        pnsT.reserve(visibleCount);
+        pnsX.reserve(visibleCount);
+        pnsY.reserve(visibleCount);
+        pnsZ.reserve(visibleCount);
+        pnsN.reserve(visibleCount);
+
+        // Display in percent to match MATLAB safe_plot.
+        for (int i = i0; i < i1; ++i)
+        {
+            pnsT.append(tSec[i] * 1e6 * tFactor);
+            pnsX.append(100.0 * sx[i]);
+            pnsY.append(100.0 * sy[i]);
+            pnsZ.append(100.0 * sz[i]);
+            pnsN.append(100.0 * sn[i]);
+        }
+
+        // Whole-sequence dragging can involve very dense PNS arrays; decimate for display.
+        if (currentLODLevel == LODLevel::DOWNSAMPLED && m_pPnsRect && pnsT.size() > 0)
+        {
+            const int px = qMax(1, static_cast<int>(qRound(m_pPnsRect->width() * m_mainWindow->devicePixelRatioF())));
+            const int maxPoints = qMax(200, 2 * px);
+            if (pnsT.size() > maxPoints)
+            {
+                const int step = qMax(1, static_cast<int>(std::ceil(static_cast<double>(pnsT.size()) / maxPoints)));
+                QVector<double> t2, x2, y2, z2, n2;
+                t2.reserve(maxPoints + 1);
+                x2.reserve(maxPoints + 1);
+                y2.reserve(maxPoints + 1);
+                z2.reserve(maxPoints + 1);
+                n2.reserve(maxPoints + 1);
+                for (int i = 0; i < pnsT.size(); i += step)
+                {
+                    t2.append(pnsT[i]);
+                    x2.append(pnsX[i]);
+                    y2.append(pnsY[i]);
+                    z2.append(pnsZ[i]);
+                    n2.append(pnsN[i]);
+                }
+                if (!pnsT.isEmpty() && (t2.isEmpty() || t2.back() != pnsT.back()))
+                {
+                    t2.append(pnsT.back());
+                    x2.append(pnsX.back());
+                    y2.append(pnsY.back());
+                    z2.append(pnsZ.back());
+                    n2.append(pnsN.back());
+                }
+                pnsT.swap(t2);
+                pnsX.swap(x2);
+                pnsY.swap(y2);
+                pnsZ.swap(z2);
+                pnsN.swap(n2);
+            }
+        }
+
+        const bool showPns = m_curveVisibility.value(6, true) && !pnsT.isEmpty();
+        m_graphPnsX->setData(pnsT, pnsX);
+        m_graphPnsY->setData(pnsT, pnsY);
+        m_graphPnsZ->setData(pnsT, pnsZ);
+        m_graphPnsNorm->setData(pnsT, pnsN);
+        m_graphPnsX->setVisible(showPns);
+        m_graphPnsY->setVisible(showPns);
+        m_graphPnsZ->setVisible(showPns);
+        m_graphPnsNorm->setVisible(showPns);
+
+        if (!m_lockYAxisRanges)
+        {
+            double yMax = 120.0;
+            for (double v : pnsN)
+            {
+                if (std::isfinite(v))
+                {
+                    yMax = std::max(yMax, v);
+                }
+            }
+            if (m_pPnsRect)
+            {
+                m_pPnsRect->axis(QCPAxis::atLeft)->setRange(0.0, yMax * 1.05);
+            }
+        }
+        else if (m_pPnsRect && m_fixedYRanges.size() > 6)
+        {
+            m_pPnsRect->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[6].first, m_fixedYRanges[6].second);
+        }
+    }
 }
 
 void WaveformDrawer::computeAndLockYAxisRanges()
@@ -1730,6 +1900,19 @@ void WaveformDrawer::computeAndLockYAxisRanges()
         m_fixedYRanges[3] = convertRange(loader->getGradGlobalRange(0));
         m_fixedYRanges[4] = convertRange(loader->getGradGlobalRange(1));
         m_fixedYRanges[5] = convertRange(loader->getGradGlobalRange(2));
+    }
+
+    // 6: PNS
+    {
+        double pMax = 120.0;
+        for (double v : loader->getPnsNorm())
+        {
+            if (std::isfinite(v))
+            {
+                pMax = std::max(pMax, 100.0 * v);
+            }
+        }
+        m_fixedYRanges[6] = qMakePair(0.0, pMax * 1.05);
     }
 
     // Apply ranges now
@@ -1808,6 +1991,7 @@ void WaveformDrawer::updateCurveVisibility()
         if (rect == m_pGxRect) return 3;
         if (rect == m_pGyRect) return 4;
         if (rect == m_pGzRect) return 5;
+        if (rect == m_pPnsRect) return 6;
         return -1;
     };
 
@@ -1819,6 +2003,7 @@ void WaveformDrawer::updateCurveVisibility()
     labelToRect["GX"] = m_pGxRect;
     labelToRect["GY"] = m_pGyRect;
     labelToRect["GZ"] = m_pGzRect;
+    labelToRect["PNS"] = m_pPnsRect;
     
     // Handle auto-expand mode vs fixed layout mode
     if (m_autoExpandMode) {
@@ -1904,6 +2089,14 @@ void WaveformDrawer::updateCurveVisibility()
         m_graphGy->setVisible(m_curveVisibility.value(4, false));
     if (m_graphGz)
         m_graphGz->setVisible(m_curveVisibility.value(5, false));
+    if (m_graphPnsX)
+        m_graphPnsX->setVisible(m_curveVisibility.value(6, false));
+    if (m_graphPnsY)
+        m_graphPnsY->setVisible(m_curveVisibility.value(6, false));
+    if (m_graphPnsZ)
+        m_graphPnsZ->setVisible(m_curveVisibility.value(6, false));
+    if (m_graphPnsNorm)
+        m_graphPnsNorm->setVisible(m_curveVisibility.value(6, false));
     if (m_graphTrigMarkers)
         m_graphTrigMarkers->setVisible(m_curveVisibility.value(0, false));
     if (m_graphTrigDurations)
@@ -1992,6 +2185,7 @@ void WaveformDrawer::updateAxisLabels()
     if (m_pGxRect)          m_pGxRect->axis(QCPAxis::atLeft)->setLabel("GX (" + gradientUnit + ")");
     if (m_pGyRect)          m_pGyRect->axis(QCPAxis::atLeft)->setLabel("GY (" + gradientUnit + ")");
     if (m_pGzRect)          m_pGzRect->axis(QCPAxis::atLeft)->setLabel("GZ (" + gradientUnit + ")");
+    if (m_pPnsRect)         m_pPnsRect->axis(QCPAxis::atLeft)->setLabel("PNS (%)");
 
     // Update x-axis label on the bottom-most visible rect
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot) {

@@ -52,6 +52,8 @@ public:
     void setShowGx(bool visible);
     void setShowGy(bool visible);
     void setShowGz(bool visible);
+    void setShowPns(bool visible);
+    bool isShowPnsChecked() const;
     void refreshShowTeOverlay();
     void setShowTrajectory(bool visible);
     void refreshExtensionLegend();
@@ -88,6 +90,7 @@ public slots:
     void onShowGxToggled(bool checked);
     void onShowGyToggled(bool checked);
     void onShowGzToggled(bool checked);
+    void onShowPnsToggled(bool checked);
     void onShowTeToggled(bool checked);
     void onShowKxKyZeroToggled(bool checked);
     void onShowTrajectoryToggled(bool checked);
@@ -188,6 +191,7 @@ private:
     QCheckBox* m_pShowGxCheckBox;
     QCheckBox* m_pShowGyCheckBox;
     QCheckBox* m_pShowGzCheckBox;
+    QCheckBox* m_pShowPnsCheckBox;
 
     // Render mode controls
     QRadioButton* m_pModeTrRadio;
