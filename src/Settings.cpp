@@ -435,6 +435,10 @@ void Settings::saveSettings()
         }
         obj["pnsAscHistory"] = arr;
     }
+    obj["pnsShowX"] = m_pnsShowX;
+    obj["pnsShowY"] = m_pnsShowY;
+    obj["pnsShowZ"] = m_pnsShowZ;
+    obj["pnsShowNorm"] = m_pnsShowNorm;
     // Input behavior
     obj["zoomInputMode"] = getZoomInputModeString();
     obj["panWheelEnabled"] = m_panWheelEnabled;
@@ -579,6 +583,10 @@ void Settings::loadSettings()
     while (m_pnsAscHistory.size() > kMaxAscHistoryItems) {
         m_pnsAscHistory.removeLast();
     }
+    m_pnsShowX = obj.value("pnsShowX").toBool(false);
+    m_pnsShowY = obj.value("pnsShowY").toBool(false);
+    m_pnsShowZ = obj.value("pnsShowZ").toBool(true);
+    m_pnsShowNorm = obj.value("pnsShowNorm").toBool(true);
 
     // Load extension labels (merge onto defaults)
     if (obj.contains("extensionLabels") && obj.value("extensionLabels").isObject())
@@ -621,6 +629,10 @@ void Settings::resetToDefaults()
     m_showExtensionTooltip = false;
     m_pnsAscPath.clear();
     m_pnsAscHistory.clear();
+    m_pnsShowX = false;
+    m_pnsShowY = false;
+    m_pnsShowZ = true;
+    m_pnsShowNorm = true;
     m_panLeftKey = QStringLiteral("A");
     m_panRightKey = QStringLiteral("D");
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
@@ -848,4 +860,60 @@ int Settings::removeInvalidPnsAscHistoryPaths()
         emit settingsChanged();
     }
     return removed;
+}
+
+void Settings::setPnsChannelVisibleX(bool visible)
+{
+    if (m_pnsShowX != visible) {
+        m_pnsShowX = visible;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+void Settings::setPnsChannelVisibleY(bool visible)
+{
+    if (m_pnsShowY != visible) {
+        m_pnsShowY = visible;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+void Settings::setPnsChannelVisibleZ(bool visible)
+{
+    if (m_pnsShowZ != visible) {
+        m_pnsShowZ = visible;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+void Settings::setPnsChannelVisibleNorm(bool visible)
+{
+    if (m_pnsShowNorm != visible) {
+        m_pnsShowNorm = visible;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+bool Settings::getPnsChannelVisibleX() const
+{
+    return m_pnsShowX;
+}
+
+bool Settings::getPnsChannelVisibleY() const
+{
+    return m_pnsShowY;
+}
+
+bool Settings::getPnsChannelVisibleZ() const
+{
+    return m_pnsShowZ;
+}
+
+bool Settings::getPnsChannelVisibleNorm() const
+{
+    return m_pnsShowNorm;
 }

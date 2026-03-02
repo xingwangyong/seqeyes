@@ -282,7 +282,8 @@ void TRManager::createWidgets()
     m_pShowGzCheckBox = new QCheckBox("GZ", m_mainWindow);
     m_pShowGzCheckBox->setChecked(true);
     m_pShowPnsCheckBox = new QCheckBox("PNS", m_mainWindow);
-    m_pShowPnsCheckBox->setChecked(true);
+    // Default OFF: most users/CI don't have ASC configured.
+    m_pShowPnsCheckBox->setChecked(false);
 
     // Debounce Timer
     m_pUpdateTimer = new QTimer(this);
@@ -455,6 +456,25 @@ void TRManager::connectSignals()
 
     // Keep the legend window in sync with Settings toggles.
     connect(&Settings::getInstance(), &Settings::settingsChanged, this, &TRManager::refreshExtensionLegend);
+
+    // Sync initial checkbox states to drawer visibility once.
+    WaveformDrawer* drawer = m_mainWindow ? m_mainWindow->getWaveformDrawer() : nullptr;
+    if (drawer)
+    {
+        drawer->setShowCurve(0, m_pShowADCCheckBox && m_pShowADCCheckBox->isChecked());
+        drawer->setShowCurve(1, m_pShowRFMagCheckBox && m_pShowRFMagCheckBox->isChecked());
+        drawer->setShowCurve(2, m_pShowRFPhaseCheckBox && m_pShowRFPhaseCheckBox->isChecked());
+        drawer->setShowCurve(3, m_pShowGxCheckBox && m_pShowGxCheckBox->isChecked());
+        drawer->setShowCurve(4, m_pShowGyCheckBox && m_pShowGyCheckBox->isChecked());
+        drawer->setShowCurve(5, m_pShowGzCheckBox && m_pShowGzCheckBox->isChecked());
+        drawer->setShowCurve(6, m_pShowPnsCheckBox && m_pShowPnsCheckBox->isChecked());
+        drawer->updateCurveVisibility();
+    }
+
+    if (m_mainWindow)
+    {
+        m_mainWindow->updatePnsStatusIndicator();
+    }
 }
 
 void TRManager::onShowExtensionLegendToggled(bool checked)

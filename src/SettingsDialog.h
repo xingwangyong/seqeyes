@@ -76,6 +76,10 @@ private:
     QComboBox* m_pnsAscPathCombo;
     QPushButton* m_pnsBrowseButton;
     QPushButton* m_pnsRemoveInvalidButton;
+    QCheckBox* m_pnsShowXCheck;
+    QCheckBox* m_pnsShowYCheck;
+    QCheckBox* m_pnsShowZCheck;
+    QCheckBox* m_pnsShowNormCheck;
     
     // Buttons
     QPushButton* m_applyButton;
@@ -97,6 +101,10 @@ private:
     bool m_originalPanWheelEnabled;
     QString m_originalPnsAscPath;
     QStringList m_originalPnsAscHistory;
+    bool m_originalPnsShowX {false};
+    bool m_originalPnsShowY {false};
+    bool m_originalPnsShowZ {true};
+    bool m_originalPnsShowNorm {true};
 };
 
 #endif // SETTINGSDIALOG_H
