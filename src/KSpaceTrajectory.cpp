@@ -503,19 +503,57 @@ Result compute(const Input& input)
     for (int i = 0; i < input.blockEdges.size(); ++i)
         blockEdgesSec[i] = internalToSecRounded(input.blockEdges[i]);
 
-    auto gradientAtSec = [&](int channel, double sec) -> double {
+    auto gradientAtSec = [&](double sec, double& gx, double& gy, double& gz) {
+        gx = 0.0; gy = 0.0; gz = 0.0;
         if (blockEdgesSec.size() < 2)
-            return 0.0;
+            return;
         if (sec < blockEdgesSec.front() || sec >= blockEdgesSec.back())
-            return 0.0;
+            return;
         auto it = std::upper_bound(blockEdgesSec.begin(), blockEdgesSec.end(), sec);
         if (it == blockEdgesSec.begin())
-            return 0.0;
+            return;
         int blockIdx = static_cast<int>(it - blockEdgesSec.begin()) - 1;
         if (blockIdx < 0 || blockIdx >= static_cast<int>(input.blocks.size()))
-            return 0.0;
+            return;
+            
+        SeqBlock* blk = input.blocks[blockIdx];
         double blockStartSec = blockEdgesSec[blockIdx];
-        return gradientValueFromBlock(input.blocks[blockIdx], channel, sec, blockStartSec, input.gradientRasterUs);
+        
+        double lgx = gradientValueFromBlock(blk, 0, sec, blockStartSec, input.gradientRasterUs);
+        double lgy = gradientValueFromBlock(blk, 1, sec, blockStartSec, input.gradientRasterUs);
+        double lgz = gradientValueFromBlock(blk, 2, sec, blockStartSec, input.gradientRasterUs);
+        
+        if (blk && blk->isRotation())
+        {
+            const RotationEvent& rot = blk->GetRotationEvent();
+            double w = rot.rotQuaternion[0];
+            double x = rot.rotQuaternion[1];
+            double y = rot.rotQuaternion[2];
+            double z = rot.rotQuaternion[3];
+            
+            // Quaternion to 3x3 Rotation Matrix
+            double R00 = 1.0 - 2.0*y*y - 2.0*z*z;
+            double R01 = 2.0*x*y - 2.0*w*z;
+            double R02 = 2.0*x*z + 2.0*w*y;
+            
+            double R10 = 2.0*x*y + 2.0*w*z;
+            double R11 = 1.0 - 2.0*x*x - 2.0*z*z;
+            double R12 = 2.0*y*z - 2.0*w*x;
+            
+            double R20 = 2.0*x*z - 2.0*w*y;
+            double R21 = 2.0*y*z + 2.0*w*x;
+            double R22 = 1.0 - 2.0*x*x - 2.0*y*y;
+            
+            gx = R00*lgx + R01*lgy + R02*lgz;
+            gy = R10*lgx + R11*lgy + R12*lgz;
+            gz = R20*lgx + R21*lgy + R22*lgz;
+        }
+        else
+        {
+            gx = lgx;
+            gy = lgy;
+            gz = lgz;
+        }
     };
 
     QVector<double> kxData(timeGrid.size(), 0.0);
@@ -532,9 +570,9 @@ Result compute(const Input& input)
             continue;
         }
         double mid = timeGrid[i - 1] + 0.5 * dt;
-        double gxMid = gradientAtSec(0, mid);
-        double gyMid = gradientAtSec(1, mid);
-        double gzMid = gradientAtSec(2, mid);
+        double gxMid = 0.0, gyMid = 0.0, gzMid = 0.0;
+        gradientAtSec(mid, gxMid, gyMid, gzMid);
+        
         kxData[i] = kxData[i - 1] + gxMid * dt;
         kyData[i] = kyData[i - 1] + gyMid * dt;
         kzData[i] = kzData[i - 1] + gzMid * dt;
