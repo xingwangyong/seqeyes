@@ -31,6 +31,7 @@
 #include <QDir>
 #include <QResizeEvent>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QImage>
 #include <QStyle>
 #include <QVector>
@@ -194,7 +195,7 @@ MainWindow::MainWindow(QWidget* parent)
     m_pPnsStatusLabel = new QLabel(this);
     m_pPnsStatusLabel->setFont(m_pCoordLabel->font());
     m_pPnsStatusLabel->setVisible(false);
-    ui->statusbar->addPermanentWidget(m_pPnsStatusLabel);
+    ui->statusbar->addWidget(m_pPnsStatusLabel);
 
     // This needs to be called after the plot rects are created in InitSequenceFigure
     m_waveformDrawer->InitTracers();
@@ -341,7 +342,7 @@ void MainWindow::updatePnsStatusIndicator()
     const QString ascPath = Settings::getInstance().getPnsAscPath().trimmed();
     if (ascPath.isEmpty())
     {
-        text = "PNS: Not configured";
+        text = " | PNS: Not configured";
     }
     else if (!m_pulseqLoader || !m_pulseqLoader->hasPnsData())
     {
@@ -350,11 +351,11 @@ void MainWindow::updatePnsStatusIndicator()
             status.contains("invalid", Qt::CaseInsensitive) ||
             status.contains("not found", Qt::CaseInsensitive))
         {
-            text = "PNS: Invalid asc file";
+            text = " | PNS: Invalid asc file";
         }
         else
         {
-            text = "PNS: Ready";
+            text = " | PNS: Ready";
         }
     }
     else
@@ -412,7 +413,7 @@ void MainWindow::updatePnsStatusIndicator()
             np = static_cast<int>(std::lround(100.0 * maxOf(pnsN)));
         }
 
-        text = QString("PNS: xyzn=%1,%2,%3,%4").arg(xp).arg(yp).arg(zp).arg(np) + "%";
+        text = QString(" | PNS: xyzn=%1,%2,%3,%4").arg(xp).arg(yp).arg(zp).arg(np) + "%";
     }
 
     m_pPnsStatusLabel->setText(text);
@@ -1862,7 +1863,19 @@ void MainWindow::updateTrajectoryCursorTime(double internalTime)
     m_currentTrajectoryTimeInternal = internalTime;
     m_hasTrajectoryCursorTime = true;
     refreshTrajectoryCursor();
-    updatePnsStatusIndicator();
+    // Throttle status text refresh during mouse move to keep red guide line responsive.
+    static QElapsedTimer s_lastPnsUiUpdate;
+    static bool s_started = false;
+    if (!s_started)
+    {
+        s_lastPnsUiUpdate.start();
+        s_started = true;
+    }
+    if (s_lastPnsUiUpdate.elapsed() >= 50)
+    {
+        updatePnsStatusIndicator();
+        s_lastPnsUiUpdate.restart();
+    }
 }
 
 void MainWindow::openLogWindow()
