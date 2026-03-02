@@ -4,6 +4,8 @@
 #include "PulseqLoader.h"
 #include "WaveformDrawer.h"
 #include "InteractionHandler.h"
+#include "Settings.h"
+#include "TRManager.h"
 
 #include <QFile>
 #include <QJsonDocument>
@@ -12,6 +14,7 @@
 #include <QElapsedTimer>
 #include <QCoreApplication>
 #include <QDebug>
+#include <QFileInfo>
 
 static bool readJsonFile(const QString& path, QJsonObject& out)
 {
@@ -65,6 +68,39 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
             return 0;
         }
         return 11;
+    }
+
+    if (type == "configure_pns") {
+        const QString ascPath = params.value("asc_path").toString().trimmed();
+        if (ascPath.isEmpty()) {
+            qWarning() << "[AUTOMATION] configure_pns: missing asc_path";
+            return 13;
+        }
+        if (!QFileInfo::exists(ascPath)) {
+            qWarning() << "[AUTOMATION] configure_pns: asc_path does not exist:" << ascPath;
+            return 14;
+        }
+
+        const bool showPns = params.value("show_pns", true).toBool();
+        const bool showX = params.value("show_x", true).toBool();
+        const bool showY = params.value("show_y", true).toBool();
+        const bool showZ = params.value("show_z", true).toBool();
+        const bool showNorm = params.value("show_norm", true).toBool();
+
+        Settings& s = Settings::getInstance();
+        s.setPnsAscPath(ascPath);
+        s.setPnsChannelVisibleX(showX);
+        s.setPnsChannelVisibleY(showY);
+        s.setPnsChannelVisibleZ(showZ);
+        s.setPnsChannelVisibleNorm(showNorm);
+
+        if (auto* loader = window.getPulseqLoader()) {
+            loader->recomputePnsFromSettings();
+        }
+        if (auto* tr = window.getTRManager()) {
+            tr->setShowPns(showPns);
+        }
+        return 0;
     }
 
     if (type == "measure_zoom_by_factor") {
