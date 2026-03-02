@@ -12,6 +12,10 @@
 #include <QLineEdit>
 #include <QStandardItemModel>
 #include <QStandardItem>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QDir>
+#include "PnsCalculator.h"
 
 SettingsDialog::SettingsDialog(QWidget *parent)
     : QDialog(parent)
@@ -25,6 +29,9 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_panDragCheck(nullptr)
     , m_panWheelCheck(nullptr)
     , m_showExtensionTooltipCheck(nullptr)
+    , m_pnsAscPathCombo(nullptr)
+    , m_pnsBrowseButton(nullptr)
+    , m_pnsRemoveInvalidButton(nullptr)
     , m_applyButton(nullptr)
     , m_okButton(nullptr)
     , m_cancelButton(nullptr)
@@ -249,6 +256,43 @@ void SettingsDialog::setupUI()
     extensionsLayout->addStretch();
 
     m_tabWidget->addTab(extensionsTab, "Extensions");
+
+    // ============================================================================
+    // Safety Tab (PNS)
+    // ============================================================================
+    QWidget* safetyTab = new QWidget();
+    QVBoxLayout* safetyLayout = new QVBoxLayout(safetyTab);
+
+    QGroupBox* pnsGroup = new QGroupBox("PNS hardware profile (.asc)", safetyTab);
+    QFormLayout* pnsForm = new QFormLayout(pnsGroup);
+
+    QWidget* pnsPathRow = new QWidget(safetyTab);
+    QHBoxLayout* pnsPathLayout = new QHBoxLayout(pnsPathRow);
+    pnsPathLayout->setContentsMargins(0, 0, 0, 0);
+    pnsPathLayout->setSpacing(6);
+
+    m_pnsAscPathCombo = new QComboBox(safetyTab);
+    m_pnsAscPathCombo->setEditable(true);
+    m_pnsAscPathCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_pnsBrowseButton = new QPushButton("Browse...", safetyTab);
+    m_pnsRemoveInvalidButton = new QPushButton("Remove Invalid", safetyTab);
+
+    pnsPathLayout->addWidget(m_pnsAscPathCombo, 1);
+    pnsPathLayout->addWidget(m_pnsBrowseButton);
+    pnsPathLayout->addWidget(m_pnsRemoveInvalidButton);
+
+    pnsForm->addRow("ASC Path:", pnsPathRow);
+
+    QLabel* pnsHint = new QLabel(
+        "Select Siemens ASC profile used for PNS prediction. "
+        "The selected path and recent paths are saved in settings.",
+        safetyTab);
+    pnsHint->setWordWrap(true);
+    safetyLayout->addWidget(pnsGroup);
+    safetyLayout->addWidget(pnsHint);
+    safetyLayout->addStretch();
+
+    m_tabWidget->addTab(safetyTab, "Safety");
     
     // Add tab widget to main layout
     mainLayout->addWidget(m_tabWidget);
@@ -282,6 +326,10 @@ void SettingsDialog::setupUI()
             this, &SettingsDialog::onZoomModeChanged);
     connect(m_panWheelCheck, &QCheckBox::toggled,
             this, &SettingsDialog::onPanWheelToggled);
+    connect(m_pnsBrowseButton, &QPushButton::clicked,
+            this, &SettingsDialog::onBrowsePnsAscPath);
+    connect(m_pnsRemoveInvalidButton, &QPushButton::clicked,
+            this, &SettingsDialog::onRemoveInvalidPnsAscPaths);
 }
 
 void SettingsDialog::loadCurrentSettings()
@@ -300,6 +348,8 @@ void SettingsDialog::loadCurrentSettings()
     m_originalZoomInputMode = settings.getZoomInputMode();
     m_originalPanWheelEnabled = settings.getPanWheelEnabled();
     m_originalShowExtensionTooltip = settings.getShowExtensionTooltip();
+    m_originalPnsAscPath = settings.getPnsAscPath();
+    m_originalPnsAscHistory = settings.getPnsAscHistory();
 
     // Store original extension label states
     m_originalExtensionLabelStates.clear();
@@ -351,6 +401,34 @@ void SettingsDialog::loadCurrentSettings()
     m_zoomModeCombo->setCurrentIndex(zoomIndex);
     m_panWheelCheck->setChecked(m_originalPanWheelEnabled);
     updateInteractionControlsForExclusivity();
+
+    if (m_pnsAscPathCombo)
+    {
+        m_pnsAscPathCombo->clear();
+        m_pnsAscPathCombo->setPlaceholderText("Not configured");
+        const QStringList history = settings.getPnsAscHistory();
+        for (const QString& p : history)
+        {
+            m_pnsAscPathCombo->addItem(p);
+        }
+        const QString current = settings.getPnsAscPath();
+        if (!current.isEmpty())
+        {
+            int idx = m_pnsAscPathCombo->findText(current);
+            if (idx < 0)
+            {
+                m_pnsAscPathCombo->insertItem(0, current);
+                idx = 0;
+            }
+            m_pnsAscPathCombo->setCurrentIndex(idx);
+            m_pnsAscPathCombo->setEditText(current);
+        }
+        else
+        {
+            m_pnsAscPathCombo->setCurrentIndex(-1);
+            m_pnsAscPathCombo->setEditText("");
+        }
+    }
     
     // Load gamma - find closest match in combo box
     double currentGamma = settings.getGamma();
@@ -433,6 +511,51 @@ void SettingsDialog::applySettings()
     bool panWheel = (zoomMode == Settings::ZoomInputMode::Wheel) ? false : m_panWheelCheck->isChecked();
     settings.setPanWheelEnabled(panWheel);
 
+    if (m_pnsAscPathCombo)
+    {
+        QStringList history;
+        for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
+        {
+            const QString path = m_pnsAscPathCombo->itemText(i).trimmed();
+            if (!path.isEmpty() && !history.contains(path))
+            {
+                history.append(path);
+            }
+        }
+        const QString currentPath = m_pnsAscPathCombo->currentText().trimmed();
+        if (!currentPath.isEmpty())
+        {
+            history.removeAll(currentPath);
+            history.prepend(currentPath);
+        }
+        settings.setPnsAscHistory(history);
+        settings.setPnsAscPath(currentPath);
+
+        // Soft validation in "wide" mode: keep settings, warn, and let compute path decide.
+        if (currentPath.isEmpty())
+        {
+            QMessageBox::warning(this, "PNS ASC not configured",
+                                 "PNS is disabled until a valid ASC profile is selected in Settings > Safety.");
+        }
+        else
+        {
+            PnsCalculator::Hardware hw;
+            QString parseError;
+            if (!QFileInfo::exists(currentPath))
+            {
+                QMessageBox::warning(this, "PNS ASC warning",
+                                     "Selected ASC path does not exist.\n"
+                                     "PNS will not be calculated until a valid file is selected.");
+            }
+            else if (!PnsCalculator::parseAscFile(currentPath, hw, &parseError))
+            {
+                QMessageBox::warning(this, "PNS ASC warning",
+                                     "Selected ASC file is invalid for PNS calculation:\n" + parseError +
+                                     "\n\nPNS will not be calculated until this is fixed.");
+            }
+        }
+    }
+
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
     
     qDebug() << "Settings applied:";
@@ -470,6 +593,8 @@ void SettingsDialog::onCancelClicked()
     settings.setGamma(m_originalGamma);
     settings.setLogLevel(m_originalLogLevel);
     settings.setShowExtensionTooltip(m_originalShowExtensionTooltip);
+    settings.setPnsAscHistory(m_originalPnsAscHistory);
+    settings.setPnsAscPath(m_originalPnsAscPath);
     // Restore original extension label states
     for (auto it = m_originalExtensionLabelStates.constBegin(); it != m_originalExtensionLabelStates.constEnd(); ++it)
     {
@@ -694,4 +819,42 @@ void SettingsDialog::updateInteractionControlsForExclusivity()
                 item->setEnabled(true);
         }
     }
+}
+
+void SettingsDialog::onBrowsePnsAscPath()
+{
+    const QString currentPath = m_pnsAscPathCombo ? m_pnsAscPathCombo->currentText().trimmed() : QString();
+    const QString startDir = QFileInfo(currentPath).exists()
+        ? QFileInfo(currentPath).absolutePath()
+        : QDir::homePath();
+
+    const QString selected = QFileDialog::getOpenFileName(
+        this,
+        tr("Select ASC file"),
+        startDir,
+        tr("ASC files (*.asc);;All files (*.*)"));
+    if (selected.isEmpty() || !m_pnsAscPathCombo)
+    {
+        return;
+    }
+
+    int idx = m_pnsAscPathCombo->findText(selected);
+    if (idx < 0)
+    {
+        m_pnsAscPathCombo->insertItem(0, selected);
+        idx = 0;
+    }
+    m_pnsAscPathCombo->setCurrentIndex(idx);
+    m_pnsAscPathCombo->setEditText(selected);
+}
+
+void SettingsDialog::onRemoveInvalidPnsAscPaths()
+{
+    Settings& settings = Settings::getInstance();
+    const int removed = settings.removeInvalidPnsAscHistoryPaths();
+    loadCurrentSettings();
+    QMessageBox::information(
+        this,
+        tr("PNS ASC history"),
+        tr("Removed %1 invalid path(s).").arg(removed));
 }

@@ -6,7 +6,13 @@
 #include <QFile>
 #include <QTextStream>
 #include <QDateTime>
+#include <QFileInfo>
+#include <QJsonArray>
 #include <cmath>
+
+namespace {
+constexpr int kMaxAscHistoryItems = 16;
+}
 
 Settings& Settings::getInstance()
 {
@@ -421,6 +427,14 @@ void Settings::saveSettings()
     obj["showTeApproximateDialog"] = m_showTeApproximateDialog;
     obj["showTrajectoryApproximateDialog"] = m_showTrajectoryApproximateDialog;
     obj["showExtensionTooltip"] = m_showExtensionTooltip;
+    obj["pnsAscPath"] = m_pnsAscPath;
+    {
+        QJsonArray arr;
+        for (const QString& p : m_pnsAscHistory) {
+            arr.append(p);
+        }
+        obj["pnsAscHistory"] = arr;
+    }
     // Input behavior
     obj["zoomInputMode"] = getZoomInputModeString();
     obj["panWheelEnabled"] = m_panWheelEnabled;
@@ -545,6 +559,26 @@ void Settings::loadSettings()
     m_showTeApproximateDialog = obj.value("showTeApproximateDialog").toBool(true);
     m_showTrajectoryApproximateDialog = obj.value("showTrajectoryApproximateDialog").toBool(true);
     m_showExtensionTooltip = obj.value("showExtensionTooltip").toBool(false);
+    m_pnsAscPath = obj.value("pnsAscPath").toString("").trimmed();
+    m_pnsAscHistory.clear();
+    if (obj.value("pnsAscHistory").isArray()) {
+        const QJsonArray arr = obj.value("pnsAscHistory").toArray();
+        for (const QJsonValue& v : arr) {
+            if (!v.isString()) {
+                continue;
+            }
+            const QString p = v.toString().trimmed();
+            if (!p.isEmpty() && !m_pnsAscHistory.contains(p)) {
+                m_pnsAscHistory.append(p);
+            }
+        }
+    }
+    if (!m_pnsAscPath.isEmpty() && !m_pnsAscHistory.contains(m_pnsAscPath)) {
+        m_pnsAscHistory.prepend(m_pnsAscPath);
+    }
+    while (m_pnsAscHistory.size() > kMaxAscHistoryItems) {
+        m_pnsAscHistory.removeLast();
+    }
 
     // Load extension labels (merge onto defaults)
     if (obj.contains("extensionLabels") && obj.value("extensionLabels").isObject())
@@ -585,6 +619,8 @@ void Settings::resetToDefaults()
     m_showTeApproximateDialog = true;
     m_showTrajectoryApproximateDialog = true;
     m_showExtensionTooltip = false;
+    m_pnsAscPath.clear();
+    m_pnsAscHistory.clear();
     m_panLeftKey = QStringLiteral("A");
     m_panRightKey = QStringLiteral("D");
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
@@ -722,4 +758,94 @@ void Settings::setShowExtensionTooltip(bool show)
 bool Settings::getShowExtensionTooltip() const
 {
     return m_showExtensionTooltip;
+}
+
+QString Settings::getPnsAscPath() const
+{
+    return m_pnsAscPath;
+}
+
+QStringList Settings::getPnsAscHistory() const
+{
+    return m_pnsAscHistory;
+}
+
+void Settings::setPnsAscPath(const QString& path)
+{
+    const QString normalized = path.trimmed();
+    bool changed = false;
+    if (m_pnsAscPath != normalized) {
+        m_pnsAscPath = normalized;
+        changed = true;
+    }
+    if (!normalized.isEmpty()) {
+        const int existing = m_pnsAscHistory.indexOf(normalized);
+        if (existing >= 0) {
+            if (existing != 0) {
+                m_pnsAscHistory.removeAt(existing);
+                m_pnsAscHistory.prepend(normalized);
+                changed = true;
+            }
+        } else {
+            m_pnsAscHistory.prepend(normalized);
+            changed = true;
+        }
+    }
+    while (m_pnsAscHistory.size() > kMaxAscHistoryItems) {
+        m_pnsAscHistory.removeLast();
+        changed = true;
+    }
+    if (changed) {
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+void Settings::setPnsAscHistory(const QStringList& history)
+{
+    QStringList normalized;
+    for (const QString& p : history) {
+        const QString trimmed = p.trimmed();
+        if (trimmed.isEmpty() || normalized.contains(trimmed)) {
+            continue;
+        }
+        normalized.append(trimmed);
+        if (normalized.size() >= kMaxAscHistoryItems) {
+            break;
+        }
+    }
+    if (!m_pnsAscPath.isEmpty()) {
+        normalized.removeAll(m_pnsAscPath);
+        normalized.prepend(m_pnsAscPath);
+    }
+    if (m_pnsAscHistory != normalized) {
+        m_pnsAscHistory = normalized;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+int Settings::removeInvalidPnsAscHistoryPaths()
+{
+    QStringList valid;
+    for (const QString& p : m_pnsAscHistory) {
+        if (QFileInfo::exists(p)) {
+            valid.append(p);
+        }
+    }
+    const int removed = m_pnsAscHistory.size() - valid.size();
+    if (!m_pnsAscPath.isEmpty() && QFileInfo::exists(m_pnsAscPath) && !valid.contains(m_pnsAscPath)) {
+        valid.prepend(m_pnsAscPath);
+    }
+    QString nextCurrent = m_pnsAscPath;
+    if (!nextCurrent.isEmpty() && !QFileInfo::exists(nextCurrent)) {
+        nextCurrent.clear();
+    }
+    if (removed > 0 || valid != m_pnsAscHistory || nextCurrent != m_pnsAscPath) {
+        m_pnsAscHistory = valid;
+        m_pnsAscPath = nextCurrent;
+        saveSettings();
+        emit settingsChanged();
+    }
+    return removed;
 }

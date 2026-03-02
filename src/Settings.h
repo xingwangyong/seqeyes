@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QJsonDocument>
 #include <QMap>
+#include <QStringList>
 
 class Settings : public QObject
 {
@@ -155,6 +156,13 @@ public:
     void setShowExtensionTooltip(bool show);
     bool getShowExtensionTooltip() const;
 
+    // PNS ASC file selection/history
+    QString getPnsAscPath() const;
+    QStringList getPnsAscHistory() const;
+    void setPnsAscPath(const QString& path);
+    void setPnsAscHistory(const QStringList& history);
+    int removeInvalidPnsAscHistoryPaths();
+
 signals:
     void settingsChanged();
     void timeUnitChanged();
@@ -186,6 +194,8 @@ private:
     bool m_showTeApproximateDialog { true }; // Show TE approximate warning for legacy sequences
     bool m_showTrajectoryApproximateDialog { true }; // Show trajectory warning for legacy sequences
     bool m_showExtensionTooltip { false }; // Show extension tooltip on hover
+    QString m_pnsAscPath;
+    QStringList m_pnsAscHistory;
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
     
     // Conversion helper functions

@@ -30,6 +30,7 @@ set(TEST_SOURCES
     ${PROJECT_SOURCE_DIR}/src/NumericLineEdit.h
     ${PROJECT_SOURCE_DIR}/src/SeriesBuilder.cpp
     ${PROJECT_SOURCE_DIR}/src/KSpaceTrajectory.cpp
+    ${PROJECT_SOURCE_DIR}/src/PnsCalculator.cpp
     ${PROJECT_SOURCE_DIR}/src/Settings.cpp
     ${PROJECT_SOURCE_DIR}/src/SettingsDialog.cpp
     ${PROJECT_SOURCE_DIR}/src/TRManager.cpp
@@ -76,6 +77,7 @@ add_executable(${PERF_TEST_NAME}
     ${PROJECT_SOURCE_DIR}/src/NumericLineEdit.h
     ${PROJECT_SOURCE_DIR}/src/SeriesBuilder.cpp
     ${PROJECT_SOURCE_DIR}/src/KSpaceTrajectory.cpp
+    ${PROJECT_SOURCE_DIR}/src/PnsCalculator.cpp
     ${PROJECT_SOURCE_DIR}/src/Settings.cpp
     ${PROJECT_SOURCE_DIR}/src/SettingsDialog.cpp
     ${PROJECT_SOURCE_DIR}/src/TRManager.cpp
@@ -103,4 +105,23 @@ target_link_libraries(${PERF_TEST_NAME} PRIVATE
     Qt6::Gui
     Qt6::Widgets
     Qt6::PrintSupport
+)
+
+# PnsDumpTest: export SeqEyes PNS arrays (time/x/y/z/norm) to CSV for MATLAB comparison
+set(PNS_DUMP_TEST_NAME PnsDumpTest)
+add_executable(${PNS_DUMP_TEST_NAME}
+    ${PROJECT_SOURCE_DIR}/test/PnsDumpTest.cpp
+    ${PROJECT_SOURCE_DIR}/src/PnsCalculator.cpp
+    ${EXTERNAL_PULSEQ_DIR}/ExternalSequence.cpp
+    ${EXTERNAL_PULSEQ_DIR}/v151/ExternalSequence.cpp
+    ${EXTERNAL_PULSEQ_DIR}/v151/md5.cpp
+)
+
+target_include_directories(${PNS_DUMP_TEST_NAME} PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+    ${EXTERNAL_PULSEQ_DIR}
+)
+
+target_link_libraries(${PNS_DUMP_TEST_NAME} PRIVATE
+    Qt6::Core
 )

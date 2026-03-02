@@ -37,6 +37,7 @@
 #include <limits>
 #include <algorithm>
 #include <QPainter>
+#include <cmath>
 
 // Lightweight overlay widget for drawing trajectory crosshair without forcing full plot replots
 class TrajectoryCrosshairOverlay : public QWidget
@@ -120,6 +121,7 @@ MainWindow::MainWindow(QWidget* parent)
       m_pVersionLabel(nullptr),
       m_pProgressBar(nullptr),
       m_pCoordLabel(nullptr),
+      m_pPnsStatusLabel(nullptr),
       m_settingsDialog(nullptr)
 {
     ui->setupUi(this);
@@ -183,6 +185,9 @@ MainWindow::MainWindow(QWidget* parent)
         m_pCoordLabel->setFont(chosen);
     }
     ui->statusbar->addWidget(m_pCoordLabel);
+    m_pPnsStatusLabel = new QLabel(this);
+    m_pPnsStatusLabel->setVisible(false);
+    ui->statusbar->addPermanentWidget(m_pPnsStatusLabel);
 
     // This needs to be called after the plot rects are created in InitSequenceFigure
     m_waveformDrawer->InitTracers();
@@ -228,6 +233,16 @@ MainWindow::MainWindow(QWidget* parent)
             this, &MainWindow::onSettingsChanged);
     connect(&Settings::getInstance(), &Settings::timeUnitChanged,
             this, &MainWindow::onTimeUnitChanged);
+    connect(m_pulseqLoader, &PulseqLoader::pnsDataUpdated, this, [this]() {
+        if (m_waveformDrawer)
+        {
+            m_waveformDrawer->computeAndLockYAxisRanges();
+            m_waveformDrawer->DrawGWaveform();
+            if (ui && ui->customPlot)
+                ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+        }
+        updatePnsStatusIndicator();
+    });
 
     // 7. Install event filters
     m_trManager->installEventFilters();
@@ -297,8 +312,64 @@ MainWindow::~MainWindow()
     SAFE_DELETE(m_pVersionLabel);
     SAFE_DELETE(m_pProgressBar);
     SAFE_DELETE(m_pCoordLabel);
+    SAFE_DELETE(m_pPnsStatusLabel);
     SAFE_DELETE(m_settingsDialog);
     delete ui;
+}
+
+void MainWindow::updatePnsStatusIndicator()
+{
+    if (!m_pPnsStatusLabel)
+        return;
+
+    const bool showByCheckbox = (m_trManager && m_trManager->isShowPnsChecked());
+    if (!showByCheckbox)
+    {
+        m_pPnsStatusLabel->setVisible(false);
+        m_pPnsStatusLabel->setText("");
+        return;
+    }
+
+    QString text;
+    const QString ascPath = Settings::getInstance().getPnsAscPath().trimmed();
+    if (ascPath.isEmpty())
+    {
+        text = "PNS: Not configured";
+    }
+    else if (!m_pulseqLoader || !m_pulseqLoader->hasPnsData())
+    {
+        const QString status = m_pulseqLoader ? m_pulseqLoader->getPnsStatusMessage() : QString();
+        if (status.contains("ASC", Qt::CaseInsensitive) ||
+            status.contains("invalid", Qt::CaseInsensitive) ||
+            status.contains("not found", Qt::CaseInsensitive))
+        {
+            text = "PNS: Invalid asc file";
+        }
+        else
+        {
+            text = "PNS: Ready";
+        }
+    }
+    else
+    {
+        auto maxOf = [](const QVector<double>& v) {
+            double m = 0.0;
+            for (double x : v)
+            {
+                if (std::isfinite(x))
+                    m = std::max(m, x);
+            }
+            return m;
+        };
+        const int xp = static_cast<int>(std::lround(100.0 * maxOf(m_pulseqLoader->getPnsX())));
+        const int yp = static_cast<int>(std::lround(100.0 * maxOf(m_pulseqLoader->getPnsY())));
+        const int zp = static_cast<int>(std::lround(100.0 * maxOf(m_pulseqLoader->getPnsZ())));
+        const int np = static_cast<int>(std::lround(100.0 * maxOf(m_pulseqLoader->getPnsNorm())));
+        text = QString("PNS: xyzn=%1,%2,%3,%4%%").arg(xp).arg(yp).arg(zp).arg(np);
+    }
+
+    m_pPnsStatusLabel->setText(text);
+    m_pPnsStatusLabel->setVisible(true);
 }
 
 void MainWindow::Init()
@@ -620,6 +691,7 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     if (m_pTrajectoryPlot->axisRect())
         m_pTrajectoryCrosshairOverlay->setGeometry(m_pTrajectoryPlot->axisRect()->rect());
     trajectoryLayout->addWidget(m_pTrajectoryPlot, 1);
+
     connect(m_pExportTrajectoryButton, &QPushButton::clicked, this, &MainWindow::exportTrajectory);
     connect(m_pResetTrajectoryButton, &QPushButton::clicked, this, &MainWindow::onResetTrajectoryRange);
 
@@ -1677,6 +1749,10 @@ void MainWindow::onSettingsChanged()
     }
 
     updateTrajectoryAxisLabels();
+    if (m_pulseqLoader)
+    {
+        m_pulseqLoader->recomputePnsFromSettings();
+    }
     refreshTrajectoryPlotData();
     refreshTrajectoryCursor();
 }

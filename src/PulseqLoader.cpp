@@ -13,6 +13,7 @@
 #include <QMessageBox>
 #include <QSettings>
 #include <QDir>
+#include <QFileInfo>
 #include <iostream>
 #include <sstream>
 #include <complex>
@@ -137,6 +138,9 @@ void PulseqLoader::ClearPulseqCache()
     m_kTrajectoryYAdc.clear();
     m_kTrajectoryZAdc.clear();
     m_kTimeAdcSec.clear();
+    m_pnsResult = PnsCalculator::Result{};
+    m_pnsAscPath.clear();
+    m_pnsStatusMessage.clear();
     m_usedExtensions.clear();
     m_adcPhaseCache.valid = false;
 
@@ -160,6 +164,7 @@ void PulseqLoader::ClearPulseqCache()
         std::cout << m_sPulseqFilePath.toStdString() << " Closed\n";
     }
     if (m_mainWindow) { m_mainWindow->setWindowFilePath(""); }
+    emit pnsDataUpdated();
 }
 
 /**
@@ -252,6 +257,9 @@ std::pair<int, int> PulseqLoader::ReadFileVersion(const std::string& filename)
 bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
 {
     m_mainWindow->setEnabled(false);
+    // Keep the canonical loaded path for all loading entry points
+    // (file dialog, drag/drop, command line, reopen).
+    m_sPulseqFilePath = sPulseqFilePath;
 
     // First, read version information without loading the full file
     std::pair<int, int> version = ReadFileVersion(sPulseqFilePath.toStdString());
@@ -606,6 +614,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
         // Show "SeqEyes - file.seq" only after a successful load.
         m_mainWindow->setLoadedFileTitle(sPulseqFilePath);
     }
+    recomputePnsFromSettings();
     m_mainWindow->setEnabled(true);
     return true;
 }
@@ -1494,6 +1503,72 @@ void PulseqLoader::rescaleTimeUnit()
 
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
         m_mainWindow->ui->customPlot->replot();
+}
+
+void PulseqLoader::recomputePnsFromSettings()
+{
+    m_pnsResult = PnsCalculator::Result{};
+    m_pnsStatusMessage.clear();
+    m_pnsAscPath = Settings::getInstance().getPnsAscPath().trimmed();
+
+    if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2 || !m_spPulseqSeq)
+    {
+        m_pnsStatusMessage = QStringLiteral("Load a sequence to compute PNS.");
+        emit pnsDataUpdated();
+        return;
+    }
+
+    if (m_pnsAscPath.isEmpty())
+    {
+        m_pnsStatusMessage = QStringLiteral("PNS is not configured. Select a valid ASC profile in Settings > Safety.");
+        emit pnsDataUpdated();
+        return;
+    }
+
+    if (!QFileInfo::exists(m_pnsAscPath))
+    {
+        m_pnsStatusMessage = QStringLiteral("PNS ASC file not found: %1").arg(m_pnsAscPath);
+        emit pnsDataUpdated();
+        return;
+    }
+
+    PnsCalculator::Hardware hw;
+    QString parseError;
+    if (!PnsCalculator::parseAscFile(m_pnsAscPath, hw, &parseError))
+    {
+        m_pnsStatusMessage = parseError;
+        emit pnsDataUpdated();
+        return;
+    }
+
+    std::vector<double> def = m_spPulseqSeq->GetDefinition("GradientRasterTime");
+    if (def.empty() || !std::isfinite(def[0]) || def[0] <= 0.0)
+    {
+        m_pnsStatusMessage = QStringLiteral("GradientRasterTime definition is missing.");
+        emit pnsDataUpdated();
+        return;
+    }
+    const double gradientRasterUs = def[0] * 1e6;
+    const double gammaHzPerT = Settings::getInstance().getGamma();
+    m_pnsResult = PnsCalculator::calculate(
+        m_vecDecodeSeqBlocks,
+        vecBlockEdges,
+        tFactor,
+        gradientRasterUs,
+        gammaHzPerT,
+        hw);
+
+    if (!m_pnsResult.valid)
+    {
+        m_pnsStatusMessage = m_pnsResult.error;
+    }
+    else
+    {
+        m_pnsStatusMessage = m_pnsResult.ok
+            ? QStringLiteral("PNS prediction OK (max < 100%).")
+            : QStringLiteral("PNS warning: predicted level reaches/exceeds 100%.");
+    }
+    emit pnsDataUpdated();
 }
 
 void PulseqLoader::saveLastOpenDirectory()

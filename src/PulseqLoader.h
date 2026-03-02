@@ -13,6 +13,7 @@
 #include <QSet>
 
 #include "ExternalSequence.h" // For ExternalSequence factory and SeqBlock
+#include "PnsCalculator.h"
 
 // Forward declarations
 class MainWindow;
@@ -150,6 +151,17 @@ public:
         char c = m_rfUsePerBlock[blockIdx];
         return c ? c : 'u';
     }
+    // PNS
+    bool hasPnsData() const { return m_pnsResult.valid; }
+    bool isPnsOk() const { return m_pnsResult.ok; }
+    QString getPnsAscPath() const { return m_pnsAscPath; }
+    QString getPnsStatusMessage() const { return m_pnsStatusMessage; }
+    const QVector<double>& getPnsTimeSec() const { return m_pnsResult.timeSec; }
+    const QVector<double>& getPnsX() const { return m_pnsResult.pnsX; }
+    const QVector<double>& getPnsY() const { return m_pnsResult.pnsY; }
+    const QVector<double>& getPnsZ() const { return m_pnsResult.pnsZ; }
+    const QVector<double>& getPnsNorm() const { return m_pnsResult.pnsNorm; }
+    void recomputePnsFromSettings();
 
 public slots:
     // Slots for UI connections
@@ -158,6 +170,9 @@ public slots:
     bool ClosePulseqFile();
     // Lightweight time-unit rescaling (avoids full file reload)
     void rescaleTimeUnit();
+
+signals:
+    void pnsDataUpdated();
 
 private:
     struct LabelSnapshot
@@ -261,6 +276,9 @@ private:
     QVector<double> m_kTrajectoryZAdc;
     QVector<double> m_kTimeAdcSec;
     QVector<char>   m_rfUsePerBlock;
+    PnsCalculator::Result m_pnsResult;
+    QString m_pnsAscPath;
+    QString m_pnsStatusMessage;
 
     // ===== RF Shape Cache (split Amp/Phase) =====
     struct RFAmpEntry {
