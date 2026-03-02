@@ -59,7 +59,7 @@ SET(EXTERNAL_LIST
 source_group("External" FILES ${EXTERNAL_LIST})
 
 # find QT6
-find_package(Qt6 COMPONENTS 
+find_package(Qt6 COMPONENTS
     Core
     Gui
     Widgets

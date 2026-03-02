@@ -130,7 +130,7 @@ External dependencies:
 - Python runners (build‑dir aware):
   - `test/test_zoom_pan.py`: run QtTest for all `.seq` files under `test/seq_files`
   - `test/test_load_all.py`: run the app headlessly to load all `.seq` and report PASS/FAIL
-  - `test/run_all.py`: small menu to run load/zoompan/both; supports `--bin-dir` pointing to the build output
+  - `test/tools/run_all.py`: small menu to run load/zoompan/both; supports `--bin-dir` pointing to the build output
 
 ## Build & Run
 
@@ -149,7 +149,7 @@ External dependencies:
 - Tests:
   - `python test/test_zoom_pan.py --bin-dir out/build/x64-Debug`
   - `python test/test_load_all.py --bin-dir out/build/x64-Debug`
-  - `python test/run_all.py --bin-dir out/build/x64-Debug`
+  - `python test/tools/run_all.py --bin-dir out/build/x64-Debug`
 
 - Version info:
   - Auto‑generated from Git in the format `YYYYMMDD, git commit hash` (e.g., `20241215, a1b2c3d4e5`), using the commit’s date; shown in Help → About and `--version`.
@@ -222,4 +222,3 @@ External dependencies:
 - `test/` — Qt tests + Python runners + sample `.seq`
 - `docs/` — documentation assets
 - `CMakeLists.txt` + presets — build configuration
-
