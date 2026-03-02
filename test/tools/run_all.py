@@ -24,7 +24,7 @@ def main():
     print("  4) Run all (1+2+3)")
     choice = input("Enter 1/2/3/4 (default 4): ").strip() or "4"
 
-    repo = Path(__file__).resolve().parents[1]
+    repo = Path(__file__).resolve().parents[2]
     rc = 0
     if choice in ("1","4"):
         cmd = [sys.executable, str(repo/"test"/"test_load_all.py")]

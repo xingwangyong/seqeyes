@@ -31,6 +31,8 @@
 #include <QDir>
 #include <QResizeEvent>
 #include <QTimer>
+#include <QImage>
+#include <QVector>
 #include <cmath>
 #include <limits>
 #include <algorithm>
@@ -1949,4 +1951,107 @@ void MainWindow::applyCommandLineOptions(const QCommandLineParser& parser)
             setGeometry(x, y, cellW, cellH);
         }
     }
+}
+
+void MainWindow::captureSnapshotsAndExit(const QString& outDir)
+{
+    // Ensure the window has a deterministic size and is shown so QCustomPlot layouts correctly
+    this->resize(1280, 800);
+    this->show();
+
+    QTimer::singleShot(200, this, [this, outDir]() {
+        QDir dir(outDir);
+        if (!dir.exists()) {
+            dir.mkpath(".");
+        }
+
+        QString baseName = QFileInfo(m_loadedSeqFilePath).baseName();
+        if (baseName.isEmpty()) baseName = "unnamed";
+
+        auto savePlotViaPainter = [](QCustomPlot* plot, const QString& path, int width, int height) -> bool {
+            if (!plot) {
+                return false;
+            }
+            QImage image(width, height, QImage::Format_ARGB32_Premultiplied);
+            image.setDevicePixelRatio(1.0);
+            image.fill(Qt::white);
+
+            QCPPainter painter(&image);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            painter.setRenderHint(QPainter::TextAntialiasing, true);
+            plot->toPainter(&painter, width, height);
+
+            return image.save(path);
+        };
+
+        auto savePlotDeterministic = [savePlotViaPainter](QCustomPlot* plot, const QString& path, int width, int height) -> bool {
+            if (!plot) {
+                return false;
+            }
+
+            QVector<QCPLayer::LayerMode> originalModes;
+            originalModes.reserve(plot->layerCount());
+            for (int i = 0; i < plot->layerCount(); ++i) {
+                QCPLayer* layer = plot->layer(i);
+                if (!layer) {
+                    originalModes.push_back(QCPLayer::lmLogical);
+                    continue;
+                }
+                originalModes.push_back(layer->mode());
+                layer->setMode(QCPLayer::lmLogical);
+            }
+
+            plot->replot(QCustomPlot::rpImmediateRefresh);
+            const bool ok = savePlotViaPainter(plot, path, width, height);
+
+            for (int i = 0; i < plot->layerCount() && i < originalModes.size(); ++i) {
+                QCPLayer* layer = plot->layer(i);
+                if (layer) {
+                    layer->setMode(originalModes[i]);
+                }
+            }
+            plot->replot(QCustomPlot::rpImmediateRefresh);
+            return ok;
+        };
+
+        // 1. Sequence Diagram Snapshot
+        // Re-apply the stored time range immediately before rendering.
+        // Do not override per-rect margins here: waveform rows are aligned by
+        // WaveformDrawer's margin group. Forcing only axisRect() (first row)
+        // causes row misalignment in captures.
+        if (m_trManager && m_interactionHandler && m_pulseqLoader) {
+            bool ok1 = false, ok2 = false;
+            double startMs = m_trManager->getTimeStartInput()->text().toDouble(&ok1);
+            double endMs   = m_trManager->getTimeEndInput()->text().toDouble(&ok2);
+            if (ok1 && ok2 && endMs > startMs) {
+                double tf = m_pulseqLoader->getTFactor();
+                m_interactionHandler->synchronizeXAxes(QCPRange(startMs * tf * 1000.0, endMs * tf * 1000.0));
+            }
+        }
+        ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+
+        QString seqPath = dir.absoluteFilePath(baseName + "_seq.png");
+        if (savePlotDeterministic(ui->customPlot, seqPath, 1000, 600)) {
+            qInfo() << "Saved sequence snapshot to" << seqPath;
+        } else {
+            qWarning() << "Failed to save sequence snapshot to" << seqPath;
+        }
+
+        // 2. Trajectory Diagram Snapshot
+        setTrajectoryVisible(true);
+        // We use a small delay to let the initial rendering and aspect ratio correction kick in
+        QTimer::singleShot(300, this, [this, dir, baseName, savePlotDeterministic]() {
+            if (m_pTrajectoryPlot) {
+                m_pTrajectoryPlot->replot(QCustomPlot::rpImmediateRefresh);
+                QString trajPath = dir.absoluteFilePath(baseName + "_traj.png");
+                if (savePlotDeterministic(m_pTrajectoryPlot, trajPath, 1000, 600)) {
+                    qInfo() << "Saved trajectory snapshot to" << trajPath;
+                } else {
+                    qWarning() << "Failed to save trajectory snapshot to" << trajPath;
+                }
+            }
+            // Done capturing
+            QApplication::quit();
+        });
+    });
 }
