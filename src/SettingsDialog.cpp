@@ -32,6 +32,10 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_pnsAscPathCombo(nullptr)
     , m_pnsBrowseButton(nullptr)
     , m_pnsRemoveInvalidButton(nullptr)
+    , m_pnsShowXCheck(nullptr)
+    , m_pnsShowYCheck(nullptr)
+    , m_pnsShowZCheck(nullptr)
+    , m_pnsShowNormCheck(nullptr)
     , m_applyButton(nullptr)
     , m_okButton(nullptr)
     , m_cancelButton(nullptr)
@@ -283,6 +287,21 @@ void SettingsDialog::setupUI()
 
     pnsForm->addRow("ASC Path:", pnsPathRow);
 
+    QWidget* pnsChannelsRow = new QWidget(safetyTab);
+    QHBoxLayout* pnsChannelsLayout = new QHBoxLayout(pnsChannelsRow);
+    pnsChannelsLayout->setContentsMargins(0, 0, 0, 0);
+    pnsChannelsLayout->setSpacing(10);
+    m_pnsShowXCheck = new QCheckBox("X", safetyTab);
+    m_pnsShowYCheck = new QCheckBox("Y", safetyTab);
+    m_pnsShowZCheck = new QCheckBox("Z", safetyTab);
+    m_pnsShowNormCheck = new QCheckBox("Norm", safetyTab);
+    pnsChannelsLayout->addWidget(m_pnsShowXCheck);
+    pnsChannelsLayout->addWidget(m_pnsShowYCheck);
+    pnsChannelsLayout->addWidget(m_pnsShowZCheck);
+    pnsChannelsLayout->addWidget(m_pnsShowNormCheck);
+    pnsChannelsLayout->addStretch();
+    pnsForm->addRow("Display:", pnsChannelsRow);
+
     QLabel* pnsHint = new QLabel(
         "Select Siemens ASC profile used for PNS prediction. "
         "The selected path and recent paths are saved in settings.",
@@ -350,6 +369,10 @@ void SettingsDialog::loadCurrentSettings()
     m_originalShowExtensionTooltip = settings.getShowExtensionTooltip();
     m_originalPnsAscPath = settings.getPnsAscPath();
     m_originalPnsAscHistory = settings.getPnsAscHistory();
+    m_originalPnsShowX = settings.getPnsChannelVisibleX();
+    m_originalPnsShowY = settings.getPnsChannelVisibleY();
+    m_originalPnsShowZ = settings.getPnsChannelVisibleZ();
+    m_originalPnsShowNorm = settings.getPnsChannelVisibleNorm();
 
     // Store original extension label states
     m_originalExtensionLabelStates.clear();
@@ -429,6 +452,10 @@ void SettingsDialog::loadCurrentSettings()
             m_pnsAscPathCombo->setEditText("");
         }
     }
+    if (m_pnsShowXCheck) m_pnsShowXCheck->setChecked(settings.getPnsChannelVisibleX());
+    if (m_pnsShowYCheck) m_pnsShowYCheck->setChecked(settings.getPnsChannelVisibleY());
+    if (m_pnsShowZCheck) m_pnsShowZCheck->setChecked(settings.getPnsChannelVisibleZ());
+    if (m_pnsShowNormCheck) m_pnsShowNormCheck->setChecked(settings.getPnsChannelVisibleNorm());
     
     // Load gamma - find closest match in combo box
     double currentGamma = settings.getGamma();
@@ -555,6 +582,10 @@ void SettingsDialog::applySettings()
             }
         }
     }
+    if (m_pnsShowXCheck) settings.setPnsChannelVisibleX(m_pnsShowXCheck->isChecked());
+    if (m_pnsShowYCheck) settings.setPnsChannelVisibleY(m_pnsShowYCheck->isChecked());
+    if (m_pnsShowZCheck) settings.setPnsChannelVisibleZ(m_pnsShowZCheck->isChecked());
+    if (m_pnsShowNormCheck) settings.setPnsChannelVisibleNorm(m_pnsShowNormCheck->isChecked());
 
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
     
@@ -595,6 +626,10 @@ void SettingsDialog::onCancelClicked()
     settings.setShowExtensionTooltip(m_originalShowExtensionTooltip);
     settings.setPnsAscHistory(m_originalPnsAscHistory);
     settings.setPnsAscPath(m_originalPnsAscPath);
+    settings.setPnsChannelVisibleX(m_originalPnsShowX);
+    settings.setPnsChannelVisibleY(m_originalPnsShowY);
+    settings.setPnsChannelVisibleZ(m_originalPnsShowZ);
+    settings.setPnsChannelVisibleNorm(m_originalPnsShowNorm);
     // Restore original extension label states
     for (auto it = m_originalExtensionLabelStates.constBegin(); it != m_originalExtensionLabelStates.constEnd(); ++it)
     {
