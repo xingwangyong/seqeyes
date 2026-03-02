@@ -162,6 +162,14 @@ public:
     void setPnsAscPath(const QString& path);
     void setPnsAscHistory(const QStringList& history);
     int removeInvalidPnsAscHistoryPaths();
+    void setPnsChannelVisibleX(bool visible);
+    void setPnsChannelVisibleY(bool visible);
+    void setPnsChannelVisibleZ(bool visible);
+    void setPnsChannelVisibleNorm(bool visible);
+    bool getPnsChannelVisibleX() const;
+    bool getPnsChannelVisibleY() const;
+    bool getPnsChannelVisibleZ() const;
+    bool getPnsChannelVisibleNorm() const;
 
 signals:
     void settingsChanged();
@@ -196,6 +204,10 @@ private:
     bool m_showExtensionTooltip { false }; // Show extension tooltip on hover
     QString m_pnsAscPath;
     QStringList m_pnsAscHistory;
+    bool m_pnsShowX {false};
+    bool m_pnsShowY {false};
+    bool m_pnsShowZ {true};
+    bool m_pnsShowNorm {true};
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
     
     // Conversion helper functions

@@ -1737,6 +1737,24 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
     // PNS curve (single axis with X/Y/Z/norm)
     if (m_graphPnsX && m_graphPnsY && m_graphPnsZ && m_graphPnsNorm)
     {
+        const bool pnsCurveEnabled = m_curveVisibility.value(6, true);
+        const Settings& settings = Settings::getInstance();
+        const bool anyPnsChannelEnabled =
+            settings.getPnsChannelVisibleX() ||
+            settings.getPnsChannelVisibleY() ||
+            settings.getPnsChannelVisibleZ() ||
+            settings.getPnsChannelVisibleNorm();
+
+        // Fast path: when PNS checkbox is off (or all channels hidden), skip all vector work.
+        if (!pnsCurveEnabled || !anyPnsChannelEnabled)
+        {
+            m_graphPnsX->setVisible(false);
+            m_graphPnsY->setVisible(false);
+            m_graphPnsZ->setVisible(false);
+            m_graphPnsNorm->setVisible(false);
+            return;
+        }
+
         QVector<double> pnsT;
         QVector<double> pnsX;
         QVector<double> pnsY;
@@ -1775,11 +1793,14 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
             pnsN.append(100.0 * sn[i]);
         }
 
-        // Whole-sequence dragging can involve very dense PNS arrays; decimate for display.
-        if (currentLODLevel == LODLevel::DOWNSAMPLED && m_pPnsRect && pnsT.size() > 0)
+        // Whole-sequence dragging can involve very dense PNS arrays.
+        // Use a pixel-based cap in all LOD levels to keep interaction responsive.
+        if (m_pPnsRect && pnsT.size() > 0)
         {
             const int px = qMax(1, static_cast<int>(qRound(m_pPnsRect->width() * m_mainWindow->devicePixelRatioF())));
-            const int maxPoints = qMax(200, 2 * px);
+            const int maxPoints = (currentLODLevel == LODLevel::DOWNSAMPLED)
+                ? qMax(200, 2 * px)
+                : qMax(400, 4 * px);
             if (pnsT.size() > maxPoints)
             {
                 const int step = qMax(1, static_cast<int>(std::ceil(static_cast<double>(pnsT.size()) / maxPoints)));
@@ -1813,15 +1834,19 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
             }
         }
 
-        const bool showPns = m_curveVisibility.value(6, true) && !pnsT.isEmpty();
+        const bool showPns = !pnsT.isEmpty();
+        const bool showPnsX = showPns && settings.getPnsChannelVisibleX();
+        const bool showPnsY = showPns && settings.getPnsChannelVisibleY();
+        const bool showPnsZ = showPns && settings.getPnsChannelVisibleZ();
+        const bool showPnsN = showPns && settings.getPnsChannelVisibleNorm();
         m_graphPnsX->setData(pnsT, pnsX);
         m_graphPnsY->setData(pnsT, pnsY);
         m_graphPnsZ->setData(pnsT, pnsZ);
         m_graphPnsNorm->setData(pnsT, pnsN);
-        m_graphPnsX->setVisible(showPns);
-        m_graphPnsY->setVisible(showPns);
-        m_graphPnsZ->setVisible(showPns);
-        m_graphPnsNorm->setVisible(showPns);
+        m_graphPnsX->setVisible(showPnsX);
+        m_graphPnsY->setVisible(showPnsY);
+        m_graphPnsZ->setVisible(showPnsZ);
+        m_graphPnsNorm->setVisible(showPnsN);
 
         if (!m_lockYAxisRanges)
         {
@@ -2090,13 +2115,13 @@ void WaveformDrawer::updateCurveVisibility()
     if (m_graphGz)
         m_graphGz->setVisible(m_curveVisibility.value(5, false));
     if (m_graphPnsX)
-        m_graphPnsX->setVisible(m_curveVisibility.value(6, false));
+        m_graphPnsX->setVisible(m_curveVisibility.value(6, false) && Settings::getInstance().getPnsChannelVisibleX());
     if (m_graphPnsY)
-        m_graphPnsY->setVisible(m_curveVisibility.value(6, false));
+        m_graphPnsY->setVisible(m_curveVisibility.value(6, false) && Settings::getInstance().getPnsChannelVisibleY());
     if (m_graphPnsZ)
-        m_graphPnsZ->setVisible(m_curveVisibility.value(6, false));
+        m_graphPnsZ->setVisible(m_curveVisibility.value(6, false) && Settings::getInstance().getPnsChannelVisibleZ());
     if (m_graphPnsNorm)
-        m_graphPnsNorm->setVisible(m_curveVisibility.value(6, false));
+        m_graphPnsNorm->setVisible(m_curveVisibility.value(6, false) && Settings::getInstance().getPnsChannelVisibleNorm());
     if (m_graphTrigMarkers)
         m_graphTrigMarkers->setVisible(m_curveVisibility.value(0, false));
     if (m_graphTrigDurations)
