@@ -724,36 +724,93 @@ PnsCalculator::Result PnsCalculator::calculate(
         gzTpm[i] = gz / gammaHzPerT;
     }
 
-    QVector<double> dgdtX(nSamples - 1);
-    QVector<double> dgdtY(nSamples - 1);
-    QVector<double> dgdtZ(nSamples - 1);
-    for (int i = 0; i < nSamples - 1; ++i)
+    const auto longestTauMs = [&hardware]() {
+        double m = 0.0;
+        m = std::max(m, hardware.x.tau1Ms); m = std::max(m, hardware.x.tau2Ms); m = std::max(m, hardware.x.tau3Ms);
+        m = std::max(m, hardware.y.tau1Ms); m = std::max(m, hardware.y.tau2Ms); m = std::max(m, hardware.y.tau3Ms);
+        m = std::max(m, hardware.z.tau1Ms); m = std::max(m, hardware.z.tau2Ms); m = std::max(m, hardware.z.tau3Ms);
+        return m;
+    }();
+    const double zptSec = (longestTauMs * 4.0) / 1000.0;
+    const int preCount = std::max(0, static_cast<int>(std::llround(zptSec / (4.0 * dtSec))));
+    const int postCount = std::max(0, static_cast<int>(std::llround(zptSec / dtSec)));
+
+    QVector<double> gxPadded(preCount + nSamples + postCount, 0.0);
+    QVector<double> gyPadded(preCount + nSamples + postCount, 0.0);
+    QVector<double> gzPadded(preCount + nSamples + postCount, 0.0);
+    for (int i = 0; i < nSamples; ++i)
     {
-        dgdtX[i] = (gxTpm[i + 1] - gxTpm[i]) / dtSec;
-        dgdtY[i] = (gyTpm[i + 1] - gyTpm[i]) / dtSec;
-        dgdtZ[i] = (gzTpm[i + 1] - gzTpm[i]) / dtSec;
+        gxPadded[preCount + i] = gxTpm[i];
+        gyPadded[preCount + i] = gyTpm[i];
+        gzPadded[preCount + i] = gzTpm[i];
+    }
+
+    QVector<double> dgdtX(gxPadded.size() - 1);
+    QVector<double> dgdtY(gyPadded.size() - 1);
+    QVector<double> dgdtZ(gzPadded.size() - 1);
+    for (int i = 0; i < dgdtX.size(); ++i)
+    {
+        dgdtX[i] = (gxPadded[i + 1] - gxPadded[i]) / dtSec;
+        dgdtY[i] = (gyPadded[i + 1] - gyPadded[i]) / dtSec;
+        dgdtZ[i] = (gzPadded[i + 1] - gzPadded[i]) / dtSec;
     }
 
     const QVector<double> stimX = safePnsModel(dgdtX, dtSec, hardware.x);
     const QVector<double> stimY = safePnsModel(dgdtY, dtSec, hardware.y);
     const QVector<double> stimZ = safePnsModel(dgdtZ, dtSec, hardware.z);
 
-    result.timeSec.resize(stimX.size());
-    result.pnsX.resize(stimX.size());
-    result.pnsY.resize(stimX.size());
-    result.pnsZ.resize(stimX.size());
-    result.pnsNorm.resize(stimX.size());
+    QVector<bool> originalMask(gxPadded.size(), false);
+    for (int i = 0; i < nSamples; ++i)
+    {
+        originalMask[preCount + i] = true;
+    }
+
+    QVector<double> selX;
+    QVector<double> selY;
+    QVector<double> selZ;
+    QVector<double> selTime;
+    selX.reserve(nSamples);
+    selY.reserve(nSamples);
+    selZ.reserve(nSamples);
+    selTime.reserve(nSamples);
+
+    int origIdx = 0;
+    for (int i = 0; i < originalMask.size(); ++i)
+    {
+        if (!originalMask[i])
+        {
+            continue;
+        }
+        if (i >= stimX.size() || i >= stimY.size() || i >= stimZ.size())
+        {
+            break;
+        }
+        if (origIdx >= tAxis.size())
+        {
+            break;
+        }
+        selX.append(stimX[i]);
+        selY.append(stimY[i]);
+        selZ.append(stimZ[i]);
+        selTime.append(tAxis[origIdx]);
+        ++origIdx;
+    }
+
+    result.timeSec.resize(selX.size());
+    result.pnsX.resize(selX.size());
+    result.pnsY.resize(selX.size());
+    result.pnsZ.resize(selX.size());
+    result.pnsNorm.resize(selX.size());
     bool ok = true;
-    for (int i = 0; i < stimX.size(); ++i)
+    for (int i = 0; i < selX.size(); ++i)
     {
         // SAFE returns percent; convert to normalized value (threshold = 1.0).
-        const double xNorm = 0.01 * stimX[i];
-        const double yNorm = 0.01 * stimY[i];
-        const double zNorm = 0.01 * stimZ[i];
+        const double xNorm = 0.01 * selX[i];
+        const double yNorm = 0.01 * selY[i];
+        const double zNorm = 0.01 * selZ[i];
         const double norm = std::sqrt(xNorm * xNorm + yNorm * yNorm + zNorm * zNorm);
-        // Keep PNS sample time aligned to the raster center used to build dg/dt,
-        // matching MATLAB calcPNS convention for plotting/comparison.
-        result.timeSec[i] = tAxis[i];
+        // Keep PNS sample time aligned to the original raster centers.
+        result.timeSec[i] = selTime[i];
         result.pnsX[i] = xNorm;
         result.pnsY[i] = yNorm;
         result.pnsZ[i] = zNorm;

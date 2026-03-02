@@ -3,10 +3,50 @@ import subprocess
 import sys
 import json
 import tempfile
+import atexit
 import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+_DUMMY_PNS_ASC_CONTENT = """# Temporary dummy ASC profile used only for local performance testing.
+flGSWDTauX[0] = 0.20
+flGSWDTauX[1] = 3.00
+flGSWDTauX[2] = 20.0
+flGSWDAX[0] = 0.55
+flGSWDAX[1] = 0.30
+flGSWDAX[2] = 0.15
+flGSWDStimulationLimitX = 30.0
+flGSWDStimulationThresholdX = 24.0
+flGScaleFactorX = 1.00
+
+flGSWDTauY[0] = 0.18
+flGSWDTauY[1] = 2.80
+flGSWDTauY[2] = 18.0
+flGSWDAY[0] = 0.52
+flGSWDAY[1] = 0.33
+flGSWDAY[2] = 0.15
+flGSWDStimulationLimitY = 28.0
+flGSWDStimulationThresholdY = 22.4
+flGScaleFactorY = 1.00
+
+flGSWDTauZ[0] = 0.22
+flGSWDTauZ[1] = 3.20
+flGSWDTauZ[2] = 24.0
+flGSWDAZ[0] = 0.57
+flGSWDAZ[1] = 0.28
+flGSWDAZ[2] = 0.15
+flGSWDStimulationLimitZ = 26.0
+flGSWDStimulationThresholdZ = 20.8
+flGScaleFactorZ = 1.00
+"""
+
+def create_temp_dummy_pns_asc() -> Path:
+    f = tempfile.NamedTemporaryFile(delete=False, suffix=".asc", mode="w", encoding="utf-8")
+    f.write(_DUMMY_PNS_ASC_CONTENT)
+    f.flush()
+    f.close()
+    return Path(f.name)
 
 
 def detect_exe(bin_dir: Path) -> Path:
@@ -49,13 +89,26 @@ def run_one(exe: Path, seq_path: Path):
     exe_name = exe.name.lower()
     seq_abs = seq_path.resolve()
     if "seqeye" in exe_name:
-        scenario = {
-            "actions": [
-                {"type": "open_file", "path": seq_abs.as_posix()},
+        scenario = {"actions": [{"type": "open_file", "path": seq_abs.as_posix()}]}
+        pns_asc = os.environ.get("SEQEYES_PERF_PNS_ASC", "").strip()
+        if pns_asc:
+            scenario["actions"].append(
+                {
+                    "type": "configure_pns",
+                    "asc_path": str(Path(pns_asc).resolve().as_posix()),
+                    "show_pns": True,
+                    "show_x": True,
+                    "show_y": True,
+                    "show_z": True,
+                    "show_norm": True,
+                }
+            )
+        scenario["actions"].extend(
+            [
                 {"type": "reset_view"},
                 {"type": "measure_zoom_by_factor", "factor": 0.5},
             ]
-        }
+        )
         with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tf:
             tf.write(json.dumps(scenario).encode("utf-8"))
             scen_path = tf.name
@@ -107,8 +160,22 @@ def main():
     ap.add_argument("--repeat", type=int, default=1, help="Number of times to repeat each test (for statistical stability)")
     ap.add_argument("--warmup", action="store_true", help="Run once before starting measurements to warm up caches")
     ap.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE, help="Baseline JSON (default: test/perf_baseline.json if exists)")
-    ap.add_argument("--threshold-ms", type=float, default=None, help="Absolute regression threshold in ms; if omitted, use 10% of baseline")
+    ap.add_argument("--threshold-ms", type=float, default=None, help="Absolute regression threshold in ms; if omitted, use 10%% of baseline")
+    ap.add_argument("--pns-asc", type=Path, default=None, help="Optional ASC profile path. If provided, perf run enables PNS X/Y/Z/Norm for worst-case timing.")
+    ap.add_argument("--use-dummy-pns-asc", action="store_true", help="Generate a temporary dummy ASC profile and enable PNS X/Y/Z/Norm for local worst-case timing.")
     args = ap.parse_args()
+
+    temp_dummy_asc = None
+    if args.use_dummy_pns_asc:
+        temp_dummy_asc = create_temp_dummy_pns_asc()
+        os.environ["SEQEYES_PERF_PNS_ASC"] = str(temp_dummy_asc.resolve())
+        atexit.register(lambda p=temp_dummy_asc: p.unlink(missing_ok=True))
+    elif args.pns_asc is not None:
+        asc = args.pns_asc.resolve()
+        if not asc.exists():
+            print(f"[FAIL] --pns-asc not found: {asc}")
+            sys.exit(2)
+        os.environ["SEQEYES_PERF_PNS_ASC"] = str(asc)
 
     exe = detect_exe(args.bin_dir)
 
@@ -293,4 +360,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
