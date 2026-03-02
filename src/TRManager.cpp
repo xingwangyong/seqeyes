@@ -1838,6 +1838,20 @@ void TRManager::onShowPnsToggled(bool checked)
     {
         drawer->setShowCurve(6, checked); // PNS is at index 6
         drawer->updateCurveVisibility();
+        if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+        if (checked && m_mainWindow)
+        {
+            // Defer one tick so axis rect geometry is finalized before PNS decimation uses rect width.
+            QTimer::singleShot(0, m_mainWindow, [this]() {
+                if (!m_mainWindow) return;
+                auto* d = m_mainWindow->getWaveformDrawer();
+                if (!d) return;
+                d->DrawGWaveform();
+                if (m_mainWindow->ui && m_mainWindow->ui->customPlot)
+                    m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            });
+        }
     }
     if (m_mainWindow)
     {

@@ -28,6 +28,7 @@ InteractionHandler notes:
 #include <QMenu>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QElapsedTimer>
 #include <iostream>
 #include <sstream>
 #include <cmath>
@@ -233,20 +234,15 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
 	if (!loader || loader->getDecodedSeqBlocks().empty()) return;
 
 	const auto& edges = loader->getBlockEdges();
-	int start = loader->getBlockRangeStart();
-	int end = loader->getBlockRangeEnd();
 	int blockIdx = -1;
-	for (int i = start; i <= end && i + 1 < edges.size(); ++i)
-	{
-		if (xCoord >= edges[i] && xCoord < edges[i+1]) { blockIdx = i; break; }
-	}
-	// Whole-sequence mode can cover more than the active block window; fall back to
-	// a global search so the status bar stays accurate instead of reporting -1.
-	if (blockIdx < 0 && edges.size() > 1)
+	// O(logN) block lookup. Linear scan here can cause severe lag on large sequences.
+	if (edges.size() > 1)
 	{
 		auto upper = std::upper_bound(edges.begin(), edges.end(), xCoord);
 		int candidate = static_cast<int>(upper - edges.begin()) - 1;
-		if (candidate >= 0 && candidate < loader->getDecodedSeqBlocks().size())
+		if (candidate >= 0 && candidate + 1 < edges.size() &&
+			candidate < loader->getDecodedSeqBlocks().size() &&
+			xCoord >= edges[candidate] && xCoord < edges[candidate + 1])
 		{
 			blockIdx = candidate;
 		}
@@ -399,7 +395,19 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
         // the UI thread for every mouse move event — when the plot contains many data points
         // (e.g. ADC phase), this causes the red guide line to lag seconds behind the cursor.
         // rpQueuedReplot coalesces rapid successive requests into a single actual repaint.
-		m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+		// Throttle queued replots to keep mouse guide line responsive under heavy waveforms.
+		static QElapsedTimer s_replotTimer;
+		static bool s_replotStarted = false;
+		if (!s_replotStarted)
+		{
+			s_replotTimer.start();
+			s_replotStarted = true;
+		}
+		if (s_replotTimer.elapsed() >= 12)
+		{
+			m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+			s_replotTimer.restart();
+		}
 	}
 
 	if (blockIdx < 0) return;
