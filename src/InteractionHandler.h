@@ -60,6 +60,7 @@ private:
     // Coalesced wheel processing to improve "stickiness" and avoid post-scroll zoom bursts
     void processAccumulatedWheel();
     void processDeferredViewportRender();
+    void processFinalViewportRender();
 
     // Axis drag-reorder helpers
     bool isOverAxisLabelArea(const QPoint& pos, int& axisIndex) const;
@@ -117,6 +118,7 @@ private:
     bool m_syncInProgress {false};
     // Coalesce expensive viewport re-render work during continuous zoom/pan.
     QTimer* m_viewportRenderTimer {nullptr};
+    QTimer* m_viewportFinalTimer {nullptr};
     bool m_pendingTrajectoryRefresh {false};
 };
 
