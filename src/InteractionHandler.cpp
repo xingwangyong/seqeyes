@@ -364,8 +364,11 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
         {
             QCPItemStraightLine* vline = drawerForSearch->getVerticalLines()[i];
             if (!vline) continue;
-            vline->point1->setCoords(guideX, drawerForSearch->getRects()[i]->axis(QCPAxis::atBottom)->range().lower);
-            vline->point2->setCoords(guideX, drawerForSearch->getRects()[i]->axis(QCPAxis::atBottom)->range().upper);
+            if (i < 0 || i >= drawerForSearch->getRects().size() || !drawerForSearch->getRects()[i]) continue;
+            const auto* rect = drawerForSearch->getRects()[i];
+            const QCPRange yRange = rect->axis(QCPAxis::atLeft)->range();
+            vline->point1->setCoords(guideX, yRange.lower);
+            vline->point2->setCoords(guideX, yRange.upper);
             vline->setVisible(!m_measureMode); // hide red guide while measuring
         }
         if (m_mainWindow)
