@@ -76,8 +76,14 @@ InteractionHandler::InteractionHandler(MainWindow* mainWindow)
     // continuous zoom/pan stays responsive.
     m_viewportRenderTimer = new QTimer(this);
     m_viewportRenderTimer->setSingleShot(true);
-    m_viewportRenderTimer->setInterval(16);
+    m_viewportRenderTimer->setInterval(33); // interaction phase: ~30 FPS for smoothness with lower CPU
     connect(m_viewportRenderTimer, &QTimer::timeout, this, &InteractionHandler::processDeferredViewportRender);
+
+    // Final settle render once interaction calms down.
+    m_viewportFinalTimer = new QTimer(this);
+    m_viewportFinalTimer->setSingleShot(true);
+    m_viewportFinalTimer->setInterval(90);
+    connect(m_viewportFinalTimer, &QTimer::timeout, this, &InteractionHandler::processFinalViewportRender);
 }
 
 InteractionHandler::~InteractionHandler()
@@ -951,7 +957,14 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
     // Heavy data re-render is coalesced to the next frame.
     if (m_viewportRenderTimer)
     {
-        m_viewportRenderTimer->start();
+        // Do not restart while active: keeps a steady update cadence during drag/zoom.
+        if (!m_viewportRenderTimer->isActive())
+            m_viewportRenderTimer->start();
+    }
+    if (m_viewportFinalTimer)
+    {
+        // Restart settle timer on every interaction update.
+        m_viewportFinalTimer->start();
     }
     m_syncInProgress = false;
 }
@@ -961,6 +974,18 @@ void InteractionHandler::processDeferredViewportRender()
     if (!m_mainWindow)
         return;
 
+    if (WaveformDrawer* d = m_mainWindow->getWaveformDrawer())
+    {
+        d->ensureRenderedForCurrentViewport();
+    }
+}
+
+void InteractionHandler::processFinalViewportRender()
+{
+    if (!m_mainWindow)
+        return;
+
+    // One final render at interaction end to guarantee the latest viewport is fully rendered.
     if (WaveformDrawer* d = m_mainWindow->getWaveformDrawer())
     {
         d->ensureRenderedForCurrentViewport();
