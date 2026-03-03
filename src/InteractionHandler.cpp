@@ -71,6 +71,13 @@ InteractionHandler::InteractionHandler(MainWindow* mainWindow)
     m_wheelTimer->setSingleShot(true);
     m_wheelTimer->setInterval(14); // ~70 Hz
     connect(m_wheelTimer, &QTimer::timeout, this, &InteractionHandler::processAccumulatedWheel);
+
+    // Defer expensive waveform re-render to frame cadence (~60 FPS max) so
+    // continuous zoom/pan stays responsive.
+    m_viewportRenderTimer = new QTimer(this);
+    m_viewportRenderTimer->setSingleShot(true);
+    m_viewportRenderTimer->setInterval(16);
+    connect(m_viewportRenderTimer, &QTimer::timeout, this, &InteractionHandler::processDeferredViewportRender);
 }
 
 InteractionHandler::~InteractionHandler()
@@ -927,11 +934,6 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
         drawer->getRects()[i]->axis(QCPAxis::atBottom)->blockSignals(false);
     }
 
-    // Trigger viewport-aware re-render based on viewport and zoom level
-    if (WaveformDrawer* d = m_mainWindow->getWaveformDrawer())
-    {
-        d->ensureRenderedForCurrentViewport();
-    }
     // Reflect the new viewport to time controls silently
     if (m_mainWindow->getTRManager())
     {
@@ -939,10 +941,35 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
     }
     if (m_mainWindow && m_mainWindow->isTrajectoryVisible())
     {
+        m_pendingTrajectoryRefresh = true;
+    }
+    // Lightweight immediate update: axes/guide lines move now.
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+    {
+        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+    }
+    // Heavy data re-render is coalesced to the next frame.
+    if (m_viewportRenderTimer)
+    {
+        m_viewportRenderTimer->start();
+    }
+    m_syncInProgress = false;
+}
+
+void InteractionHandler::processDeferredViewportRender()
+{
+    if (!m_mainWindow)
+        return;
+
+    if (WaveformDrawer* d = m_mainWindow->getWaveformDrawer())
+    {
+        d->ensureRenderedForCurrentViewport();
+    }
+    if (m_pendingTrajectoryRefresh && m_mainWindow->isTrajectoryVisible())
+    {
         m_mainWindow->refreshTrajectoryPlotData();
     }
-    // No extra replot here; WaveformDrawer::ensureRenderedForCurrentViewport() already replots
-    m_syncInProgress = false;
+    m_pendingTrajectoryRefresh = false;
 }
 
 void InteractionHandler::processAccumulatedWheel()
