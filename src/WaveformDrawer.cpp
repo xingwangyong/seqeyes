@@ -83,12 +83,12 @@ WaveformDrawer::WaveformDrawer(MainWindow* mainWindow)
       m_pGxRect(nullptr), m_pGyRect(nullptr), m_pGzRect(nullptr), m_pPnsRect(nullptr),
       bShowBlocksEdges(false), m_nCurrentMaxPoints(MAX_POINTS_PER_GRAPH)
 {
-    // Initialize curve visibility - all curves visible by default
+    // Initialize curve visibility.
+    // Keep PNS hidden by default so initial layout is deterministic and
+    // does not depend on a later checkbox sync from TRManager.
     m_curveVisibility.resize(7);
-    for (int i = 0; i < 7; i++)
-    {
-        m_curveVisibility[i] = true;
-    }
+    for (int i = 0; i < 7; i++) { m_curveVisibility[i] = true; }
+    m_curveVisibility[6] = false; // PNS
     
     // Initialize auto expand mode - default to true (auto expand behavior)
     m_autoExpandMode = true;
@@ -476,11 +476,17 @@ void WaveformDrawer::setAxesOrder(const QStringList& order)
     m_axesOrder = order;
     // Rebuild grid according to new order
     QCustomPlot* customPlot = m_mainWindow->ui->customPlot;
+    if (!customPlot || !customPlot->plotLayout()) return;
+    auto safeTake = [&](QCPAxisRect* rect) {
+        if (!rect) return;
+        if (rect->layout() != nullptr)
+            customPlot->plotLayout()->take(rect);
+    };
     // Remove existing elements and re-add in order
     // Take rects and re-add in the new order
     for (int i = 0; i < m_vecRects.size(); ++i)
     {
-        customPlot->plotLayout()->take(m_vecRects[i]);
+        safeTake(m_vecRects[i]);
     }
     // Map labels to rects
     QMap<QString, QCPAxisRect*> labelToRect;
@@ -2003,6 +2009,11 @@ void WaveformDrawer::updateCurveVisibility()
     QCustomPlot* customPlot = m_mainWindow->ui->customPlot;
     if (!customPlot || !customPlot->plotLayout())
         return;
+    auto safeTake = [&](QCPAxisRect* rect) {
+        if (!rect) return;
+        if (rect->layout() != nullptr)
+            customPlot->plotLayout()->take(rect);
+    };
     // NOTE: Do not rely on plotLayout()->rowCount() staying in sync when taking/adding elements.
     // We will call plotLayout()->simplify() after rebuild to remove empty rows/cols.
 
@@ -2041,8 +2052,7 @@ void WaveformDrawer::updateCurveVisibility()
         // 1) Detach all known rects from the layout (non-destructive).
         for (QCPAxisRect* rect : m_vecRects)
         {
-            if (rect)
-                customPlot->plotLayout()->take(rect);
+            safeTake(rect);
         }
 
         // 2) Re-add only visible rects in the current UI order.
@@ -2079,8 +2089,7 @@ void WaveformDrawer::updateCurveVisibility()
         // and distribute height equally.
         for (QCPAxisRect* rect : m_vecRects)
         {
-            if (rect)
-                customPlot->plotLayout()->take(rect);
+            safeTake(rect);
         }
 
         int r = 0;
