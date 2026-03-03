@@ -797,26 +797,27 @@ void WaveformDrawer::InitTracers()
         m_vecVerticalLine[i] = verticalLine;
     }
 
-    // Re-assign vertical lines to current layout order
-    if (customPlot && customPlot->plotLayout())
-    {
-        int rowCount = customPlot->plotLayout()->rowCount();
-        for (int row = 0; row < rowCount && row < m_vecVerticalLine.size(); ++row)
-        {
-            QCPLayoutElement* el = customPlot->plotLayout()->element(row, 0);
-            QCPAxisRect* rect = qobject_cast<QCPAxisRect*>(el);
-            if (rect)
-            {
-                m_vecVerticalLine[row]->setClipAxisRect(rect);
-                m_vecVerticalLine[row]->point1->setAxisRect(rect);
-                m_vecVerticalLine[row]->point2->setAxisRect(rect);
-                m_vecVerticalLine[row]->point1->setAxes(rect->axis(QCPAxis::atBottom), rect->axis(QCPAxis::atLeft));
-                m_vecVerticalLine[row]->point2->setAxes(rect->axis(QCPAxis::atBottom), rect->axis(QCPAxis::atLeft));
-            }
-        }
-    }
+    rebindVerticalLinesToRects();
     ensureTeGuideCapacity();
     ensureKxKyZeroGuideCapacity();
+}
+
+void WaveformDrawer::rebindVerticalLinesToRects()
+{
+    // Bind each vertical line to its owning axis rect (stable by fixed rect index),
+    // then toggle visibility by current curve visibility/layout.
+    const int n = std::min(m_vecVerticalLine.size(), m_vecRects.size());
+    for (int i = 0; i < n; ++i)
+    {
+        QCPItemStraightLine* line = m_vecVerticalLine[i];
+        QCPAxisRect* rect = m_vecRects[i];
+        if (!line || !rect) continue;
+        line->setClipAxisRect(rect);
+        line->point1->setAxisRect(rect);
+        line->point2->setAxisRect(rect);
+        line->point1->setAxes(rect->axis(QCPAxis::atBottom), rect->axis(QCPAxis::atLeft));
+        line->point2->setAxes(rect->axis(QCPAxis::atBottom), rect->axis(QCPAxis::atLeft));
+    }
 }
 
 
@@ -2142,6 +2143,7 @@ void WaveformDrawer::updateCurveVisibility()
 
     // Ensure x-axis labels are on the bottom-most visible rect after layout/visibility changes.
     configureXAxisLabels();
+    rebindVerticalLinesToRects();
 
     // Replot to apply both layout and visibility changes
     customPlot->replot();
