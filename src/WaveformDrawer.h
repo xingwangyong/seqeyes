@@ -122,6 +122,7 @@ public slots:
     void DrawTriggerOverlay();
 
 private:
+    void rebindVerticalLinesToRects();
     // Old time-based LOD functions removed - replaced with complexity-based LOD system
 
 private:
