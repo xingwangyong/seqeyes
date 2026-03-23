@@ -84,6 +84,7 @@ InteractionHandler::InteractionHandler(MainWindow* mainWindow)
     m_viewportFinalTimer->setSingleShot(true);
     m_viewportFinalTimer->setInterval(90);
     connect(m_viewportFinalTimer, &QTimer::timeout, this, &InteractionHandler::processFinalViewportRender);
+
 }
 
 InteractionHandler::~InteractionHandler()
@@ -233,7 +234,7 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
 
             // Status text is appended in the normal hover path for consistency.
 
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
         }
         // Continue to normal hover path so that status text appends Δt consistently
     }
@@ -268,7 +269,52 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
 	// Update vertical guide lines and bottom status label
 	if (drawerForSearch)
 	{
-        // Build fixed-width, monospaced segments for status bar
+		// High-frequency mouse move throttle for expensive sampling work.
+		static QElapsedTimer s_hoverHeavyTimer;
+		static bool s_hoverHeavyTimerStarted = false;
+		if (!s_hoverHeavyTimerStarted)
+		{
+			s_hoverHeavyTimer.start();
+			s_hoverHeavyTimerStarted = true;
+		}
+		const bool allowHeavyHoverWork = (s_hoverHeavyTimer.elapsed() >= 33);
+		if (allowHeavyHoverWork)
+		{
+			s_hoverHeavyTimer.restart();
+		}
+
+		// Update red guide lines first so cursor feels immediate even when data is dense.
+		for (int i = 0; i < drawerForSearch->getVerticalLines().count(); i++)
+		{
+			QCPItemStraightLine* vline = drawerForSearch->getVerticalLines()[i];
+			if (!vline) continue;
+			if (i < 0 || i >= drawerForSearch->getRects().size() || !drawerForSearch->getRects()[i]) continue;
+			const auto* rect = drawerForSearch->getRects()[i];
+			const QCPRange yRange = rect->axis(QCPAxis::atLeft)->range();
+			vline->point1->setCoords(guideX, yRange.lower);
+			vline->point2->setCoords(guideX, yRange.upper);
+			vline->setVisible(!m_measureMode);
+		}
+
+            if (!allowHeavyHoverWork)
+            {
+                // Fast path for dense mouse-move events: keep only red-guide updates.
+                static QElapsedTimer s_mouseReplotTimerLite;
+                static bool s_mouseReplotStartedLite = false;
+                if (!s_mouseReplotStartedLite)
+                {
+                    s_mouseReplotTimerLite.start();
+                    s_mouseReplotStartedLite = true;
+                }
+                if (s_mouseReplotTimerLite.elapsed() >= 33)
+                {
+                    m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+                    s_mouseReplotTimerLite.restart();
+                }
+                return;
+            }
+
+		// Build fixed-width, monospaced segments for status bar
         auto fixed = [](const QString& s, int width){ return s.leftJustified(width, ' ', true); };
         const int W_VER = 16, W_TIME = 16, W_BLOCK = 12, W_GRAD = 36, W_KSPACE = 32, W_RF = 36; // tunable widths
 
@@ -334,7 +380,7 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
         // Gradients Gx,Gy,Gz (2 decimals) in selected unit
         auto fmt2 = [](double v){ return QString::number(v, 'f', 2); };
         QString gx = "--.--", gy = "--.--", gz = "--.--";
-        if (blockIdx >= 0)
+        if (allowHeavyHoverWork && blockIdx >= 0)
         {
             double val = 0.0;
             if (loader->sampleGradAtTime(0, guideX, blockIdx, val)) { if (toUnit != "Hz/m") val = s.convertGradient(val, "Hz/m", toUnit); gx = fmt2(val); }
@@ -347,7 +393,8 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
             double kxVal = 0.0, kyVal = 0.0, kzVal = 0.0;
             auto fmt1 = [](double v){ return QString::number(v, 'f', 1); };
             QString kxStr = "--.-", kyStr = "--.-", kzStr = "--.-";
-            if (m_mainWindow && m_mainWindow->sampleTrajectoryAtInternalTime(guideX, kxVal, kyVal, kzVal))
+            if (allowHeavyHoverWork && m_mainWindow && m_mainWindow->isTrajectoryVisible() &&
+                m_mainWindow->sampleTrajectoryAtInternalTime(guideX, kxVal, kyVal, kzVal))
             {
                 kxVal *= trajScale;
                 kyVal *= trajScale;
@@ -365,7 +412,7 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
         {
             double amp=0.0, ph=0.0;
             char rfUseChar = (blockIdx >= 0 ? loader->getRfUseForBlock(blockIdx) : 'u');
-            if (blockIdx >= 0 && loader->sampleRFAtTime(guideX, blockIdx, amp, ph))
+            if (allowHeavyHoverWork && blockIdx >= 0 && loader->sampleRFAtTime(guideX, blockIdx, amp, ph))
                 segRF = fixed(QString("RF a=%1 Hz, ph=%2 rad, use=%3")
                               .arg(fmt1(amp), fmt1(ph), QString(rfUseChar)), W_RF);
             else
@@ -373,20 +420,28 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
                               .arg("--.-", "--.-", QString(rfUseChar)), W_RF);
         }
         QString coordText = segVer + " | " + segTime + " | " + segBlock + " | " + segGrad + " | " + segKSpace + " | " + segRF;
-        for (int i = 0; i < drawerForSearch->getVerticalLines().count(); i++)
-        {
-            QCPItemStraightLine* vline = drawerForSearch->getVerticalLines()[i];
-            if (!vline) continue;
-            if (i < 0 || i >= drawerForSearch->getRects().size() || !drawerForSearch->getRects()[i]) continue;
-            const auto* rect = drawerForSearch->getRects()[i];
-            const QCPRange yRange = rect->axis(QCPAxis::atLeft)->range();
-            vline->point1->setCoords(guideX, yRange.lower);
-            vline->point2->setCoords(guideX, yRange.upper);
-            vline->setVisible(!m_measureMode); // hide red guide while measuring
-        }
         if (m_mainWindow)
         {
-            m_mainWindow->updateTrajectoryCursorTime(guideX);
+            // Keep sequence red guide responsive: trajectory/pns cursor update can be
+            // relatively expensive on dense data, so update only when needed and throttled.
+            const bool needCursorValue =
+                m_mainWindow->isTrajectoryVisible() ||
+                (m_mainWindow->getTRManager() && m_mainWindow->getTRManager()->isShowPnsChecked());
+            if (allowHeavyHoverWork && needCursorValue)
+            {
+                static QElapsedTimer s_cursorUpdateTimer;
+                static bool s_cursorUpdateStarted = false;
+                if (!s_cursorUpdateStarted)
+                {
+                    s_cursorUpdateTimer.start();
+                    s_cursorUpdateStarted = true;
+                }
+                if (s_cursorUpdateTimer.elapsed() >= 50)
+                {
+                    m_mainWindow->updateTrajectoryCursorTime(guideX);
+                    s_cursorUpdateTimer.restart();
+                }
+            }
         }
         // Channel-specific inline appends removed; now summarized above
         // If measuring and at least one point exists, append Δt info
@@ -407,23 +462,19 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
             }
         }
         m_mainWindow->getCoordLabel()->setText(coordText);
-        // PERF NOTE: Must use rpQueuedReplot, not replot(). Synchronous replot() blocks
-        // the UI thread for every mouse move event — when the plot contains many data points
-        // (e.g. ADC phase), this causes the red guide line to lag seconds behind the cursor.
-        // rpQueuedReplot coalesces rapid successive requests into a single actual repaint.
-		// Throttle queued replots to keep mouse guide line responsive under heavy waveforms.
-		static QElapsedTimer s_replotTimer;
-		static bool s_replotStarted = false;
-		if (!s_replotStarted)
-		{
-			s_replotTimer.start();
-			s_replotStarted = true;
-		}
-		if (s_replotTimer.elapsed() >= 12)
-		{
-			m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
-			s_replotTimer.restart();
-		}
+        // Throttle to ~60 FPS to keep PNS-on hover responsive.
+        static QElapsedTimer s_mouseReplotTimer;
+        static bool s_mouseReplotStarted = false;
+        if (!s_mouseReplotStarted)
+        {
+            s_mouseReplotTimer.start();
+            s_mouseReplotStarted = true;
+        }
+        if (s_mouseReplotTimer.elapsed() >= 33)
+        {
+            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+            s_mouseReplotTimer.restart();
+        }
 	}
 
 	if (blockIdx < 0) return;
@@ -927,6 +978,7 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
     }
 
     m_syncInProgress = true;
+    if (m_mainWindow) m_mainWindow->setInteractionFastMode(true);
     for (int i = 0; i < drawer->getRects().count(); i++)
     {
         drawer->getRects()[i]->axis(QCPAxis::atBottom)->blockSignals(true);
@@ -940,22 +992,35 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
         drawer->getRects()[i]->axis(QCPAxis::atBottom)->blockSignals(false);
     }
 
-    // Reflect the new viewport to time controls silently
-    if (m_mainWindow->getTRManager())
-    {
-        m_mainWindow->getTRManager()->syncTimeControlsToAxisRange(adjustedRange);
-    }
+    // Defer time-control sync to settle phase to avoid per-wheel-event UI churn.
     if (m_mainWindow && m_mainWindow->isTrajectoryVisible())
     {
         m_pendingTrajectoryRefresh = true;
     }
-    // Lightweight immediate update: axes/guide lines move now.
+    // Lightweight immediate update: throttle queued replot to avoid wheel-event storms.
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
     {
-        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+        static QElapsedTimer s_zoomReplotTimer;
+        static bool s_zoomReplotStarted = false;
+        if (!s_zoomReplotStarted)
+        {
+            s_zoomReplotTimer.start();
+            s_zoomReplotStarted = true;
+        }
+        // Keep ~30 FPS max while interacting; immediate refresh avoids queued lag buildup.
+        if (s_zoomReplotTimer.elapsed() >= 33)
+        {
+            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+            s_zoomReplotTimer.restart();
+        }
     }
-    // Heavy data re-render is coalesced to the next frame.
-    if (m_viewportRenderTimer)
+    const bool pnsVisible = (m_mainWindow && m_mainWindow->getTRManager() &&
+                             m_mainWindow->getTRManager()->isShowPnsChecked());
+
+    // Heavy data re-render strategy:
+    // - PNS visible: defer to settle phase only (best interaction smoothness).
+    // - Otherwise: keep periodic deferred renders during interaction.
+    if (!pnsVisible && m_viewportRenderTimer)
     {
         // Do not restart while active: keeps a steady update cadence during drag/zoom.
         if (!m_viewportRenderTimer->isActive())
@@ -986,6 +1051,7 @@ void InteractionHandler::processFinalViewportRender()
         return;
 
     // One final render at interaction end to guarantee the latest viewport is fully rendered.
+    m_mainWindow->setInteractionFastMode(false);
     if (WaveformDrawer* d = m_mainWindow->getWaveformDrawer())
     {
         d->ensureRenderedForCurrentViewport();
@@ -995,6 +1061,14 @@ void InteractionHandler::processFinalViewportRender()
         m_mainWindow->refreshTrajectoryPlotData();
     }
     m_pendingTrajectoryRefresh = false;
+    if (m_mainWindow->getTRManager() && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+    {
+        m_mainWindow->getTRManager()->syncTimeControlsToAxisRange(m_mainWindow->ui->customPlot->xAxis->range());
+    }
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+    {
+        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+    }
 }
 
 void InteractionHandler::processAccumulatedWheel()
@@ -1090,7 +1164,7 @@ bool InteractionHandler::eventFilter(QObject* obj, QEvent* event)
     TRManager* trManager = m_mainWindow->getTRManager();
     if (!trManager) return false;
 
-    // Axis drag begin/end (use label area to start) — only when interacting with the main plot.
+    // Axis drag begin/end (use label area to start) �?only when interacting with the main plot.
     if (obj == m_mainWindow->ui->customPlot)
     {
         if (event->type() == QEvent::MouseButtonPress)
@@ -1710,3 +1784,11 @@ void InteractionHandler::handleTimeInputWheelEvent(QWheelEvent* event, QLineEdit
         trManager->onTimeEndInputChanged();
     }
 }
+
+
+
+
+
+
+
+

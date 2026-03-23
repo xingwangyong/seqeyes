@@ -242,7 +242,7 @@ void WaveformDrawer::InitSequenceFigure()
         // React to settings changes (thresholds and points)
         connect(&Settings::getInstance(), &Settings::settingsChanged, this, [this]() {
             // Recompute Y-axis ranges with the (potentially new) gradient unit conversion,
-            // then redraw. Without this, changing e.g. mT/m â†’ Hz/m would keep old Y-ranges.
+            // then redraw. Without this, changing e.g. mT/m â†?Hz/m would keep old Y-ranges.
             computeAndLockYAxisRanges();
             DrawRFWaveform();
             DrawADCWaveform();
@@ -308,7 +308,7 @@ void WaveformDrawer::InitSequenceFigure()
     // ADC Phase (same rect as RF Phase: m_pRfADCPhaseRect)
     // PERF NOTE: Must use lsLine (not scatter ssDisc). QCustomPlot renders scatter dots
     // individually (per-point QPainter::drawEllipse), while line segments are batched into
-    // a single QPainterPath â€” the difference is ~10x. Scatter caused severe UI lag on
+    // a single QPainterPath â€?the difference is ~10x. Scatter caused severe UI lag on
     // mouse move because every replot() had to re-render thousands of individual circles.
     // NaN breaks in the data (inserted by getAdcPhaseViewport) prevent lines from connecting
     // separate ADC blocks. MATLAB SeqPlot.m uses 'b.' MarkerSize=1 but that is acceptable
@@ -372,7 +372,7 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphPnsX->setPen(pen);
         m_graphPnsX->setLineStyle(QCPGraph::lsLine);
         m_graphPnsX->setScatterStyle(QCPScatterStyle::ssNone);
-        m_graphPnsX->setAdaptiveSampling(false);
+        m_graphPnsX->setAdaptiveSampling(true);
         m_graphPnsX->setAntialiased(false);
         m_graphPnsX->setVisible(m_curveVisibility.value(6, true));
     }
@@ -385,7 +385,7 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphPnsY->setPen(pen);
         m_graphPnsY->setLineStyle(QCPGraph::lsLine);
         m_graphPnsY->setScatterStyle(QCPScatterStyle::ssNone);
-        m_graphPnsY->setAdaptiveSampling(false);
+        m_graphPnsY->setAdaptiveSampling(true);
         m_graphPnsY->setAntialiased(false);
         m_graphPnsY->setVisible(m_curveVisibility.value(6, true));
     }
@@ -398,7 +398,7 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphPnsZ->setPen(pen);
         m_graphPnsZ->setLineStyle(QCPGraph::lsLine);
         m_graphPnsZ->setScatterStyle(QCPScatterStyle::ssNone);
-        m_graphPnsZ->setAdaptiveSampling(false);
+        m_graphPnsZ->setAdaptiveSampling(true);
         m_graphPnsZ->setAntialiased(false);
         m_graphPnsZ->setVisible(m_curveVisibility.value(6, true));
     }
@@ -412,7 +412,7 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphPnsNorm->setPen(pen);
         m_graphPnsNorm->setLineStyle(QCPGraph::lsLine);
         m_graphPnsNorm->setScatterStyle(QCPScatterStyle::ssNone);
-        m_graphPnsNorm->setAdaptiveSampling(false);
+        m_graphPnsNorm->setAdaptiveSampling(true);
         m_graphPnsNorm->setAntialiased(false);
         m_graphPnsNorm->setVisible(m_curveVisibility.value(6, true));
     }
@@ -1744,13 +1744,14 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
     // PNS curve (single axis with X/Y/Z/norm)
     if (m_graphPnsX && m_graphPnsY && m_graphPnsZ && m_graphPnsNorm)
     {
-        const bool pnsCurveEnabled = m_curveVisibility.value(6, true);
+                const bool pnsCurveEnabled = m_curveVisibility.value(6, true);
         const Settings& settings = Settings::getInstance();
-        const bool anyPnsChannelEnabled =
-            settings.getPnsChannelVisibleX() ||
-            settings.getPnsChannelVisibleY() ||
-            settings.getPnsChannelVisibleZ() ||
-            settings.getPnsChannelVisibleNorm();
+        const bool interactionFastMode = (m_mainWindow && m_mainWindow->isInteractionFastMode());
+        const bool renderX = !interactionFastMode && settings.getPnsChannelVisibleX();
+        const bool renderY = !interactionFastMode && settings.getPnsChannelVisibleY();
+        const bool renderZ = !interactionFastMode && settings.getPnsChannelVisibleZ();
+        const bool renderN = settings.getPnsChannelVisibleNorm();
+        const bool anyPnsChannelEnabled = renderX || renderY || renderZ || renderN;
 
         // Fast path: when PNS checkbox is off (or all channels hidden), skip all vector work.
         if (!pnsCurveEnabled || !anyPnsChannelEnabled)
@@ -1800,56 +1801,38 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
             pnsN.append(100.0 * sn[i]);
         }
 
-        // Whole-sequence dragging can involve very dense PNS arrays.
-        // Use a pixel-based cap in all LOD levels to keep interaction responsive.
+        // Downsample each channel independently with min-max buckets (shape-preserving envelope).
+        QVector<double> pnsTx = pnsT, pnsTy = pnsT, pnsTz = pnsT, pnsTn = pnsT;
+        QVector<double> pnsVx = pnsX, pnsVy = pnsY, pnsVz = pnsZ, pnsVn = pnsN;
         if (m_pPnsRect && pnsT.size() > 0)
         {
             const int px = qMax(1, static_cast<int>(qRound(m_pPnsRect->width() * m_mainWindow->devicePixelRatioF())));
-            const int maxPoints = (currentLODLevel == LODLevel::DOWNSAMPLED)
-                ? qMax(200, px)
-                : qMax(300, 2 * px);
+            const int maxPoints = interactionFastMode
+                ? qMax(80, px / 2)
+                : ((currentLODLevel == LODLevel::DOWNSAMPLED)
+                    ? qMax(160, px)
+                    : qMax(220, static_cast<int>(qRound(1.2 * px))));
             if (pnsT.size() > maxPoints)
             {
-                const int step = qMax(1, static_cast<int>(std::ceil(static_cast<double>(pnsT.size()) / maxPoints)));
-                QVector<double> t2, x2, y2, z2, n2;
-                t2.reserve(maxPoints + 1);
-                x2.reserve(maxPoints + 1);
-                y2.reserve(maxPoints + 1);
-                z2.reserve(maxPoints + 1);
-                n2.reserve(maxPoints + 1);
-                for (int i = 0; i < pnsT.size(); i += step)
-                {
-                    t2.append(pnsT[i]);
-                    x2.append(pnsX[i]);
-                    y2.append(pnsY[i]);
-                    z2.append(pnsZ[i]);
-                    n2.append(pnsN[i]);
-                }
-                if (!pnsT.isEmpty() && (t2.isEmpty() || t2.back() != pnsT.back()))
-                {
-                    t2.append(pnsT.back());
-                    x2.append(pnsX.back());
-                    y2.append(pnsY.back());
-                    z2.append(pnsZ.back());
-                    n2.append(pnsN.back());
-                }
-                pnsT.swap(t2);
-                pnsX.swap(x2);
-                pnsY.swap(y2);
-                pnsZ.swap(z2);
-                pnsN.swap(n2);
+                if (renderX) applyMinMaxDownsampling(pnsT, pnsX, maxPoints, pnsTx, pnsVx);
+                if (renderY) applyMinMaxDownsampling(pnsT, pnsY, maxPoints, pnsTy, pnsVy);
+                if (renderZ) applyMinMaxDownsampling(pnsT, pnsZ, maxPoints, pnsTz, pnsVz);
+                applyMinMaxDownsampling(pnsT, pnsN, maxPoints, pnsTn, pnsVn);
             }
         }
 
-        const bool showPns = !pnsT.isEmpty();
-        const bool showPnsX = showPns && settings.getPnsChannelVisibleX();
-        const bool showPnsY = showPns && settings.getPnsChannelVisibleY();
-        const bool showPnsZ = showPns && settings.getPnsChannelVisibleZ();
-        const bool showPnsN = showPns && settings.getPnsChannelVisibleNorm();
-        m_graphPnsX->setData(pnsT, pnsX);
-        m_graphPnsY->setData(pnsT, pnsY);
-        m_graphPnsZ->setData(pnsT, pnsZ);
-        m_graphPnsNorm->setData(pnsT, pnsN);
+        if (!renderX) { pnsTx.clear(); pnsVx.clear(); }
+        if (!renderY) { pnsTy.clear(); pnsVy.clear(); }
+        if (!renderZ) { pnsTz.clear(); pnsVz.clear(); }
+
+        const bool showPnsX = !pnsTx.isEmpty();
+        const bool showPnsY = !pnsTy.isEmpty();
+        const bool showPnsZ = !pnsTz.isEmpty();
+        const bool showPnsN = renderN && !pnsTn.isEmpty();
+        m_graphPnsX->setData(pnsTx, pnsVx);
+        m_graphPnsY->setData(pnsTy, pnsVy);
+        m_graphPnsZ->setData(pnsTz, pnsVz);
+        m_graphPnsNorm->setData(pnsTn, pnsVn);
         m_graphPnsX->setVisible(showPnsX);
         m_graphPnsY->setVisible(showPnsY);
         m_graphPnsZ->setVisible(showPnsZ);
@@ -1858,7 +1841,7 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
         if (!m_lockYAxisRanges)
         {
             double yMax = 120.0;
-            for (double v : pnsN)
+            for (double v : pnsVn)
             {
                 if (std::isfinite(v))
                 {
@@ -2149,6 +2132,25 @@ void WaveformDrawer::updateCurveVisibility()
     customPlot->replot();
 }
 
+void WaveformDrawer::setPnsInteractionFastVisibility(bool enabled)
+{
+    const bool pnsEnabled = m_curveVisibility.value(6, false);
+    const Settings& s = Settings::getInstance();
+    const bool showNorm = pnsEnabled && s.getPnsChannelVisibleNorm();
+    const bool showX = !enabled && pnsEnabled && s.getPnsChannelVisibleX();
+    const bool showY = !enabled && pnsEnabled && s.getPnsChannelVisibleY();
+    const bool showZ = !enabled && pnsEnabled && s.getPnsChannelVisibleZ();
+
+    if (m_graphPnsX) m_graphPnsX->setVisible(showX);
+    if (m_graphPnsY) m_graphPnsY->setVisible(showY);
+    if (m_graphPnsZ) m_graphPnsZ->setVisible(showZ);
+    if (m_graphPnsNorm) m_graphPnsNorm->setVisible(showNorm);
+
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+    {
+        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+    }
+}
 void WaveformDrawer::setAutoExpandMode(bool autoExpand)
 {
     m_autoExpandMode = autoExpand;
@@ -2210,7 +2212,7 @@ void WaveformDrawer::ensureRenderedForCurrentViewport()
 void WaveformDrawer::updateAxisLabels()
 {
     // Update Y-axis labels using each rect's fixed identity (matching InitSequenceFigure).
-    // Do NOT use m_axesOrder indices â€” m_axesOrder is the visual order which differs
+    // Do NOT use m_axesOrder indices â€?m_axesOrder is the visual order which differs
     // from m_vecRects order when the user has reordered subplots.
     Settings& settings = Settings::getInstance();
     QString gradientUnit = settings.getGradientUnitString();
@@ -2768,3 +2770,8 @@ void WaveformDrawer::updateKxKyZeroGuides(double visibleStart, double visibleEnd
         }
     }
 }
+
+
+
+
+

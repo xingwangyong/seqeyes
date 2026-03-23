@@ -435,7 +435,7 @@ void MainWindow::InitSlots()
     ui->actionShowFullDetail->setChecked(true); // default: undersampling enabled
     connect(ui->actionShowFullDetail, &QAction::toggled, this, &MainWindow::onShowFullDetailToggled);
 
-    // View â†’ Log
+    // View â†?Log
     if (ui->menuView)
     {
         QAction* logAction = new QAction(tr("Log"), this);
@@ -581,7 +581,7 @@ void MainWindow::onTimeUnitChanged()
     m_pulseqLoader->ReOpenPulseqFile();
 
     // Restore the viewport so the user keeps seeing the same physical time span
-    // (e.g. 0-200 ms â†’ 0-200000 us).
+    // (e.g. 0-200 ms â†?0-200000 us).
     if (hasRange && oldFactor != 0.0)
     {
         double newFactor = m_pulseqLoader->getTFactor();
@@ -671,11 +671,11 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     QPen trajPen(Qt::blue);
     trajPen.setWidthF(1.5);
     m_pTrajectoryCurve->setPen(trajPen);
-    // ADC sampling points â€” QCPCurve kept hidden as data container;
+    // ADC sampling points â€?QCPCurve kept hidden as data container;
     // actual rendering uses QImage rasterizer (see renderTrajectoryScatter).
     m_pTrajectorySamplesGraph = new QCPCurve(m_pTrajectoryPlot->xAxis, m_pTrajectoryPlot->yAxis);
     m_pTrajectorySamplesGraph->setVisible(false);
-    // Rasterized scatter pixmap â€” replaces QCPCurve scatter for performance
+    // Rasterized scatter pixmap â€?replaces QCPCurve scatter for performance
     m_pTrajectoryScatterItem = new QCPItemPixmap(m_pTrajectoryPlot);
     m_pTrajectoryScatterItem->setVisible(false);
     m_pTrajectoryScatterItem->setScaled(false);
@@ -748,6 +748,14 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     m_plotSplitter->setSizes(sizes);
 }
 
+void MainWindow::setInteractionFastMode(bool enabled)
+{
+    if (m_interactionFastMode == enabled)
+        return;
+    m_interactionFastMode = enabled;
+    if (m_waveformDrawer)
+        m_waveformDrawer->setPnsInteractionFastVisibility(enabled);
+}
 void MainWindow::setTrajectoryVisible(bool show)
 {
     if (!m_pTrajectoryPlot || !m_plotSplitter || !m_pTrajectoryPanel)
@@ -807,7 +815,7 @@ void MainWindow::setTrajectoryVisible(bool show)
 // Rasterized scatter renderer: paints ADC dots directly into a QImage via scanLine
 // pixel writes and displays via QCPItemPixmap. This is ~50x faster than QCPCurve
 // scatter (which calls QPainter::drawEllipse per point). Every data point is rendered
-// â€” no downsampling, no visual loss. Re-called on every axis range change (drag/zoom).
+// â€?no downsampling, no visual loss. Re-called on every axis range change (drag/zoom).
 void MainWindow::renderTrajectoryScatter()
 {
     if (!m_pTrajectoryPlot || !m_pTrajectoryScatterItem || !m_showKtrajAdc)
@@ -1087,7 +1095,7 @@ void MainWindow::refreshTrajectoryPlotData()
     filterScatter(tAdc, kxAdc, kyAdc, limitToView && !tAdc.isEmpty(), kxAdcSubset, kyAdcSubset);
 
     // Store scatter data for the QImage rasterizer (renderTrajectoryScatter).
-    // No downsampling needed â€” scanLine pixel writes are fast enough for any point count.
+    // No downsampling needed â€?scanLine pixel writes are fast enough for any point count.
     auto scaleVec = [&](QVector<double>& v) {
         if (trajScale != 1.0) {
             double s = std::abs(trajScale);
@@ -1829,7 +1837,9 @@ void MainWindow::updateTrajectoryCursorTime(double internalTime)
 {
     m_currentTrajectoryTimeInternal = internalTime;
     m_hasTrajectoryCursorTime = true;
-    refreshTrajectoryCursor();
+    // Skip trajectory cursor refresh when trajectory panel/cursor is hidden.
+    if (m_showTrajectory && m_showTrajectoryCursor)
+        refreshTrajectoryCursor();
     // Throttle status text refresh during mouse move to keep red guide line responsive.
     static QElapsedTimer s_lastPnsUiUpdate;
     static bool s_started = false;
@@ -1920,10 +1930,10 @@ void MainWindow::showUsage()
         "<h3>SeqEyes Usage Guide</h3>"
 
         "<p><b>Navigation & Viewing:</b><br>"
-        "â€¢ <b>Zoom / Pan:</b> Controlled by Settings â†’ Interactions.<br>"
+        "â€?<b>Zoom / Pan:</b> Controlled by Settings â†?Interactions.<br>"
         "&nbsp;&nbsp;Default: Zoom = Mouse wheel; Pan = Drag.<br>"
-        "â€¢ <b>Reset View:</b> View â†’ Reset View<br>"
-        "â€¢ <b>Update Displayed Region:</b><br>"
+        "â€?<b>Reset View:</b> View â†?Reset View<br>"
+        "â€?<b>Update Displayed Region:</b><br>"
         "&nbsp;&nbsp;Adjust the <b>Time</b> window, the <b>TR</b> range, or the <b>Block index</b> (Startâ€“End/Inc) to change the visible portion of the sequence.</p>"
     );
 }
@@ -2186,3 +2196,8 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         });
     });
 }
+
+
+
+
+
