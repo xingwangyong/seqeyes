@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773762051257,
+  "lastUpdate": 1774310340955,
   "repoUrl": "https://github.com/xingwangyong/seqeyes",
   "entries": {
     "SeqEyes Zoom Performance": [
@@ -1311,6 +1311,173 @@ window.BENCHMARK_DATA = {
           {
             "name": "Zoom Performance: writeSpiral.seq",
             "value": 12,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeTrufi.seq",
+            "value": 52,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeTSE.seq",
+            "value": 4,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeUTE.seq",
+            "value": 4,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeUTE_rs.seq",
+            "value": 8,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "xingwangyong@zju.edu.cn",
+            "name": "Xingwang Yong"
+          },
+          "committer": {
+            "email": "xingwangyong@zju.edu.cn",
+            "name": "Xingwang Yong"
+          },
+          "distinct": true,
+          "id": "c97e3fcb25080bbebacf3522e12e1b645a74dc87",
+          "message": "fix: pypi release error",
+          "timestamp": "2026-03-23T19:54:16-04:00",
+          "tree_id": "f85b7b7f4a17acfd883407d36a1f762a81596fd2",
+          "url": "https://github.com/xingwangyong/seqeyes/commit/c97e3fcb25080bbebacf3522e12e1b645a74dc87"
+        },
+        "date": 1774310338212,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Zoom Performance: epi.seq",
+            "value": 26,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: spi.seq",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: spi_sub.seq",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: write_QA_Sag_Localizer.seq",
+            "value": 9,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeCineGradientEcho.seq",
+            "value": 17,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpi.seq",
+            "value": 5,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpiDiffusionRS.seq",
+            "value": 21,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpiRS.seq",
+            "value": 1,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpiRS_label.seq",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpiRS_label_softdelay.seq",
+            "value": 20,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpiSpinEcho.seq",
+            "value": 1,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeEpiSpinEchoRS.seq",
+            "value": 18,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeFastRadialGradientEcho.seq",
+            "value": 35,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeFastRadialGradientEcho_rotExt.seq",
+            "value": 34,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeFid.seq",
+            "value": 2,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeGradientEcho.seq",
+            "value": 2,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeGradientEcho_grappa.seq",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeGradientEcho_label.seq",
+            "value": 10,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeGRE_live_demo.seq",
+            "value": 2,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeGRE_live_demo_step0.seq",
+            "value": 2,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeHASTE.seq",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeRadialGradientEcho.seq",
+            "value": 5,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeRadialGradientEcho_rotExt.seq",
+            "value": 4,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeSemiLaser.seq",
+            "value": 0,
+            "unit": "ms"
+          },
+          {
+            "name": "Zoom Performance: writeSpiral.seq",
+            "value": 11,
             "unit": "ms"
           },
           {
