@@ -87,6 +87,8 @@ public:
     TRManager* getTRManager() const { return m_trManager; }
     WaveformDrawer* getWaveformDrawer() const { return m_waveformDrawer; }
     bool isTrajectoryVisible() const { return m_showTrajectory; }
+    bool isInteractionFastMode() const { return m_interactionFastMode; }
+    void setInteractionFastMode(bool enabled);
 
     // Getters for UI elements needed by handlers
     Ui::MainWindow* getUI() const { return ui; }
@@ -223,9 +225,14 @@ private:
     double m_currentTrajectoryTimeInternal {0.0};
     bool m_hasTrajectoryCursorTime {false};
     bool m_trajectoryRangeInitialized {false};
+    bool m_interactionFastMode {false};
 
     QString m_loadedSeqFilePath;
     QString m_customWindowTitle; // Custom window title set via --name option
 };
 
 #endif // MAINWINDOW_H
+
+
+
+

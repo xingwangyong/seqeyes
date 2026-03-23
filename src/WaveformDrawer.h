@@ -46,6 +46,7 @@ public:
     // Curve visibility control
     void setShowCurve(int curveIndex, bool show);
     void updateCurveVisibility();
+    void setPnsInteractionFastVisibility(bool enabled);
     void setAutoExpandMode(bool autoExpand);
     bool getAutoExpandMode() const;
     // Programmatic layout control (rows x cols, using current axes order). Currently cols must be 1.
@@ -293,3 +294,5 @@ public:
 };
 
 #endif // WAVEFORMDRAWER_H
+
+
