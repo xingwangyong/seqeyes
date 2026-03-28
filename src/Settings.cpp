@@ -435,6 +435,15 @@ void Settings::saveSettings()
         }
         obj["pnsAscHistory"] = arr;
     }
+    {
+        QJsonObject nickObj;
+        for (auto it = m_pnsAscNicknames.constBegin(); it != m_pnsAscNicknames.constEnd(); ++it) {
+            if (!it.key().trimmed().isEmpty()) {
+                nickObj[it.key()] = it.value();
+            }
+        }
+        obj["pnsAscNicknames"] = nickObj;
+    }
     obj["pnsShowX"] = m_pnsShowX;
     obj["pnsShowY"] = m_pnsShowY;
     obj["pnsShowZ"] = m_pnsShowZ;
@@ -583,6 +592,20 @@ void Settings::loadSettings()
     while (m_pnsAscHistory.size() > kMaxAscHistoryItems) {
         m_pnsAscHistory.removeLast();
     }
+    m_pnsAscNicknames.clear();
+    if (obj.value("pnsAscNicknames").isObject()) {
+        const QJsonObject nickObj = obj.value("pnsAscNicknames").toObject();
+        for (auto it = nickObj.constBegin(); it != nickObj.constEnd(); ++it) {
+            if (!it.value().isString()) {
+                continue;
+            }
+            const QString p = it.key().trimmed();
+            const QString n = it.value().toString().trimmed();
+            if (!p.isEmpty()) {
+                m_pnsAscNicknames.insert(p, n);
+            }
+        }
+    }
     m_pnsShowX = obj.value("pnsShowX").toBool(false);
     m_pnsShowY = obj.value("pnsShowY").toBool(false);
     m_pnsShowZ = obj.value("pnsShowZ").toBool(true);
@@ -629,6 +652,7 @@ void Settings::resetToDefaults()
     m_showExtensionTooltip = false;
     m_pnsAscPath.clear();
     m_pnsAscHistory.clear();
+    m_pnsAscNicknames.clear();
     m_pnsShowX = false;
     m_pnsShowY = false;
     m_pnsShowZ = true;
@@ -782,6 +806,20 @@ QStringList Settings::getPnsAscHistory() const
     return m_pnsAscHistory;
 }
 
+QString Settings::getPnsAscNickname(const QString& path) const
+{
+    const QString key = path.trimmed();
+    if (key.isEmpty()) {
+        return QString();
+    }
+    return m_pnsAscNicknames.value(key).trimmed();
+}
+
+QMap<QString, QString> Settings::getPnsAscNicknames() const
+{
+    return m_pnsAscNicknames;
+}
+
 void Settings::setPnsAscPath(const QString& path)
 {
     const QString normalized = path.trimmed();
@@ -835,6 +873,26 @@ void Settings::setPnsAscHistory(const QStringList& history)
         saveSettings();
         emit settingsChanged();
     }
+}
+
+void Settings::setPnsAscNickname(const QString& path, const QString& nickname)
+{
+    const QString key = path.trimmed();
+    if (key.isEmpty()) {
+        return;
+    }
+    const QString nick = nickname.trimmed();
+    const QString prev = m_pnsAscNicknames.value(key).trimmed();
+    if (prev == nick) {
+        return;
+    }
+    if (nick.isEmpty()) {
+        m_pnsAscNicknames.remove(key);
+    } else {
+        m_pnsAscNicknames.insert(key, nick);
+    }
+    saveSettings();
+    emit settingsChanged();
 }
 
 int Settings::removeInvalidPnsAscHistoryPaths()

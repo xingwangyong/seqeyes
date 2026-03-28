@@ -159,8 +159,12 @@ public:
     // PNS ASC file selection/history
     QString getPnsAscPath() const;
     QStringList getPnsAscHistory() const;
+    // PNS ASC Nicknames: path -> display nickname (optional, can be empty)
+    QString getPnsAscNickname(const QString& path) const;
+    QMap<QString, QString> getPnsAscNicknames() const;
     void setPnsAscPath(const QString& path);
     void setPnsAscHistory(const QStringList& history);
+    void setPnsAscNickname(const QString& path, const QString& nickname);
     int removeInvalidPnsAscHistoryPaths();
     void setPnsChannelVisibleX(bool visible);
     void setPnsChannelVisibleY(bool visible);
@@ -204,6 +208,7 @@ private:
     bool m_showExtensionTooltip { false }; // Show extension tooltip on hover
     QString m_pnsAscPath;
     QStringList m_pnsAscHistory;
+    QMap<QString, QString> m_pnsAscNicknames;
     bool m_pnsShowX {false};
     bool m_pnsShowY {false};
     bool m_pnsShowZ {true};

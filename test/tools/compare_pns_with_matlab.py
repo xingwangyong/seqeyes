@@ -100,7 +100,7 @@ def main():
     ap.add_argument("--pulseq-matlab-dir", required=True, help="Path to pulseq matlab root containing +mr")
     ap.add_argument("--out-dir", default="test/pns_compare", help="Output folder")
     ap.add_argument("--sample-stride", type=int, default=20, help="Use every N-th sample for both outputs to speed up comparison")
-    ap.add_argument("--max-abs-threshold", type=float, default=0.02, help="Fail if any channel max abs exceeds this (normalized units)")
+    ap.add_argument("--max-abs-threshold", type=float, default=1e-4, help="Fail if any channel max abs exceeds this (normalized units)")
     args = ap.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -139,11 +139,12 @@ def main():
     env["OUT_CSV"] = str(matlab_csv.resolve())
     env["SAMPLE_STRIDE"] = str(stride)
     script = Path("test/tools/matlab_calc_pns_cli.m").resolve()
-    cmd_matlab = ["matlab", "-batch", f"run('{str(script).replace('\\\\', '/')}')"]
-    cp2 = subprocess.run(cmd_matlab, text=True, capture_output=True, env=env)
-    print(cp2.stdout.strip())
+    script_path_fwd = str(script).replace('\\', '/')
+    cmd_matlab = ["matlab", "-batch", f"run('{script_path_fwd}')"] 
+    cp2 = subprocess.run(cmd_matlab, capture_output=True, env=env)
+    print(cp2.stdout.decode(errors='replace').strip())
     if cp2.returncode != 0:
-        print(cp2.stderr)
+        print(cp2.stderr.decode(errors='replace'))
         return cp2.returncode
 
     print("[3/3] Compare...")

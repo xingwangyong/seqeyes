@@ -8,6 +8,12 @@ This runbook is for local validation only (no cloud MATLAB CI).
 - A valid Siemens ASC profile with complete g-scale fields
   (prefer `*_twoFilesCombined.asc`).
 
+## Local Paths (do not commit)
+```
+ASC:         C:\Users\76494\Syncbb\others_toolboxes\pulseq\matlab\idea\asc\MP_GPA_K2309_2250V_951A_AS82_XA30A_mod_twoFilesCombined.asc
+MATLAB pulseq: C:\Users\76494\Syncbb\others_toolboxes\pulseq_matlab_diff_versions\pulseq_v151_xy\matlab
+```
+
 ## 1) Build
 ```powershell
 cmake --build out/build/x64-Release --config Release --target PnsDumpTest seqeyes
@@ -17,22 +23,44 @@ Expected:
 - Build succeeds without errors.
 - `out/build/x64-Release/test/Release/PnsDumpTest.exe` exists.
 
-## 2) MATLAB parity check
-Example command:
+## 2) MATLAB parity check (three sequences, threshold 1e-4)
+
+Set variables:
+```powershell
+$asc = "C:\Users\76494\Syncbb\others_toolboxes\pulseq\matlab\idea\asc\MP_GPA_K2309_2250V_951A_AS82_XA30A_mod_twoFilesCombined.asc"
+$md  = "C:\Users\76494\Syncbb\others_toolboxes\pulseq_matlab_diff_versions\pulseq_v151_xy\matlab"
+$bin = "out/build/x64-Release/test/Release"
+```
+
+Run:
 ```powershell
 python test/tools/compare_pns_with_matlab.py `
-  --bin-dir out/build/x64-Release/test/Release `
+  --bin-dir $bin `
   --seq test/seq_files/writeGradientEcho.seq `
-  --asc "C:/.../MP_GPA_K2309_2250V_951A_AS82_XA30A_mod_twoFilesCombined.asc" `
-  --pulseq-matlab-dir "C:/.../pulseq_v151/matlab" `
-  --sample-stride 20 `
-  --max-abs-threshold 0.05
+  --asc $asc --pulseq-matlab-dir $md `
+  --out-dir test/pns_compare_gre `
+  --sample-stride 20 --max-abs-threshold 1e-4
+
+python test/tools/compare_pns_with_matlab.py `
+  --bin-dir $bin `
+  --seq test/seq_files/writeGradientEcho_label.seq `
+  --asc $asc --pulseq-matlab-dir $md `
+  --out-dir test/pns_compare_writeGradientEcho_label `
+  --sample-stride 20 --max-abs-threshold 1e-4
+
+python test/tools/compare_pns_with_matlab.py `
+  --bin-dir $bin `
+  --seq test/seq_files/writeSpiral.seq `
+  --asc $asc --pulseq-matlab-dir $md `
+  --out-dir test/pns_compare_spi `
+  --sample-stride 20 --max-abs-threshold 1e-4
 ```
 
 Expected:
-- Script exits with `[PASS]`.
-- `writeGradientEcho.seq`: max abs should be near machine precision (very close to 0).
-- `spi_sub.seq`: currently acceptable at `max_abs <= 0.05` (known residual for x/y/norm).
+- All three exit with `[PASS]`.
+- `writeGradientEcho.seq`: `x/y/z/norm max_abs <= 1e-4`.
+- `writeGradientEcho_label.seq`: `x/y/z/norm max_abs <= 1e-4`.
+- `writeSpiral.seq`: `x/y/z/norm max_abs <= 1e-4`.
 
 ## 3) Local worst-case PNS performance check
 ```powershell
