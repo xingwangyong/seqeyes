@@ -1423,15 +1423,9 @@ bool ExternalSequence::decodeBlock(SeqBlock *block)
 
 			if (block->isArbGradWithOversampling(iC-GX))	// oversampling?
 			{
-				block->gradWaveforms[iC-GX] = std::vector<float>((waveform.size()+1)/2);
-				std::vector<float>::iterator it_os=waveform.begin();
-				for (std::vector<float>::iterator it=block->gradWaveforms[iC-GX].begin(); it !=block->gradWaveforms[iC-GX].end(); ++it){
-					*it=*it_os;
-					// std::advance(it_os,2); // this doen't work because of the odd number of elements 
-					++it_os;
-					if (it_os!=waveform.end())
-						++it_os;
-				}
+				// Preserve full oversampled waveform; downstream consumers may
+				// resample explicitly (e.g. MATLAB-equivalent PNS reconstruction).
+				block->gradWaveforms[iC-GX] = std::vector<float>(waveform);
 			}
 			else
 				block->gradWaveforms[iC-GX] = std::vector<float>(waveform);

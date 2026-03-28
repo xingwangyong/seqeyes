@@ -12,6 +12,7 @@
 #include <QSet>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -367,26 +368,75 @@ double arbitraryGradientValue(SeqBlock* blk, int channel, const GradEvent& grad,
     }
     const double rasterUs = (gradientRasterUs > 0.0 ? gradientRasterUs : 10.0);
     const double rasterSec = rasterUs * 1e-6;
-    if (numSamples == 1)
-    {
-        return static_cast<double>(shapePtr[0]) * static_cast<double>(grad.amplitude);
-    }
-    const double totalSec = rasterSec * static_cast<double>(numSamples - 1);
+    const double totalSec = rasterSec * static_cast<double>(numSamples);
     if (localSec > totalSec)
     {
         return 0.0;
     }
-    const double pos = localSec / rasterSec;
-    const int idx0 = static_cast<int>(std::floor(pos));
-    if (idx0 >= numSamples - 1)
+
+    const auto deriveEdgeSample = [&](bool first) -> double {
+        if (numSamples <= 0)
+        {
+            return 0.0;
+        }
+        if (numSamples == 1)
+        {
+            return static_cast<double>(shapePtr[0]);
+        }
+        if (first)
+        {
+            return 0.5 * (3.0 * static_cast<double>(shapePtr[0]) - static_cast<double>(shapePtr[1]));
+        }
+        return 0.5 * (3.0 * static_cast<double>(shapePtr[numSamples - 1]) -
+                      static_cast<double>(shapePtr[numSamples - 2]));
+    };
+
+    const bool hasFirst = (grad.first != FLOAT_UNDEFINED);
+    const bool hasLast = (grad.last != FLOAT_UNDEFINED);
+    double firstVal = hasFirst ? static_cast<double>(grad.first) : deriveEdgeSample(true);
+    double lastVal = hasLast ? static_cast<double>(grad.last) : deriveEdgeSample(false);
+    const double amp = static_cast<double>(grad.amplitude);
+    if (hasFirst && std::abs(firstVal) > 1.0 + 1e-6 && std::abs(amp) > 0.0)
     {
-        return static_cast<double>(shapePtr[numSamples - 1]) * static_cast<double>(grad.amplitude);
+        firstVal /= amp;
     }
-    const double frac = pos - idx0;
+    if (hasLast && std::abs(lastVal) > 1.0 + 1e-6 && std::abs(amp) > 0.0)
+    {
+        lastVal /= amp;
+    }
+
+    if (localSec <= 0.0)
+    {
+        return firstVal * amp;
+    }
+    if (localSec >= totalSec)
+    {
+        return lastVal * amp;
+    }
+
+    const double u = localSec / rasterSec;
+    if (u < 0.5)
+    {
+        const double alpha = u / 0.5;
+        const double s0 = static_cast<double>(shapePtr[0]);
+        return (firstVal + (s0 - firstVal) * alpha) * amp;
+    }
+
+    const double uLastCenter = static_cast<double>(numSamples) - 0.5;
+    if (u >= uLastCenter)
+    {
+        const double alpha = (u - uLastCenter) / 0.5;
+        const double sLast = static_cast<double>(shapePtr[numSamples - 1]);
+        return (sLast + (lastVal - sLast) * std::clamp(alpha, 0.0, 1.0)) * amp;
+    }
+
+    const int idx0 = static_cast<int>(std::floor(u - 0.5));
     const int idx1 = idx0 + 1;
+    const double t0 = static_cast<double>(idx0) + 0.5;
+    const double alpha = std::clamp(u - t0, 0.0, 1.0);
     const double v0 = static_cast<double>(shapePtr[idx0]);
     const double v1 = static_cast<double>(shapePtr[idx1]);
-    return (v0 + (v1 - v0) * frac) * static_cast<double>(grad.amplitude);
+    return (v0 + (v1 - v0) * alpha) * amp;
 }
 
 double extTrapGradientValue(SeqBlock* blk, int channel, const GradEvent& grad, double localSec)
@@ -402,13 +452,13 @@ double extTrapGradientValue(SeqBlock* blk, int channel, const GradEvent& grad, d
         return 0.0;
     }
     const double localUs = localSec * 1e6;
-    if (localUs <= static_cast<double>(timesUs.front()))
+    if (localUs < static_cast<double>(timesUs.front()))
     {
-        return static_cast<double>(shape.front()) * static_cast<double>(grad.amplitude);
+        return 0.0;
     }
-    if (localUs >= static_cast<double>(timesUs.back()))
+    if (localUs > static_cast<double>(timesUs.back()))
     {
-        return static_cast<double>(shape.back()) * static_cast<double>(grad.amplitude);
+        return 0.0;
     }
     int idx1 = -1;
     for (int j = 1; j < static_cast<int>(timesUs.size()); ++j)
@@ -492,6 +542,305 @@ void applyRotationIfNeeded(SeqBlock* blk, double& gx, double& gy, double& gz)
     gx = r00 * lx + r01 * ly + r02 * lz;
     gy = r10 * lx + r11 * ly + r12 * lz;
     gz = r20 * lx + r21 * ly + r22 * lz;
+}
+
+struct WaveSeries
+{
+    QVector<double> t;
+    QVector<double> v;
+};
+
+double deriveArbEdgeSample(const float* shapePtr, int numSamples, bool first)
+{
+    if (!shapePtr || numSamples <= 0)
+    {
+        return 0.0;
+    }
+    if (numSamples == 1)
+    {
+        return static_cast<double>(shapePtr[0]);
+    }
+    if (first)
+    {
+        return 0.5 * (3.0 * static_cast<double>(shapePtr[0]) - static_cast<double>(shapePtr[1]));
+    }
+    return 0.5 * (3.0 * static_cast<double>(shapePtr[numSamples - 1]) -
+                  static_cast<double>(shapePtr[numSamples - 2]));
+}
+
+WaveSeries buildGradientPiece(SeqBlock* blk, int ch, double blockStartSec, double gradRasterSec)
+{
+    WaveSeries piece;
+    if (!blk || !(blk->isTrapGradient(ch) || blk->isArbitraryGradient(ch) || blk->isExtTrapGradient(ch)))
+    {
+        return piece;
+    }
+    const GradEvent& grad = blk->GetGradEvent(ch);
+    const double t0 = blockStartSec + static_cast<double>(grad.delay) * 1e-6;
+
+    if (blk->isTrapGradient(ch))
+    {
+        const double ru = static_cast<double>(grad.rampUpTime) * 1e-6;
+        const double fl = static_cast<double>(grad.flatTime) * 1e-6;
+        const double rd = static_cast<double>(grad.rampDownTime) * 1e-6;
+        const double amp = static_cast<double>(grad.amplitude);
+        if (ru <= 0.0 && fl <= 0.0 && rd <= 0.0)
+        {
+            return piece;
+        }
+        if (fl > 0.0)
+        {
+            piece.t = {t0, t0 + ru, t0 + ru + fl, t0 + ru + fl + rd};
+            piece.v = {0.0, amp, amp, 0.0};
+        }
+        else
+        {
+            piece.t = {t0, t0 + ru, t0 + ru + rd};
+            piece.v = {0.0, amp, 0.0};
+        }
+        return piece;
+    }
+
+    if (blk->isArbitraryGradient(ch))
+    {
+        const int n = blk->GetArbGradNumSamples(ch);
+        const float* shape = blk->GetArbGradShapePtr(ch);
+        if (n <= 0 || !shape || gradRasterSec <= 0.0)
+        {
+            return piece;
+        }
+        const double amp = static_cast<double>(grad.amplitude);
+        const bool hasFirst = (grad.first != FLOAT_UNDEFINED);
+        const bool hasLast = (grad.last != FLOAT_UNDEFINED);
+        double firstVal = hasFirst ? static_cast<double>(grad.first) : deriveArbEdgeSample(shape, n, true);
+        double lastVal = hasLast ? static_cast<double>(grad.last) : deriveArbEdgeSample(shape, n, false);
+        if (hasFirst && std::abs(firstVal) > 1.0 + 1e-6 && std::abs(amp) > 0.0)
+        {
+            firstVal /= amp;
+        }
+        if (hasLast && std::abs(lastVal) > 1.0 + 1e-6 && std::abs(amp) > 0.0)
+        {
+            lastVal /= amp;
+        }
+
+        const bool oversampled = (grad.timeShape == -1);
+        if (!oversampled)
+        {
+            QVector<double> w(n);
+            for (int i = 0; i < n; ++i)
+            {
+                w[i] = static_cast<double>(shape[i]);
+            }
+            double maxAbs = 0.0;
+            for (double v : w)
+            {
+                maxAbs = std::max(maxAbs, std::abs(v));
+            }
+
+            QVector<double> oddStep1;
+            oddStep1.reserve(n + 1);
+            oddStep1.append(firstVal);
+            for (int i = 0; i < n; ++i)
+            {
+                oddStep1.append(2.0 * w[i]);
+            }
+
+            QVector<double> oddRest(n + 1, 0.0);
+            double acc = 0.0;
+            for (int i = 0; i < oddStep1.size(); ++i)
+            {
+                const double sgn = ((i % 2) == 0) ? 1.0 : -1.0;
+                acc += oddStep1[i] * sgn;
+                oddRest[i] = acc * sgn;
+            }
+
+            QVector<double> oddInterp(n + 1, 0.0);
+            oddInterp[0] = firstVal;
+            for (int i = 1; i < n; ++i)
+            {
+                oddInterp[i] = 0.5 * (w[i - 1] + w[i]);
+            }
+            oddInterp[n] = lastVal;
+
+            const double tol = std::numeric_limits<double>::epsilon() + 2e-5 * maxAbs;
+            if (std::abs(oddRest.back() - lastVal) <= 2e-5 * maxAbs)
+            {
+                for (int i = 0; i < oddRest.size(); ++i)
+                {
+                    if (std::abs(oddRest[i] - oddInterp[i]) <= tol)
+                    {
+                        oddRest[i] = oddInterp[i];
+                    }
+                }
+
+                QVector<double> wfOs;
+                wfOs.reserve(2 * n + 1);
+                for (int i = 0; i <= n; ++i)
+                {
+                    wfOs.append(oddRest[i]);
+                    if (i < n)
+                    {
+                        wfOs.append(w[i]);
+                    }
+                }
+
+                piece.t.reserve(wfOs.size());
+                piece.v.reserve(wfOs.size());
+                for (int i = 0; i < wfOs.size(); ++i)
+                {
+                    bool keep = (i == 0 || i == wfOs.size() - 1);
+                    if (!keep)
+                    {
+                        const double d2 = wfOs[i + 1] - 2.0 * wfOs[i] + wfOs[i - 1];
+                        keep = (std::abs(d2) > 1e-8);
+                    }
+                    if (!keep)
+                    {
+                        continue;
+                    }
+                    piece.t.append(t0 + static_cast<double>(i) * 0.5 * gradRasterSec);
+                    piece.v.append(wfOs[i] * amp);
+                }
+                return piece;
+            }
+        }
+
+        piece.t.reserve(n + 2);
+        piece.v.reserve(n + 2);
+        piece.t.append(t0);
+        piece.v.append(firstVal * amp);
+        for (int k = 0; k < n; ++k)
+        {
+            const double tt = oversampled
+                ? (static_cast<double>(k) + 1.0) * 0.5 * gradRasterSec
+                : (static_cast<double>(k) + 0.5) * gradRasterSec;
+            piece.t.append(t0 + tt);
+            piece.v.append(static_cast<double>(shape[k]) * amp);
+        }
+        const double shapeDur = oversampled
+            ? (static_cast<double>(n) + 1.0) * 0.5 * gradRasterSec
+            : static_cast<double>(n) * gradRasterSec;
+        piece.t.append(t0 + shapeDur);
+        piece.v.append(lastVal * amp);
+        return piece;
+    }
+
+    if (blk->isExtTrapGradient(ch))
+    {
+        const std::vector<long>& timesUs = blk->GetExtTrapGradTimes(ch);
+        const std::vector<float>& shape = blk->GetExtTrapGradShape(ch);
+        if (timesUs.empty() || shape.empty() || timesUs.size() != shape.size())
+        {
+            return piece;
+        }
+        const double amp = static_cast<double>(grad.amplitude);
+        const int n = static_cast<int>(timesUs.size());
+        piece.t.reserve(n);
+        piece.v.reserve(n);
+        for (int i = 0; i < n; ++i)
+        {
+            piece.t.append(t0 + static_cast<double>(timesUs[i]) * 1e-6);
+            piece.v.append(static_cast<double>(shape[i]) * amp);
+        }
+        return piece;
+    }
+
+    return piece;
+}
+
+void mergeWavePiece(WaveSeries& wave, const WaveSeries& piece, double gradRasterSec)
+{
+    if (piece.t.isEmpty())
+    {
+        return;
+    }
+
+    QVector<double> localT = piece.t;
+    QVector<double> localV = piece.v;
+    if (localT.size() != localV.size() || localT.isEmpty())
+    {
+        return;
+    }
+
+    if (!wave.t.isEmpty() && wave.t.last() + gradRasterSec < localT.first())
+    {
+        if (std::abs(wave.v.last()) > 1e-6)
+        {
+            wave.t.append(wave.t.last() + 0.5 * gradRasterSec);
+            wave.v.append(0.0);
+        }
+        else
+        {
+            wave.v.last() = 0.0;
+        }
+
+        if (std::abs(localV.first()) > 1e-6)
+        {
+            localT.prepend(localT.first() - 0.5 * gradRasterSec);
+            localV.prepend(0.0);
+        }
+        else
+        {
+            localV[0] = 0.0;
+        }
+    }
+
+    if (wave.t.isEmpty() || wave.t.last() < localT.first())
+    {
+        for (int i = 0; i < localT.size(); ++i)
+        {
+            wave.t.append(localT[i]);
+            wave.v.append(localV[i]);
+        }
+        return;
+    }
+
+    const double lastT = wave.t.last();
+    int start = 0;
+    while (start < localT.size() && !(localT[start] > lastT))
+    {
+        ++start;
+    }
+    for (int i = start; i < localT.size(); ++i)
+    {
+        wave.t.append(localT[i]);
+        wave.v.append(localV[i]);
+    }
+}
+
+double interpLinearZero(const WaveSeries& wave, double t)
+{
+    if (wave.t.isEmpty())
+    {
+        return 0.0;
+    }
+    if (t < wave.t.first() || t > wave.t.last())
+    {
+        return 0.0;
+    }
+    if (t == wave.t.last())
+    {
+        return wave.v.last();
+    }
+    const auto it = std::lower_bound(wave.t.begin(), wave.t.end(), t);
+    if (it == wave.t.begin())
+    {
+        return wave.v.first();
+    }
+    if (it == wave.t.end())
+    {
+        return wave.v.last();
+    }
+    const int i1 = static_cast<int>(it - wave.t.begin());
+    const int i0 = i1 - 1;
+    const double t0 = wave.t[i0];
+    const double t1 = wave.t[i1];
+    if (t1 <= t0)
+    {
+        return wave.v[i1];
+    }
+    const double a = (t - t0) / (t1 - t0);
+    return wave.v[i0] + (wave.v[i1] - wave.v[i0]) * a;
 }
 }
 
@@ -608,8 +957,16 @@ PnsCalculator::Result PnsCalculator::calculate(
         blockEdgesSec[i] = us * 1e-6;
     }
 
-    double tFirst = std::numeric_limits<double>::infinity();
-    double tLast = -std::numeric_limits<double>::infinity();
+    const double dtSec = gradientRasterUs * 1e-6;
+    if (dtSec <= 0.0)
+    {
+        result.error = QStringLiteral("Invalid gradient raster time.");
+        return result;
+    }
+
+    std::array<WaveSeries, 3> waves;
+    bool hasAnyNonTrap = false;
+    bool hasAnyLabelExt = false;
     for (int b = 0; b < static_cast<int>(blocks.size()); ++b)
     {
         SeqBlock* blk = blocks[b];
@@ -618,60 +975,35 @@ PnsCalculator::Result PnsCalculator::calculate(
             continue;
         }
         const double blockStart = blockEdgesSec[b];
+        hasAnyLabelExt = hasAnyLabelExt || blk->isLabel();
         for (int ch = 0; ch < 3; ++ch)
         {
-            if (!(blk->isTrapGradient(ch) || blk->isArbitraryGradient(ch) || blk->isExtTrapGradient(ch)))
-            {
-                continue;
-            }
-            const GradEvent& grad = blk->GetGradEvent(ch);
-            const double eventStart = blockStart + static_cast<double>(grad.delay) * 1e-6;
-            double eventEnd = eventStart;
-            if (blk->isTrapGradient(ch))
-            {
-                eventEnd += (static_cast<double>(grad.rampUpTime) +
-                             static_cast<double>(grad.flatTime) +
-                             static_cast<double>(grad.rampDownTime)) * 1e-6;
-            }
-            else if (blk->isArbitraryGradient(ch))
-            {
-                const int n = blk->GetArbGradNumSamples(ch);
-                if (n > 1)
-                {
-                    eventEnd += static_cast<double>(n - 1) * gradientRasterUs * 1e-6;
-                }
-            }
-            else if (blk->isExtTrapGradient(ch))
-            {
-                const std::vector<long>& timesUs = blk->GetExtTrapGradTimes(ch);
-                if (!timesUs.empty())
-                {
-                    eventEnd += static_cast<double>(timesUs.back()) * 1e-6;
-                }
-            }
-            tFirst = std::min(tFirst, eventStart);
-            tLast = std::max(tLast, eventEnd);
+            hasAnyNonTrap = hasAnyNonTrap || blk->isArbitraryGradient(ch) || blk->isExtTrapGradient(ch);
+            const WaveSeries piece = buildGradientPiece(blk, ch, blockStart, dtSec);
+            mergeWavePiece(waves[ch], piece, dtSec);
         }
     }
 
+    double tFirst = std::numeric_limits<double>::infinity();
+    double tLast = -std::numeric_limits<double>::infinity();
+    for (const WaveSeries& w : waves)
+    {
+        if (w.t.isEmpty())
+        {
+            continue;
+        }
+        tFirst = std::min(tFirst, w.t.first());
+        tLast = std::max(tLast, w.t.last());
+    }
     if (!std::isfinite(tFirst) || !std::isfinite(tLast) || tLast <= tFirst)
     {
         result.error = QStringLiteral("No gradient waveform available for PNS.");
         return result;
     }
 
-    const double dtSec = gradientRasterUs * 1e-6;
-    if (dtSec <= 0.0)
-    {
-        result.error = QStringLiteral("Invalid gradient raster time.");
-        return result;
-    }
-
     const double eps = std::numeric_limits<double>::epsilon();
-    double ntMin = std::floor(tFirst / dtSec + eps);
-    double ntMax = std::ceil(tLast / dtSec - eps);
-    ntMin += 0.5;
-    ntMax -= 0.5;
+    double ntMin = std::floor(tFirst / dtSec + eps) + 0.5;
+    double ntMax = std::ceil(tLast / dtSec - eps) - 0.5;
     if (ntMin < 0.5)
     {
         ntMin = 0.5;
@@ -698,30 +1030,12 @@ PnsCalculator::Result PnsCalculator::calculate(
     QVector<double> gxTpm(nSamples, 0.0);
     QVector<double> gyTpm(nSamples, 0.0);
     QVector<double> gzTpm(nSamples, 0.0);
-
-    int blockIdx = 0;
     for (int i = 0; i < nSamples; ++i)
     {
         const double tSec = tAxis[i];
-        while (blockIdx + 1 < blockEdgesSec.size() && tSec >= blockEdgesSec[blockIdx + 1])
-        {
-            ++blockIdx;
-        }
-        if (blockIdx < 0 || blockIdx >= static_cast<int>(blocks.size()))
-        {
-            continue;
-        }
-
-        SeqBlock* blk = blocks[blockIdx];
-        const double blockStartSec = blockEdgesSec[blockIdx];
-        double gx = gradientValueFromBlock(blk, 0, tSec, blockStartSec, gradientRasterUs);
-        double gy = gradientValueFromBlock(blk, 1, tSec, blockStartSec, gradientRasterUs);
-        double gz = gradientValueFromBlock(blk, 2, tSec, blockStartSec, gradientRasterUs);
-        applyRotationIfNeeded(blk, gx, gy, gz);
-
-        gxTpm[i] = gx / gammaHzPerT;
-        gyTpm[i] = gy / gammaHzPerT;
-        gzTpm[i] = gz / gammaHzPerT;
+        gxTpm[i] = interpLinearZero(waves[0], tSec) / gammaHzPerT;
+        gyTpm[i] = interpLinearZero(waves[1], tSec) / gammaHzPerT;
+        gzTpm[i] = interpLinearZero(waves[2], tSec) / gammaHzPerT;
     }
 
     const auto longestTauMs = [&hardware]() {
@@ -781,17 +1095,24 @@ PnsCalculator::Result PnsCalculator::calculate(
         {
             continue;
         }
-        if (i >= stimX.size() || i >= stimY.size() || i >= stimZ.size())
+        const int shift = (hasAnyNonTrap || hasAnyLabelExt) ? 1 : 0;
+        int stimIdx = i - shift;
+        if (shift > 0 && hasAnyLabelExt && origIdx == (tAxis.size() - 1))
         {
-            break;
+            const int lastStim = static_cast<int>(stimX.size()) - 1;
+            stimIdx = std::min(i, lastStim);
+        }
+        if (stimIdx < 0 || stimIdx >= stimX.size() || stimIdx >= stimY.size() || stimIdx >= stimZ.size())
+        {
+            continue;
         }
         if (origIdx >= tAxis.size())
         {
             break;
         }
-        selX.append(stimX[i]);
-        selY.append(stimY[i]);
-        selZ.append(stimZ[i]);
+        selX.append(stimX[stimIdx]);
+        selY.append(stimY[stimIdx]);
+        selZ.append(stimZ[stimIdx]);
         selTime.append(tAxis[origIdx]);
         ++origIdx;
     }

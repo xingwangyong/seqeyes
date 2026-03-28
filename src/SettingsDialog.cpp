@@ -30,6 +30,7 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_panWheelCheck(nullptr)
     , m_showExtensionTooltipCheck(nullptr)
     , m_pnsAscPathCombo(nullptr)
+    , m_pnsNicknameEdit(nullptr)
     , m_pnsBrowseButton(nullptr)
     , m_pnsRemoveInvalidButton(nullptr)
     , m_pnsShowXCheck(nullptr)
@@ -287,6 +288,12 @@ void SettingsDialog::setupUI()
 
     pnsForm->addRow("ASC Path:", pnsPathRow);
 
+    // Nickname row (below ASC Path)
+    m_pnsNicknameEdit = new QLineEdit(safetyTab);
+    m_pnsNicknameEdit->setPlaceholderText("e.g. Prisma  (optional, shown in dropdown)");
+    m_pnsNicknameEdit->setMaxLength(64);
+    pnsForm->addRow("ASC Nickname:", m_pnsNicknameEdit);
+
     QWidget* pnsChannelsRow = new QWidget(safetyTab);
     QHBoxLayout* pnsChannelsLayout = new QHBoxLayout(pnsChannelsRow);
     pnsChannelsLayout->setContentsMargins(0, 0, 0, 0);
@@ -349,6 +356,8 @@ void SettingsDialog::setupUI()
             this, &SettingsDialog::onBrowsePnsAscPath);
     connect(m_pnsRemoveInvalidButton, &QPushButton::clicked,
             this, &SettingsDialog::onRemoveInvalidPnsAscPaths);
+    connect(m_pnsAscPathCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SettingsDialog::onPnsAscPathComboChanged);
 }
 
 void SettingsDialog::loadCurrentSettings()
@@ -369,6 +378,7 @@ void SettingsDialog::loadCurrentSettings()
     m_originalShowExtensionTooltip = settings.getShowExtensionTooltip();
     m_originalPnsAscPath = settings.getPnsAscPath();
     m_originalPnsAscHistory = settings.getPnsAscHistory();
+    m_originalPnsAscNicknames = settings.getPnsAscNicknames();
     m_originalPnsShowX = settings.getPnsChannelVisibleX();
     m_originalPnsShowY = settings.getPnsChannelVisibleY();
     m_originalPnsShowZ = settings.getPnsChannelVisibleZ();
@@ -427,30 +437,49 @@ void SettingsDialog::loadCurrentSettings()
 
     if (m_pnsAscPathCombo)
     {
+        // Temporarily block signals so nickname edit is only updated once at the end
+        QSignalBlocker blocker(m_pnsAscPathCombo);
         m_pnsAscPathCombo->clear();
         m_pnsAscPathCombo->setPlaceholderText("Not configured");
         const QStringList history = settings.getPnsAscHistory();
         for (const QString& p : history)
         {
-            m_pnsAscPathCombo->addItem(p);
+            const QString nick = settings.getPnsAscNickname(p);
+            const QString displayText = nick.isEmpty() ? p : nick + " | " + p;
+            m_pnsAscPathCombo->addItem(displayText, p); // data = real path
         }
         const QString current = settings.getPnsAscPath();
         if (!current.isEmpty())
         {
-            int idx = m_pnsAscPathCombo->findText(current);
+            // Find by data (real path)
+            int idx = -1;
+            for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
+            {
+                if (m_pnsAscPathCombo->itemData(i).toString() == current)
+                {
+                    idx = i;
+                    break;
+                }
+            }
             if (idx < 0)
             {
-                m_pnsAscPathCombo->insertItem(0, current);
+                m_pnsAscPathCombo->insertItem(0, current, current);
                 idx = 0;
             }
             m_pnsAscPathCombo->setCurrentIndex(idx);
-            m_pnsAscPathCombo->setEditText(current);
+            m_pnsAscPathCombo->setEditText(m_pnsAscPathCombo->itemText(idx));
         }
         else
         {
             m_pnsAscPathCombo->setCurrentIndex(-1);
             m_pnsAscPathCombo->setEditText("");
         }
+    }
+    // Populate nickname edit for the currently selected path
+    if (m_pnsNicknameEdit)
+    {
+        const QString current = settings.getPnsAscPath();
+        m_pnsNicknameEdit->setText(settings.getPnsAscNickname(current));
     }
     if (m_pnsShowXCheck) m_pnsShowXCheck->setChecked(settings.getPnsChannelVisibleX());
     if (m_pnsShowYCheck) m_pnsShowYCheck->setChecked(settings.getPnsChannelVisibleY());
@@ -540,16 +569,18 @@ void SettingsDialog::applySettings()
 
     if (m_pnsAscPathCombo)
     {
+        // Collect history from itemData (real paths, not display text)
         QStringList history;
         for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
         {
-            const QString path = m_pnsAscPathCombo->itemText(i).trimmed();
+            const QString path = m_pnsAscPathCombo->itemData(i).toString().trimmed();
             if (!path.isEmpty() && !history.contains(path))
-            {
                 history.append(path);
-            }
         }
-        const QString currentPath = m_pnsAscPathCombo->currentText().trimmed();
+        // Current path: prefer itemData; fall back to edit text if user typed directly
+        QString currentPath = m_pnsAscPathCombo->currentData().toString().trimmed();
+        if (currentPath.isEmpty())
+            currentPath = m_pnsAscPathCombo->currentText().trimmed();
         if (!currentPath.isEmpty())
         {
             history.removeAll(currentPath);
@@ -557,6 +588,10 @@ void SettingsDialog::applySettings()
         }
         settings.setPnsAscHistory(history);
         settings.setPnsAscPath(currentPath);
+
+        // Save nickname for the current path
+        if (m_pnsNicknameEdit && !currentPath.isEmpty())
+            settings.setPnsAscNickname(currentPath, m_pnsNicknameEdit->text().trimmed());
 
         // Soft validation in "wide" mode: keep settings, warn, and let compute path decide.
         if (currentPath.isEmpty())
@@ -626,6 +661,12 @@ void SettingsDialog::onCancelClicked()
     settings.setShowExtensionTooltip(m_originalShowExtensionTooltip);
     settings.setPnsAscHistory(m_originalPnsAscHistory);
     settings.setPnsAscPath(m_originalPnsAscPath);
+    // Restore nicknames
+    for (const QString& path : m_originalPnsAscHistory)
+    {
+        const QString nick = m_originalPnsAscNicknames.value(path);
+        settings.setPnsAscNickname(path, nick);
+    }
     settings.setPnsChannelVisibleX(m_originalPnsShowX);
     settings.setPnsChannelVisibleY(m_originalPnsShowY);
     settings.setPnsChannelVisibleZ(m_originalPnsShowZ);
@@ -873,14 +914,24 @@ void SettingsDialog::onBrowsePnsAscPath()
         return;
     }
 
-    int idx = m_pnsAscPathCombo->findText(selected);
+    const QString nick = Settings::getInstance().getPnsAscNickname(selected);
+    const QString displayText = nick.isEmpty() ? selected : nick + " | " + selected;
+    int idx = -1;
+    for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
+    {
+        if (m_pnsAscPathCombo->itemData(i).toString() == selected)
+        {
+            idx = i;
+            break;
+        }
+    }
     if (idx < 0)
     {
-        m_pnsAscPathCombo->insertItem(0, selected);
+        m_pnsAscPathCombo->insertItem(0, displayText, selected);
         idx = 0;
     }
     m_pnsAscPathCombo->setCurrentIndex(idx);
-    m_pnsAscPathCombo->setEditText(selected);
+    m_pnsAscPathCombo->setEditText(m_pnsAscPathCombo->itemText(idx));
 }
 
 void SettingsDialog::onRemoveInvalidPnsAscPaths()
@@ -892,4 +943,15 @@ void SettingsDialog::onRemoveInvalidPnsAscPaths()
         this,
         tr("PNS ASC history"),
         tr("Removed %1 invalid path(s).").arg(removed));
+}
+
+void SettingsDialog::onPnsAscPathComboChanged(int index)
+{
+    if (!m_pnsAscPathCombo || !m_pnsNicknameEdit)
+        return;
+    const QString realPath = m_pnsAscPathCombo->itemData(index).toString();
+    if (realPath.isEmpty())
+        return;
+    const QString nick = Settings::getInstance().getPnsAscNickname(realPath);
+    m_pnsNicknameEdit->setText(nick);
 }
