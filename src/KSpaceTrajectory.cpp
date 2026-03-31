@@ -329,27 +329,34 @@ namespace
 
         if (oversampled)
         {
-            const double u = localSec / rasterSec;
-            if (u < 1.0)
+            // Oversampled arbitrary semantics:
+            // t=0 -> first, t=(j+1)*0.5*dt -> shape[j], t=(N+1)*0.5*dt -> last.
+            const double halfRasterSec = 0.5 * rasterSec;
+            const double s = localSec / halfRasterSec; // sample-domain coordinate
+
+            if (s < 1.0)
             {
-                const double alpha = std::clamp(u, 0.0, 1.0);
+                // first -> sample[0] on [0, 0.5*dt]
+                const double alpha = std::clamp(s, 0.0, 1.0);
                 const double s0 = static_cast<double>(shapePtr[0]);
                 return (firstVal + (s0 - firstVal) * alpha) * amp;
             }
 
-            const double uLast = 0.5 * (static_cast<double>(numSamples) + 1.0);
-            if (u >= static_cast<double>(numSamples))
+            if (s >= static_cast<double>(numSamples))
             {
-                const double alpha = std::clamp(u - static_cast<double>(numSamples), 0.0, 1.0);
+                // sample[N-1] -> last on [N*0.5*dt, (N+1)*0.5*dt]
+                const double alpha = std::clamp(s - static_cast<double>(numSamples), 0.0, 1.0);
                 const double sLast = static_cast<double>(shapePtr[numSamples - 1]);
                 return (sLast + (lastVal - sLast) * alpha) * amp;
             }
 
-            const double samplePos = 2.0 * u - 1.0;
-            const int idx0 = static_cast<int>(std::floor(samplePos));
+            // Interior sample-to-sample interpolation.
+            // sample index i lives at s=i+1.
+            const int idx0 = std::clamp(static_cast<int>(std::floor(s)) - 1, 0, numSamples - 1);
             const int idx1 = std::clamp(idx0 + 1, 0, numSamples - 1);
-            const double alpha = std::clamp(samplePos - static_cast<double>(idx0), 0.0, 1.0);
-            const double v0 = static_cast<double>(shapePtr[std::clamp(idx0, 0, numSamples - 1)]);
+            const double s0 = static_cast<double>(idx0 + 1);
+            const double alpha = std::clamp(s - s0, 0.0, 1.0);
+            const double v0 = static_cast<double>(shapePtr[idx0]);
             const double v1 = static_cast<double>(shapePtr[idx1]);
             return (v0 + (v1 - v0) * alpha) * amp;
         }
