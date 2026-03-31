@@ -45,9 +45,15 @@ Use the build.sh script to build the project:
 or use the AppImage from GitHub Releases.
 
 ### macOS
-Use the same build.sh script (if Qt is installed under home directory):
+Recommended dependencies installation via Homebrew:
 ```bash
-./build.sh . ./out/bin Release ~/Qt
+brew install qt
+brew install cmake
+```
+
+Use the same build.sh script (replace `/path/to/Qt` to the installation path of Qt):
+```bash
+./build.sh . ./out/bin Release /path/to/Qt
 ```
 The script auto-detects the Qt desktop folder (`macos` or `clang_64`) and uses `macdeployqt` through CMake install rules.
 
