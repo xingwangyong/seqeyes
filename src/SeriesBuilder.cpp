@@ -155,19 +155,66 @@ void buildGradientSeries(
             }
         }
         else if (blk->isArbitraryGradient(channel)) {
-            // Arbitrary gradient: use shape data
+            // Arbitrary gradient: align endpoint semantics with MATLAB-style
+            // first/last handling and oversampling timing.
             int numSamples = blk->GetArbGradNumSamples(channel);
             const float* shapePtr = blk->GetArbGradShapePtr(channel);
             
             if (numSamples > 0 && shapePtr) {
-                // Use provided gradient raster time in microseconds if valid, otherwise fallback
                 double gradRaster_us = (gradientRasterUs > 0.0 ? gradientRasterUs : 10.0);
-                
-                for (int j = 0; j < numSamples; ++j) {
-                    double t = tStart + j * gradRaster_us * tFactor;
-                    double amp = static_cast<double>(shapePtr[j]) * static_cast<double>(grad.amplitude);
-                    blockTime.append(t);
-                    blockValues.append(amp);
+                const double dt = gradRaster_us * tFactor;
+                const double ampScale = static_cast<double>(grad.amplitude);
+
+                auto deriveEdgeSample = [&](bool first) -> double {
+                    if (numSamples <= 0) return 0.0;
+                    if (numSamples == 1) return static_cast<double>(shapePtr[0]);
+                    if (first) {
+                        return 0.5 * (3.0 * static_cast<double>(shapePtr[0]) -
+                                      static_cast<double>(shapePtr[1]));
+                    }
+                    return 0.5 * (3.0 * static_cast<double>(shapePtr[numSamples - 1]) -
+                                  static_cast<double>(shapePtr[numSamples - 2]));
+                };
+
+                const bool hasFirst = (grad.first != FLOAT_UNDEFINED);
+                const bool hasLast = (grad.last != FLOAT_UNDEFINED);
+                double firstVal = hasFirst ? static_cast<double>(grad.first) : deriveEdgeSample(true);
+                double lastVal = hasLast ? static_cast<double>(grad.last) : deriveEdgeSample(false);
+
+                // Compatibility: some sources may store first/last already scaled by amplitude.
+                if (hasFirst && std::abs(firstVal) > 1.0 + 1e-6 && std::abs(ampScale) > 0.0)
+                    firstVal /= ampScale;
+                if (hasLast && std::abs(lastVal) > 1.0 + 1e-6 && std::abs(ampScale) > 0.0)
+                    lastVal /= ampScale;
+
+                const bool oversampled = blk->isArbGradWithOversampling(channel);
+
+                // Start endpoint
+                blockTime.append(tStart);
+                blockValues.append(firstVal * ampScale);
+
+                if (oversampled) {
+                    // Oversampled arbitrary waveform: sample points on half-raster offsets.
+                    for (int j = 0; j < numSamples; ++j) {
+                        double t = tStart + (static_cast<double>(j) + 1.0) * 0.5 * dt;
+                        double v = static_cast<double>(shapePtr[j]) * ampScale;
+                        blockTime.append(t);
+                        blockValues.append(v);
+                    }
+                    double tEnd = tStart + (static_cast<double>(numSamples) + 1.0) * 0.5 * dt;
+                    blockTime.append(tEnd);
+                    blockValues.append(lastVal * ampScale);
+                } else {
+                    // Standard arbitrary waveform: sample points at center of each raster interval.
+                    for (int j = 0; j < numSamples; ++j) {
+                        double t = tStart + (static_cast<double>(j) + 0.5) * dt;
+                        double v = static_cast<double>(shapePtr[j]) * ampScale;
+                        blockTime.append(t);
+                        blockValues.append(v);
+                    }
+                    double tEnd = tStart + static_cast<double>(numSamples) * dt;
+                    blockTime.append(tEnd);
+                    blockValues.append(lastVal * ampScale);
                 }
             }
         }

@@ -15,6 +15,8 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QFileInfo>
+#include <QDir>
+#include <QTextStream>
 
 static bool readJsonFile(const QString& path, QJsonObject& out)
 {
@@ -23,6 +25,28 @@ static bool readJsonFile(const QString& path, QJsonObject& out)
     QJsonParseError err; auto doc = QJsonDocument::fromJson(f.readAll(), &err);
     if (err.error != QJsonParseError::NoError || !doc.isObject()) return false;
     out = doc.object();
+    return true;
+}
+
+static bool writeTrajectoryFile(const QString& path,
+                                const QVector<double>& kx,
+                                const QVector<double>& ky,
+                                const QVector<double>& kz)
+{
+    if (kx.size() != ky.size() || kx.size() != kz.size() || kx.isEmpty())
+        return false;
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+        return false;
+
+    QTextStream ts(&file);
+    ts.setRealNumberNotation(QTextStream::ScientificNotation);
+    ts.setRealNumberPrecision(12);
+    for (int i = 0; i < kx.size(); ++i)
+    {
+        ts << kx[i] << "\t" << ky[i] << "\t" << kz[i] << "\n";
+    }
     return true;
 }
 
@@ -125,6 +149,52 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
         }
         qint64 ms = t.elapsed();
         QTextStream(stdout) << "ZOOM_MS: " << ms << "\n";
+        return 0;
+    }
+
+    if (type == "export_trajectory") {
+        QString outDir = params.value("dir").toString().trimmed();
+        if (outDir.isEmpty()) { qWarning() << "[AUTOMATION] export_trajectory: missing dir"; return 15; }
+
+        QDir dir(outDir);
+        if (!dir.exists() && !QDir().mkpath(outDir)) {
+            qWarning() << "[AUTOMATION] export_trajectory: cannot create dir:" << outDir;
+            return 16;
+        }
+
+        PulseqLoader* loader = window.getPulseqLoader();
+        if (!loader) {
+            qWarning() << "[AUTOMATION] export_trajectory: loader unavailable";
+            return 17;
+        }
+        loader->ensureTrajectoryPrepared();
+
+        const QVector<double>& kx = loader->getTrajectoryKx();
+        const QVector<double>& ky = loader->getTrajectoryKy();
+        const QVector<double>& kz = loader->getTrajectoryKz();
+        const QVector<double>& kxAdc = loader->getTrajectoryKxAdc();
+        const QVector<double>& kyAdc = loader->getTrajectoryKyAdc();
+        const QVector<double>& kzAdc = loader->getTrajectoryKzAdc();
+        if (kx.isEmpty() || ky.isEmpty() || kz.isEmpty()) {
+            qWarning() << "[AUTOMATION] export_trajectory: empty ktraj";
+            return 18;
+        }
+        if (kxAdc.isEmpty() || kyAdc.isEmpty() || kzAdc.isEmpty()) {
+            qWarning() << "[AUTOMATION] export_trajectory: empty ktraj_adc";
+            return 19;
+        }
+
+        const QString ktrajPath = dir.filePath("ktraj.txt");
+        const QString ktrajAdcPath = dir.filePath("ktraj_adc.txt");
+        if (!writeTrajectoryFile(ktrajPath, kx, ky, kz)) {
+            qWarning() << "[AUTOMATION] export_trajectory: failed writing" << ktrajPath;
+            return 20;
+        }
+        if (!writeTrajectoryFile(ktrajAdcPath, kxAdc, kyAdc, kzAdc)) {
+            qWarning() << "[AUTOMATION] export_trajectory: failed writing" << ktrajAdcPath;
+            return 21;
+        }
+        qInfo() << "[AUTOMATION] exported trajectory to" << QDir::toNativeSeparators(outDir);
         return 0;
     }
 

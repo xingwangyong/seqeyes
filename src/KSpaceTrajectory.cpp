@@ -8,7 +8,12 @@
 #include <cmath>
 #include <limits>
 #include <numeric>
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QtGlobal>
+#include <QTextStream>
 #include "Settings.h"
 #include <QDebug>
 
@@ -16,6 +21,35 @@ namespace KSpaceTrajectory
 {
 namespace
 {
+    bool ktrajDebugEnabled()
+    {
+        const QByteArray v = qgetenv("SEQEYES_KTRAJ_DEBUG");
+        if (v.isEmpty())
+            return false;
+        const QByteArray lower = v.trimmed().toLower();
+        return (lower == "1" || lower == "true" || lower == "yes" || lower == "on");
+    }
+
+    QString ktrajDebugDir()
+    {
+        const QByteArray custom = qgetenv("SEQEYES_KTRAJ_DEBUG_DIR");
+        if (!custom.isEmpty())
+            return QString::fromUtf8(custom);
+        return QDir::cleanPath(QCoreApplication::applicationDirPath() + "/../../test/ktraj_debug");
+    }
+
+    bool writeTextFile(const QString& path, const QString& content)
+    {
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
+            return false;
+        QTextStream ts(&f);
+        ts.setRealNumberNotation(QTextStream::ScientificNotation);
+        ts.setRealNumberPrecision(16);
+        ts << content;
+        return true;
+    }
+
     double internalToSeconds(double value, double tFactor)
     {
         if (tFactor == 0.0)
@@ -262,25 +296,87 @@ namespace
             return 0.0;
         double rasterUs = (gradientRasterUs > 0.0 ? gradientRasterUs : 10.0);
         double rasterSec = rasterUs * 1e-6;
-        if (numSamples == 1)
-        {
-            double durationSec = rasterSec;
-            if (localSec <= durationSec)
-                return static_cast<double>(shapePtr[0]) * static_cast<double>(grad.amplitude);
-            return 0.0;
-        }
-        double totalSec = rasterSec * static_cast<double>(numSamples - 1);
+        auto deriveEdgeSample = [&](bool first) -> double {
+            if (numSamples <= 0)
+                return 0.0;
+            if (numSamples == 1)
+                return static_cast<double>(shapePtr[0]);
+            if (first)
+                return 0.5 * (3.0 * static_cast<double>(shapePtr[0]) - static_cast<double>(shapePtr[1]));
+            return 0.5 * (3.0 * static_cast<double>(shapePtr[numSamples - 1]) -
+                          static_cast<double>(shapePtr[numSamples - 2]));
+        };
+
+        const bool hasFirst = (grad.first != FLOAT_UNDEFINED);
+        const bool hasLast = (grad.last != FLOAT_UNDEFINED);
+        double firstVal = hasFirst ? static_cast<double>(grad.first) : deriveEdgeSample(true);
+        double lastVal = hasLast ? static_cast<double>(grad.last) : deriveEdgeSample(false);
+        const double amp = static_cast<double>(grad.amplitude);
+        if (hasFirst && std::abs(firstVal) > 1.0 + 1e-6 && std::abs(amp) > 0.0)
+            firstVal /= amp;
+        if (hasLast && std::abs(lastVal) > 1.0 + 1e-6 && std::abs(amp) > 0.0)
+            lastVal /= amp;
+        const bool oversampled = blk->isArbGradWithOversampling(channel);
+        const double totalSec = oversampled
+            ? (static_cast<double>(numSamples) + 1.0) * 0.5 * rasterSec
+            : static_cast<double>(numSamples) * rasterSec;
         if (localSec > totalSec)
             return 0.0;
-        double pos = localSec / rasterSec;
-        int idx0 = static_cast<int>(std::floor(pos));
-        if (idx0 >= numSamples - 1)
-            return static_cast<double>(shapePtr[numSamples - 1]) * static_cast<double>(grad.amplitude);
-        double frac = pos - idx0;
-        int idx1 = idx0 + 1;
-        double v0 = static_cast<double>(shapePtr[idx0]);
-        double v1 = static_cast<double>(shapePtr[idx1]);
-        return (v0 + (v1 - v0) * frac) * static_cast<double>(grad.amplitude);
+        if (localSec <= 0.0)
+            return firstVal * amp;
+        if (localSec >= totalSec)
+            return lastVal * amp;
+
+        if (oversampled)
+        {
+            const double u = localSec / rasterSec;
+            if (u < 1.0)
+            {
+                const double alpha = std::clamp(u, 0.0, 1.0);
+                const double s0 = static_cast<double>(shapePtr[0]);
+                return (firstVal + (s0 - firstVal) * alpha) * amp;
+            }
+
+            const double uLast = 0.5 * (static_cast<double>(numSamples) + 1.0);
+            if (u >= static_cast<double>(numSamples))
+            {
+                const double alpha = std::clamp(u - static_cast<double>(numSamples), 0.0, 1.0);
+                const double sLast = static_cast<double>(shapePtr[numSamples - 1]);
+                return (sLast + (lastVal - sLast) * alpha) * amp;
+            }
+
+            const double samplePos = 2.0 * u - 1.0;
+            const int idx0 = static_cast<int>(std::floor(samplePos));
+            const int idx1 = std::clamp(idx0 + 1, 0, numSamples - 1);
+            const double alpha = std::clamp(samplePos - static_cast<double>(idx0), 0.0, 1.0);
+            const double v0 = static_cast<double>(shapePtr[std::clamp(idx0, 0, numSamples - 1)]);
+            const double v1 = static_cast<double>(shapePtr[idx1]);
+            return (v0 + (v1 - v0) * alpha) * amp;
+        }
+
+        const double u = localSec / rasterSec;
+        if (u < 0.5)
+        {
+            const double alpha = u / 0.5;
+            const double s0 = static_cast<double>(shapePtr[0]);
+            return (firstVal + (s0 - firstVal) * alpha) * amp;
+        }
+
+        const double uLastCenter = static_cast<double>(numSamples) - 0.5;
+        if (u >= uLastCenter)
+        {
+            const double alpha = std::clamp((u - uLastCenter) / 0.5, 0.0, 1.0);
+            const double sLast = static_cast<double>(shapePtr[numSamples - 1]);
+            return (sLast + (lastVal - sLast) * alpha) * amp;
+        }
+
+        const int idx0 = static_cast<int>(std::floor(u - 0.5));
+        const int idx1 = idx0 + 1;
+        const double t0 = static_cast<double>(idx0) + 0.5;
+        const double alpha = std::clamp(u - t0, 0.0, 1.0);
+        const double v0 = static_cast<double>(shapePtr[idx0]);
+        const double v1 = static_cast<double>(shapePtr[idx1]);
+        return (v0 + (v1 - v0) * alpha) * amp;
     }
 
     double extTrapGradientValue(SeqBlock* blk, int channel, const GradEvent& grad, double localSec)
@@ -346,11 +442,13 @@ namespace
             base.append(sec);
         }
     }
+
 }
 
 Result compute(const Input& input)
 {
     Result result;
+    const bool debugDump = ktrajDebugEnabled();
     if (input.blocks.empty() || input.blockEdges.size() < 2)
         return result;
 
@@ -446,10 +544,9 @@ Result compute(const Input& input)
     result.t_adc = adcSecondsRounded;
 
     QVector<double> timeCandidates;
-    timeCandidates.reserve(gxTimeSec.size() + gyTimeSec.size() + gzTimeSec.size()
-                           + excitationSecondsRounded.size() * 3
+    timeCandidates.reserve(excitationSecondsRounded.size() * 3
                            + refocusSecondsRounded.size() * 2
-                           + adcSecondsRounded.size() + 4);
+                           + adcSecondsRounded.size() + 8);
 
     auto addCandidate = [&](double sec){
         if (!std::isfinite(sec))
@@ -459,10 +556,17 @@ Result compute(const Input& input)
         timeCandidates.append(sec);
     };
 
-    // Use only breaks (gradient series time points) + events — no dense ramp sampling
+    // Build continuous trajectory time base from gradient waveform support points.
+    // Avoid forcing dense 0..T raster, which can diverge from MATLAB-style trajectory sampling.
     for (double sec : gxTimeSec) addCandidate(sec);
     for (double sec : gyTimeSec) addCandidate(sec);
     for (double sec : gzTimeSec) addCandidate(sec);
+    if (gradRasterSec > 0.0 && std::isfinite(totalDurationSec) && totalDurationSec > 0.0)
+    {
+        const int nSteps = std::max(1, static_cast<int>(std::llround(totalDurationSec / gradRasterSec)));
+        for (int i = 0; i <= nSteps; ++i)
+            addCandidate(static_cast<double>(i) * gradRasterSec);
+    }
 
     addCandidate(0.0);
     addCandidate(totalDurationSec);
@@ -470,17 +574,15 @@ Result compute(const Input& input)
     for (double sec : excitationSecondsRounded)
     {
         addCandidate(sec);
-        if (rfRasterSec > 0.0)
-        {
-            addCandidate(clampNonNegative(sec - rfRasterSec));
-            addCandidate(clampNonNegative(sec - 2.0 * rfRasterSec));
-        }
+        const double dtRf = (rfRasterSec > 0.0 ? rfRasterSec : 1e-6);
+        addCandidate(clampNonNegative(sec - dtRf));
+        addCandidate(clampNonNegative(sec - 2.0 * dtRf));
     }
     for (double sec : refocusSecondsRounded)
     {
         addCandidate(sec);
-        if (rfRasterSec > 0.0)
-            addCandidate(clampNonNegative(sec - rfRasterSec));
+        const double dtRf = (rfRasterSec > 0.0 ? rfRasterSec : 1e-6);
+        addCandidate(clampNonNegative(sec - dtRf));
     }
     for (double sec : adcSecondsRounded) addCandidate(sec);
 
@@ -559,6 +661,29 @@ Result compute(const Input& input)
     QVector<double> kxData(timeGrid.size(), 0.0);
     QVector<double> kyData(timeGrid.size(), 0.0);
     QVector<double> kzData(timeGrid.size(), 0.0);
+    QVector<double> gxAtGrid(timeGrid.size(), 0.0);
+    QVector<double> gyAtGrid(timeGrid.size(), 0.0);
+    QVector<double> gzAtGrid(timeGrid.size(), 0.0);
+    for (int i = 0; i < timeGrid.size(); ++i)
+    {
+        gradientAtSec(timeGrid[i], gxAtGrid[i], gyAtGrid[i], gzAtGrid[i]);
+    }
+    QVector<double> midT;
+    QVector<double> midGx;
+    QVector<double> midGy;
+    QVector<double> midGz;
+    QVector<double> midDt;
+    if (debugDump)
+    {
+        int n = static_cast<int>(timeGrid.size()) - 1;
+        if (n < 0)
+            n = 0;
+        midT.reserve(n);
+        midGx.reserve(n);
+        midGy.reserve(n);
+        midGz.reserve(n);
+        midDt.reserve(n);
+    }
     for (int i = 1; i < timeGrid.size(); ++i)
     {
         double dt = timeGrid[i] - timeGrid[i - 1];
@@ -570,13 +695,25 @@ Result compute(const Input& input)
             continue;
         }
         double mid = timeGrid[i - 1] + 0.5 * dt;
-        double gxMid = 0.0, gyMid = 0.0, gzMid = 0.0;
-        gradientAtSec(mid, gxMid, gyMid, gzMid);
+        double gxMid = 0.5 * (gxAtGrid[i - 1] + gxAtGrid[i]);
+        double gyMid = 0.5 * (gyAtGrid[i - 1] + gyAtGrid[i]);
+        double gzMid = 0.5 * (gzAtGrid[i - 1] + gzAtGrid[i]);
+        if (debugDump)
+        {
+            midT.append(mid);
+            midGx.append(gxMid);
+            midGy.append(gyMid);
+            midGz.append(gzMid);
+            midDt.append(dt);
+        }
         
         kxData[i] = kxData[i - 1] + gxMid * dt;
         kyData[i] = kyData[i - 1] + gyMid * dt;
         kzData[i] = kzData[i - 1] + gzMid * dt;
     }
+    QVector<double> kxRaw = kxData;
+    QVector<double> kyRaw = kyData;
+    QVector<double> kzRaw = kzData;
 
     auto indexForSeconds = [&](double sec) -> int {
         double target = roundAcc(sec);
@@ -623,6 +760,11 @@ Result compute(const Input& input)
     double dkX = -kxData[0];
     double dkY = -kyData[0];
     double dkZ = -kzData[0];
+    QString resetLog;
+    if (debugDump)
+    {
+        resetLog = QStringLiteral("event,idx,time_sec,kx_before,ky_before,kz_before,dkx,dky,dkz,kx_after,ky_after,kz_after\n");
+    }
     int ptrExc = 0;
     int ptrRef = 0;
     for (int seg = 0; seg < boundaries.size() - 1; ++seg)
@@ -634,16 +776,40 @@ Result compute(const Input& input)
 
         if (isExc)
         {
+            double beforeX = kxData[start] + dkX;
+            double beforeY = kyData[start] + dkY;
+            double beforeZ = kzData[start] + dkZ;
             dkX = -kxData[start];
             dkY = -kyData[start];
             dkZ = -kzData[start];
+            if (debugDump)
+            {
+                resetLog += QString::asprintf(
+                    "exc,%d,%.16e,%.16e,%.16e,%.16e,%.16e,%.16e,%.16e,%.16e,%.16e,%.16e\n",
+                    start,
+                    timeGrid[start], beforeX, beforeY, beforeZ,
+                    dkX, dkY, dkZ,
+                    kxData[start] + dkX, kyData[start] + dkY, kzData[start] + dkZ);
+            }
             ++ptrExc;
         }
         else if (isRef)
         {
+            double beforeX = kxData[start] + dkX;
+            double beforeY = kyData[start] + dkY;
+            double beforeZ = kzData[start] + dkZ;
             dkX = -2.0 * kxData[start] - dkX;
             dkY = -2.0 * kyData[start] - dkY;
             dkZ = -2.0 * kzData[start] - dkZ;
+            if (debugDump)
+            {
+                resetLog += QString::asprintf(
+                    "ref,%d,%.16e,%.16e,%.16e,%.16e,%.16e,%.16e,%.16e,%.16e,%.16e,%.16e\n",
+                    start,
+                    timeGrid[start], beforeX, beforeY, beforeZ,
+                    dkX, dkY, dkZ,
+                    kxData[start] + dkX, kyData[start] + dkY, kzData[start] + dkZ);
+            }
             ++ptrRef;
         }
 
@@ -707,9 +873,58 @@ Result compute(const Input& input)
     for (int ai = 0; ai < adcSecondsRounded.size(); ++ai)
     {
         double ta = adcSecondsRounded[ai];
-        result.kx_adc[ai] = interpolateK(kxData, ta);
-        result.ky_adc[ai] = interpolateK(kyData, ta);
-        result.kz_adc[ai] = interpolateK(kzData, ta);
+        int idx = indexForSeconds(ta);
+        if (idx >= 0)
+        {
+            result.kx_adc[ai] = kxData[idx];
+            result.ky_adc[ai] = kyData[idx];
+            result.kz_adc[ai] = kzData[idx];
+        }
+        else
+        {
+            result.kx_adc[ai] = interpolateK(kxData, ta);
+            result.ky_adc[ai] = interpolateK(kyData, ta);
+            result.kz_adc[ai] = interpolateK(kzData, ta);
+        }
+    }
+
+    if (debugDump)
+    {
+        const QString outDir = ktrajDebugDir();
+        QDir().mkpath(outDir);
+        const QString stamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss_zzz");
+
+        QString gridCsv("idx,time_sec,kx_raw,ky_raw,kz_raw,kx_final,ky_final,kz_final\n");
+        for (int i = 0; i < timeGrid.size(); ++i)
+        {
+            gridCsv += QString::asprintf(
+                "%d,%.16e,%.16e,%.16e,%.16e,%.16e,%.16e,%.16e\n",
+                i,
+                timeGrid[i],
+                kxRaw[i], kyRaw[i], kzRaw[i],
+                kxData[i], kyData[i], kzData[i]);
+        }
+        writeTextFile(QDir(outDir).filePath(QString("ktraj_timegrid_%1.csv").arg(stamp)), gridCsv);
+
+        QString midCsv("idx,t_mid_sec,dt_sec,gx_mid,gy_mid,gz_mid\n");
+        for (int i = 0; i < midT.size(); ++i)
+        {
+            midCsv += QString::asprintf(
+                "%d,%.16e,%.16e,%.16e,%.16e,%.16e\n",
+                i, midT[i], midDt[i], midGx[i], midGy[i], midGz[i]);
+        }
+        writeTextFile(QDir(outDir).filePath(QString("ktraj_midgrad_%1.csv").arg(stamp)), midCsv);
+
+        writeTextFile(QDir(outDir).filePath(QString("ktraj_resets_%1.csv").arg(stamp)), resetLog);
+
+        QString adcCsv("idx,t_adc_sec,kx_adc,ky_adc,kz_adc\n");
+        for (int i = 0; i < adcSecondsRounded.size(); ++i)
+        {
+            adcCsv += QString::asprintf(
+                "%d,%.16e,%.16e,%.16e,%.16e\n",
+                i, adcSecondsRounded[i], result.kx_adc[i], result.ky_adc[i], result.kz_adc[i]);
+        }
+        writeTextFile(QDir(outDir).filePath(QString("ktraj_adc_%1.csv").arg(stamp)), adcCsv);
     }
 
     return result;

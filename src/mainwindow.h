@@ -149,6 +149,7 @@ public:
     void openFileFromCommandLine(const QString& filePath);
     void applyCommandLineOptions(const QCommandLineParser& parser);
     void captureSnapshotsAndExit(const QString& outDir);
+    bool exportTrajectoryToDirectory(const QString& exportDir, QString* error = nullptr);
     void setTrajectoryVisible(bool show);
     bool sampleTrajectoryAtInternalTime(double internalTime,
                                         double& kxOut,
