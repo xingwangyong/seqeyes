@@ -888,17 +888,17 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
     // Reentrancy guard
     if (m_syncInProgress) return;
     QCPRange adjustedRange = newRange;
-    
+
     if (m_enablePanBoundaries)
     {
         // Get the valid time range boundaries
         QCPRange validRange = getCurrentTimeRange();
         double minBoundary = validRange.lower;
         double maxBoundary = validRange.upper;
-        
+
         bool hitLeftBoundary = false;
         bool hitRightBoundary = false;
-        
+
         // Apply boundary restrictions
         if (adjustedRange.lower < minBoundary)
         {
@@ -907,7 +907,7 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
             adjustedRange.upper += adjustment;
             hitLeftBoundary = true;
         }
-        
+
         if (adjustedRange.upper > maxBoundary)
         {
             double adjustment = adjustedRange.upper - maxBoundary;
@@ -921,7 +921,6 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
         double width = adjustedRange.upper - adjustedRange.lower;
         if (width <= 0)
         {
-            // Keep a minimal positive width to avoid invalid ranges
             width = 1.0;
             adjustedRange.lower = minBoundary;
             adjustedRange.upper = std::min(maxBoundary, adjustedRange.lower + width);
@@ -930,13 +929,11 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
         double available = maxBoundary - minBoundary;
         if (available <= 0)
         {
-            // Degenerate boundary; fall back to a safe non-negative window
             adjustedRange.lower = std::max(0.0, minBoundary);
             adjustedRange.upper = adjustedRange.lower + width;
         }
         else if (width >= available)
         {
-            // Requested width larger than allowed span: show the full allowed span
             adjustedRange.lower = minBoundary;
             adjustedRange.upper = maxBoundary;
         }
@@ -954,8 +951,7 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
                 adjustedRange.lower = minBoundary;
             }
         }
-        
-        // Show tooltip if boundary was hit
+
         if (hitLeftBoundary || hitRightBoundary)
         {
             QString message;
@@ -968,17 +964,14 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
             }
             showBoundaryTooltip(message);
         }
-        
-        // Ensure the range is still valid after adjustments
+
         if (adjustedRange.lower >= adjustedRange.upper)
         {
-            // If the range becomes invalid, keep the current range
             adjustedRange = newRange;
         }
     }
 
     m_syncInProgress = true;
-    if (m_mainWindow) m_mainWindow->setInteractionFastMode(true);
     for (int i = 0; i < drawer->getRects().count(); i++)
     {
         drawer->getRects()[i]->axis(QCPAxis::atBottom)->blockSignals(true);
@@ -992,44 +985,27 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
         drawer->getRects()[i]->axis(QCPAxis::atBottom)->blockSignals(false);
     }
 
-    // Defer time-control sync to settle phase to avoid per-wheel-event UI churn.
+    // Correctness-critical ordering:
+    // 1) apply adjustedRange to all waveform axes,
+    // 2) render for that exact range,
+    // 3) immediately synchronize TR/time controls from adjustedRange.
+    //
+    // Do NOT defer this control sync or derive it later from a different axis
+    // object (for example customPlot->xAxis). In asynchronous update paths,
+    // that can pick up a stale/non-authoritative range and desynchronize the
+    // TR window and time window (e.g. changing TR index unexpectedly shifts
+    // the displayed time window).
+    if (WaveformDrawer* d = m_mainWindow->getWaveformDrawer())
+    {
+        d->ensureRenderedForCurrentViewport();
+    }
+    if (m_mainWindow->getTRManager())
+    {
+        m_mainWindow->getTRManager()->syncTimeControlsToAxisRange(adjustedRange);
+    }
     if (m_mainWindow && m_mainWindow->isTrajectoryVisible())
     {
-        m_pendingTrajectoryRefresh = true;
-    }
-    // Lightweight immediate update: throttle queued replot to avoid wheel-event storms.
-    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-    {
-        static QElapsedTimer s_zoomReplotTimer;
-        static bool s_zoomReplotStarted = false;
-        if (!s_zoomReplotStarted)
-        {
-            s_zoomReplotTimer.start();
-            s_zoomReplotStarted = true;
-        }
-        // Keep ~30 FPS max while interacting; immediate refresh avoids queued lag buildup.
-        if (s_zoomReplotTimer.elapsed() >= 33)
-        {
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
-            s_zoomReplotTimer.restart();
-        }
-    }
-    const bool pnsVisible = (m_mainWindow && m_mainWindow->getTRManager() &&
-                             m_mainWindow->getTRManager()->isShowPnsChecked());
-
-    // Heavy data re-render strategy:
-    // - PNS visible: defer to settle phase only (best interaction smoothness).
-    // - Otherwise: keep periodic deferred renders during interaction.
-    if (!pnsVisible && m_viewportRenderTimer)
-    {
-        // Do not restart while active: keeps a steady update cadence during drag/zoom.
-        if (!m_viewportRenderTimer->isActive())
-            m_viewportRenderTimer->start();
-    }
-    if (m_viewportFinalTimer)
-    {
-        // Restart settle timer on every interaction update.
-        m_viewportFinalTimer->start();
+        m_mainWindow->refreshTrajectoryPlotData();
     }
     m_syncInProgress = false;
 }
@@ -1061,10 +1037,6 @@ void InteractionHandler::processFinalViewportRender()
         m_mainWindow->refreshTrajectoryPlotData();
     }
     m_pendingTrajectoryRefresh = false;
-    if (m_mainWindow->getTRManager() && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-    {
-        m_mainWindow->getTRManager()->syncTimeControlsToAxisRange(m_mainWindow->ui->customPlot->xAxis->range());
-    }
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
     {
         m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
