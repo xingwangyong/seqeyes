@@ -169,9 +169,6 @@
    </property>
   </action>
   <action name="actionUsage">
-   <property name="icon">
-    <iconset theme="QIcon::ThemeIcon::HelpContents"/>
-   </property>
    <property name="text">
     <string>Usage</string>
    </property>

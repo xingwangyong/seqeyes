@@ -17,7 +17,12 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-set(ENV{PATH} "${CMAKE_PREFIX_PATH}/bin;$ENV{PATH}")
+if(WIN32)
+    set(_seqeyes_path_sep ";")
+else()
+    set(_seqeyes_path_sep ":")
+endif()
+set(ENV{PATH} "${CMAKE_PREFIX_PATH}/bin${_seqeyes_path_sep}$ENV{PATH}")
 
 set(PROJECT_ROOT ${CMAKE_SOURCE_DIR})
 set(EXTERNAL_DIR ${CMAKE_SOURCE_DIR}/src/external)

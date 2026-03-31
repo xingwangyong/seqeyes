@@ -32,6 +32,7 @@
 #include <QResizeEvent>
 #include <QTimer>
 #include <QImage>
+#include <QStyle>
 #include <QVector>
 #include <cmath>
 #include <limits>
@@ -123,6 +124,18 @@ MainWindow::MainWindow(QWidget* parent)
       m_settingsDialog(nullptr)
 {
     ui->setupUi(this);
+
+    // Keep Usage icon compatible across Qt versions.
+    // Qt 6.11 removed QIcon::ThemeIcon::HelpContents, so use string-based theme lookup there.
+    if (ui->actionUsage) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 11, 0)
+        const QIcon fallback = style() ? style()->standardIcon(QStyle::SP_DialogHelpButton) : QIcon();
+        ui->actionUsage->setIcon(QIcon::fromTheme(QStringLiteral("help-contents"), fallback));
+#else
+        ui->actionUsage->setIcon(QIcon::fromTheme(QIcon::ThemeIcon::HelpContents));
+#endif
+    }
+
     setAcceptDrops(true);
     // Keep a simple default window title; show file name only after a sequence is loaded.
     setWindowTitle("SeqEyes");
@@ -171,7 +184,7 @@ MainWindow::MainWindow(QWidget* parent)
         };
         QFont chosen;
         bool found=false;
-        const QStringList families = QFontDatabase().families();
+        const QStringList families = QFontDatabase::families();
         for (const QString& fam : preferred) {
             if (families.contains(fam)) { chosen = QFont(fam); found=true; break; }
         }
