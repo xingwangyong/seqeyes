@@ -105,9 +105,6 @@
    <addaction name="actionMeasureDt"/>
   </widget>
   <action name="actionOpen">
-   <property name="icon">
-    <iconset theme="QIcon::ThemeIcon::DocumentOpen"/>
-   </property>
    <property name="text">
     <string>Open...</string>
    </property>
@@ -116,9 +113,6 @@
    </property>
   </action>
   <action name="actionExit">
-   <property name="icon">
-    <iconset theme="QIcon::ThemeIcon::ApplicationExit"/>
-   </property>
    <property name="text">
     <string>Exit</string>
    </property>
@@ -127,17 +121,11 @@
    </property>
   </action>
   <action name="actionContact">
-   <property name="icon">
-    <iconset theme="QIcon::ThemeIcon::MailForward"/>
-   </property>
    <property name="text">
     <string>Contact...</string>
    </property>
   </action>
   <action name="actionReopen">
-   <property name="icon">
-    <iconset theme="QIcon::ThemeIcon::DocumentOpenRecent"/>
-   </property>
    <property name="text">
     <string>Reopen</string>
    </property>
@@ -148,9 +136,6 @@
    </property>
   </action>
   <action name="actionCloseFile">
-   <property name="icon">
-    <iconset theme="QIcon::ThemeIcon::EditClear"/>
-   </property>
    <property name="text">
     <string>Close File</string>
    </property>
@@ -161,9 +146,6 @@
    </property>
   </action>
   <action name="actionAbout">
-   <property name="icon">
-    <iconset theme="QIcon::ThemeIcon::HelpAbout"/>
-   </property>
    <property name="text">
     <string>About</string>
    </property>
@@ -177,9 +159,6 @@
    </property>
   </action>
   <action name="actionResetView">
-   <property name="icon">
-    <iconset theme="QIcon::ThemeIcon::ViewRestore"/>
-   </property>
    <property name="text">
     <string>Reset View</string>
    </property>

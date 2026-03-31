@@ -125,16 +125,9 @@ MainWindow::MainWindow(QWidget* parent)
 {
     ui->setupUi(this);
 
-    // Keep Usage icon compatible across Qt versions.
-    // Qt 6.11 removed QIcon::ThemeIcon::HelpContents, so use string-based theme lookup there.
-    if (ui->actionUsage) {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 11, 0)
-        const QIcon fallback = style() ? style()->standardIcon(QStyle::SP_DialogHelpButton) : QIcon();
-        ui->actionUsage->setIcon(QIcon::fromTheme(QStringLiteral("help-contents"), fallback));
-#else
-        ui->actionUsage->setIcon(QIcon::fromTheme(QIcon::ThemeIcon::HelpContents));
-#endif
-    }
+    // Set all toolbar/menu icons using string-based theme lookup (Qt version-safe).
+    // This avoids enum dependencies that vary across Qt 6.x versions.
+    setupIcons();
 
     setAcceptDrops(true);
     // Keep a simple default window title; show file name only after a sequence is loaded.
@@ -318,6 +311,33 @@ void MainWindow::Init()
 {
     InitSlots();
     InitStatusBar();
+}
+
+void MainWindow::setupIcons()
+{
+    // Set toolbar/menu icons using string-based theme lookup.
+    // This approach is version-independent and works across all Qt 6.x builds.
+    // String-based names (FreeDesktop standard) are more stable than enum names
+    // which vary across Qt versions and Homebrew builds.
+
+    const QIcon fallbackEmpty;
+    
+    if (ui->actionOpen)
+        ui->actionOpen->setIcon(QIcon::fromTheme(QStringLiteral("document-open"), fallbackEmpty));
+    if (ui->actionExit)
+        ui->actionExit->setIcon(QIcon::fromTheme(QStringLiteral("application-exit"), fallbackEmpty));
+    if (ui->actionContact)
+        ui->actionContact->setIcon(QIcon::fromTheme(QStringLiteral("mail-forward"), fallbackEmpty));
+    if (ui->actionReopen)
+        ui->actionReopen->setIcon(QIcon::fromTheme(QStringLiteral("document-open-recent"), fallbackEmpty));
+    if (ui->actionCloseFile)
+        ui->actionCloseFile->setIcon(QIcon::fromTheme(QStringLiteral("edit-clear"), fallbackEmpty));
+    if (ui->actionAbout)
+        ui->actionAbout->setIcon(QIcon::fromTheme(QStringLiteral("help-about"), fallbackEmpty));
+    if (ui->actionUsage)
+        ui->actionUsage->setIcon(QIcon::fromTheme(QStringLiteral("help-contents"), fallbackEmpty));
+    if (ui->actionResetView)
+        ui->actionResetView->setIcon(QIcon::fromTheme(QStringLiteral("view-restore"), fallbackEmpty));
 }
 
 void MainWindow::InitSlots()

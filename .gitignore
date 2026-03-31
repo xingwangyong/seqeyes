@@ -48,4 +48,5 @@ _version.py
 
 # macOS wheel build artifacts (Qt frameworks copied by CI for delocate)
 python/seqeyes/bin/QtFrameworks/
-out/
+out*/
+.DS_Store*

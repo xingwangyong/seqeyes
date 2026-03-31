@@ -167,6 +167,9 @@ private:
     TRManager*          m_trManager;
     WaveformDrawer*     m_waveformDrawer;
 
+    // UI element setup helpers
+    void setupIcons();
+
     // UI elements managed directly by MainWindow (e.g., status bar)
     QLabel* m_pVersionLabel;
     QProgressBar* m_pProgressBar;
