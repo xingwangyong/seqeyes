@@ -202,6 +202,28 @@ echo "Qt Install Root: ${QT_INSTALL_ROOT}"
 echo "Qt Path:      ${QT_PREFIX_PATH}"
 echo "CMake Cmd:    ${CMAKE_CMD}"
 
+# Linux toolchain guard:
+# Conda compiler wrappers can inject an incompatible sysroot (seen as glibc header
+# macro errors like '__BEGIN_NAMESPACE_STD' and bits/mathdef.h failures). By default,
+# use system gcc/g++ for C++ builds while still allowing Qt from Conda prefix.
+CMAKE_EXTRA_ARGS=()
+if [ "${UNAME_S}" = "Linux" ]; then
+    if [ -n "${CONDA_PREFIX}" ] && [ "${SEQEYES_ALLOW_CONDA_TOOLCHAIN:-0}" != "1" ]; then
+        echo "Detected active Conda environment: ${CONDA_PREFIX}"
+        echo "Sanitizing compiler env vars to avoid Conda sysroot/toolchain mismatch."
+        unset CC CXX CPPFLAGS CFLAGS CXXFLAGS LDFLAGS CONDA_BUILD_SYSROOT
+    fi
+
+    if [ "${SEQEYES_USE_SYSTEM_GCC:-1}" = "1" ] && [ -x /usr/bin/gcc ] && [ -x /usr/bin/g++ ]; then
+        CMAKE_EXTRA_ARGS+=(
+            -DCMAKE_C_COMPILER=/usr/bin/gcc
+            -DCMAKE_CXX_COMPILER=/usr/bin/g++
+        )
+        echo "Linux: forcing system toolchain: /usr/bin/gcc and /usr/bin/g++"
+        echo "Set SEQEYES_USE_SYSTEM_GCC=0 to disable this behavior."
+    fi
+fi
+
 # --- 5. Run CMake Configure ---
 echo "--- Configuring CMake (${BUILD_TYPE} mode)... ---"
 
@@ -212,7 +234,8 @@ echo "--- Configuring CMake (${BUILD_TYPE} mode)... ---"
       -B "${TEMP_BUILD_DIR}" \
       -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
       -DCMAKE_PREFIX_PATH="${QT_PREFIX_PATH}" \
-      -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="${OUTPUT_DIR}"
+    -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="${OUTPUT_DIR}" \
+    "${CMAKE_EXTRA_ARGS[@]}"
 
 # --- 6. Run Make (Build) ---
 echo "--- Building... ---"
