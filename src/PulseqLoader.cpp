@@ -1761,7 +1761,10 @@ void PulseqLoader::getGradViewportDecimated(int channel, double visibleStart, do
             if (def.empty() || !std::isfinite(def[0]) || def[0] <= 0.0) return; // do not render without definition
             double gradRaster_us = def[0] * 1e6;
             double dt = gradRaster_us * tFactor;
-            double duration = numSamples * dt;
+            const bool oversampled = blk->isArbGradWithOversampling(channel) || (grad.timeShape == -1);
+            const double duration = oversampled
+                ? (static_cast<double>(numSamples) + 1.0) * 0.5 * dt
+                : static_cast<double>(numSamples) * dt;
             if (tStart >= visibleEnd || (tStart + duration) <= visibleStart) continue;
             int pxForBlock = std::max(1, int(std::round(duration / window * pixelWidth)));
             // Prefer LTTB decimation for shape fidelity
@@ -1769,7 +1772,16 @@ void PulseqLoader::getGradViewportDecimated(int channel, double visibleStart, do
             double ppp = (pxForBlock > 0) ? double(numSamples) / double(pxForBlock) : double(numSamples);
             if (!allowDecimateGrad || numSamples <= 64 || ppp <= 1.2) {
                 tBlk.reserve(numSamples); vBlk.reserve(numSamples);
-                for (int j=0;j<numSamples;++j){ tBlk.append(tStart + j*dt); vBlk.append(double(entry.norm[j]) * double(grad.amplitude)); }
+                for (int j = 0; j < numSamples; ++j) {
+                    // Match Pulseq semantics:
+                    // - center-raster arbitrary: sample j at (j+0.5)*dt
+                    // - oversampled arbitrary:   sample j at (j+1.0)*0.5*dt
+                    const double tj = oversampled
+                        ? (static_cast<double>(j) + 1.0) * 0.5 * dt
+                        : (static_cast<double>(j) + 0.5) * dt;
+                    tBlk.append(tStart + tj);
+                    vBlk.append(double(entry.norm[j]) * double(grad.amplitude));
+                }
             } else {
                 int target = std::min(numSamples, std::min(10000, int(std::round(pxForBlock*3.0))));
                 if (target <= 4 || pxForBlock <= 2) {
@@ -1783,9 +1795,17 @@ void PulseqLoader::getGradViewportDecimated(int channel, double visibleStart, do
                     QList<int> sorted = QList<int>(idxs.constBegin(), idxs.constEnd());
                     std::sort(sorted.begin(), sorted.end());
                     tBlk.reserve(sorted.size()); vBlk.reserve(sorted.size());
-                    for (int k : sorted){ tBlk.append(tStart + k*dt); vBlk.append(double(entry.norm[k]) * double(grad.amplitude)); }
+                    for (int k : sorted) {
+                        const double tk = oversampled
+                            ? (static_cast<double>(k) + 1.0) * 0.5 * dt
+                            : (static_cast<double>(k) + 0.5) * dt;
+                        tBlk.append(tStart + tk);
+                        vBlk.append(double(entry.norm[k]) * double(grad.amplitude));
+                    }
                 } else {
-                    QVector<double> dT, dV; lttbDownsampleUniform(entry.norm, tStart, dt, target, dT, dV);
+                    const double tFirst = tStart + 0.5 * dt;
+                    const double dtEff = oversampled ? (0.5 * dt) : dt;
+                    QVector<double> dT, dV; lttbDownsampleUniform(entry.norm, tFirst, dtEff, target, dT, dV);
                     tBlk = dT; vBlk.reserve(dV.size()); for (double val: dV){ vBlk.append(val * double(grad.amplitude)); }
                 }
             }
@@ -1996,9 +2016,12 @@ bool PulseqLoader::sampleGradAtTime(int channel, double time, int blockIdx, doub
         if (def.empty() || !std::isfinite(def[0]) || def[0] <= 0.0) return false;
         double gradRaster_us = def[0] * 1e6; // seconds -> microseconds
         double dt = gradRaster_us * tFactor;
-        double tEnd = tStart + (n - 1) * dt;
-        if (time < tStart || time > tEnd) return false;
-        double u = (time - tStart) / dt;
+        const bool oversampled = blk->isArbGradWithOversampling(channel) || (grad.timeShape == -1);
+        const double tFirst = tStart + 0.5 * dt;
+        const double dtEff = oversampled ? (0.5 * dt) : dt;
+        const double tEnd = tFirst + (n - 1) * dtEff;
+        if (time < tFirst || time > tEnd) return false;
+        double u = (time - tFirst) / dtEff;
         int i0 = static_cast<int>(std::floor(u));
         int i1 = std::min(n - 1, i0 + 1);
         double alpha = u - i0;
