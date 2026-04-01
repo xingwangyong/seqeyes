@@ -72,8 +72,9 @@ def compare_images(
         print(f"  -> [SKIP] Baseline missing: {os.path.basename(baseline_path)}")
         return "SKIP"
 
-    img1 = Image.open(baseline_path).convert('RGB')
-    img2 = Image.open(snapshot_path).convert('RGB')
+    with Image.open(baseline_path) as _img1, Image.open(snapshot_path) as _img2:
+        img1 = _img1.convert('RGB')
+        img2 = _img2.convert('RGB')
     
     if img1.size != img2.size:
         print(f"  -> [FAIL] Size mismatch: Baseline {img1.size} vs Snapshot {img2.size}. (DPI Scaling Issue?)")
@@ -129,12 +130,19 @@ def save_failed_bundle(baseline_path: Path, snapshot_path: Path, diff_path: Path
     target_current = out_dir / f"{base_stem}_current.png"
     target_diff = out_dir / f"{base_stem}_diff.png"
 
-    if baseline_path.exists():
-        shutil.copy2(baseline_path, target_baseline)
-    if snapshot_path.exists():
-        shutil.copy2(snapshot_path, target_current)
-    if diff_path.exists():
-        shutil.copy2(diff_path, target_diff)
+    def copy_if_needed(src: Path, dst: Path):
+        if not src.exists():
+            return
+        try:
+            if src.resolve() == dst.resolve():
+                return
+        except Exception:
+            pass
+        shutil.copy2(src, dst)
+
+    copy_if_needed(baseline_path, target_baseline)
+    copy_if_needed(snapshot_path, target_current)
+    copy_if_needed(diff_path, target_diff)
 
 def main():
     parser = argparse.ArgumentParser(description="Run Visual Regression Tests for SeqEyes.")
