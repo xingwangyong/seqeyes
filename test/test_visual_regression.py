@@ -114,6 +114,28 @@ def compare_images(
     )
     return "PASS"
 
+def save_failed_bundle(baseline_path: Path, snapshot_path: Path, diff_path: Path, out_dir: Path):
+    """
+    Save failed comparison artifacts into a single folder using suffix naming:
+      *_baseline.png, *_current.png, *_diff.png
+    """
+    stem = snapshot_path.stem
+    if stem.endswith("_seq") or stem.endswith("_traj"):
+        base_stem = stem
+    else:
+        base_stem = snapshot_path.stem
+
+    target_baseline = out_dir / f"{base_stem}_baseline.png"
+    target_current = out_dir / f"{base_stem}_current.png"
+    target_diff = out_dir / f"{base_stem}_diff.png"
+
+    if baseline_path.exists():
+        shutil.copy2(baseline_path, target_baseline)
+    if snapshot_path.exists():
+        shutil.copy2(snapshot_path, target_current)
+    if diff_path.exists():
+        shutil.copy2(diff_path, target_diff)
+
 def main():
     parser = argparse.ArgumentParser(description="Run Visual Regression Tests for SeqEyes.")
     parser.add_argument("--seq-dir", type=str, default="test/seq_files", help="Directory containing .seq files")
@@ -143,6 +165,14 @@ def main():
         
     out_dir.mkdir(parents=True, exist_ok=True)
     baseline_dir.mkdir(parents=True, exist_ok=True)
+
+    # Remove stale failed bundles from previous runs
+    for p in out_dir.glob("*_baseline.png"):
+        p.unlink(missing_ok=True)
+    for p in out_dir.glob("*_current.png"):
+        p.unlink(missing_ok=True)
+    for p in out_dir.glob("*_diff.png"):
+        p.unlink(missing_ok=True)
     
     if not HAS_PILLOW:
         print("\n[WARNING] Pillow is not installed. Will skip image comparison.")
@@ -246,6 +276,7 @@ def main():
                     changed_threshold=args.changed_threshold,
                 )
                 if res == "FAIL":
+                    save_failed_bundle(base_path, snap_path, diff_path, out_dir)
                     has_fail = True
                 elif res == "SKIP":
                     has_skip = True

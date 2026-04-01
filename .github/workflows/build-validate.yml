@@ -62,8 +62,9 @@ jobs:
         with:
           name: visual-regression-diffs
           path: |
-            test/snapshots/*.png
-            test/baselines/*.png
+            test/snapshots/*_baseline.png
+            test/snapshots/*_current.png
+            test/snapshots/*_diff.png
 
   headless_load:
     needs: build_windows
