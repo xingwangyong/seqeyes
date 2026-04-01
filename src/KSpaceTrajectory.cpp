@@ -65,6 +65,19 @@ namespace
         if (rf.center >= 0.0)
             return rf.center;
 
+        // Legacy fallback path (mainly Pulseq <= v1.4.x):
+        // RFEvent has no explicit 'center' field in older formats, so we
+        // estimate it from the RF magnitude peak. This path should not be
+        // used for v1.5+ files where rf.center is provided by the sequence.
+        static bool s_warnedLegacyRfCenterFallback = false;
+        if (!s_warnedLegacyRfCenterFallback)
+        {
+            qWarning() << "RF center metadata missing; using legacy RF-center fallback"
+                       << "(peak-based, sample-center timing). This is expected for older"
+                       << "Pulseq files (e.g. v1.4.x).";
+            s_warnedLegacyRfCenterFallback = true;
+        }
+
         int length = blk->GetRFLength();
         if (length <= 0)
             return 0.0;
@@ -79,7 +92,9 @@ namespace
         for (int i = 0; i < length; ++i)
         {
             signal[i] = std::abs(static_cast<double>(ampPtr[i]));
-            times[i] = static_cast<double>(i) * static_cast<double>(dwell);
+            // Match MATLAB legacy default RF time raster:
+            // rf.t = ((1:N)-0.5) * dwell, i.e. sample centers at (i+0.5)*dwell.
+            times[i] = (static_cast<double>(i) + 0.5) * static_cast<double>(dwell);
         }
 
         double maxVal = 0.0;
@@ -286,7 +301,13 @@ namespace
         return 0.0;
     }
 
-    double arbitraryGradientValue(SeqBlock* blk, int channel, const GradEvent& grad, double localSec, double gradientRasterUs)
+    double arbitraryGradientValue(SeqBlock* blk,
+                                  int channel,
+                                  const GradEvent& grad,
+                                  double localSec,
+                                  double gradientRasterUs,
+                                  double firstOverridePhys = std::numeric_limits<double>::quiet_NaN(),
+                                  double lastOverridePhys = std::numeric_limits<double>::quiet_NaN())
     {
         if (localSec < 0.0)
             return 0.0;
@@ -309,13 +330,31 @@ namespace
 
         const bool hasFirst = (grad.first != FLOAT_UNDEFINED);
         const bool hasLast = (grad.last != FLOAT_UNDEFINED);
-        double firstVal = hasFirst ? static_cast<double>(grad.first) : deriveEdgeSample(true);
-        double lastVal = hasLast ? static_cast<double>(grad.last) : deriveEdgeSample(false);
         const double amp = static_cast<double>(grad.amplitude);
-        if (hasFirst && std::abs(firstVal) > 1.0 + 1e-6 && std::abs(amp) > 0.0)
-            firstVal /= amp;
-        if (hasLast && std::abs(lastVal) > 1.0 + 1e-6 && std::abs(amp) > 0.0)
-            lastVal /= amp;
+        double firstPhys = 0.0;
+        double lastPhys = 0.0;
+        if (std::isfinite(firstOverridePhys))
+        {
+            firstPhys = firstOverridePhys;
+        }
+        else
+        {
+            double firstVal = hasFirst ? static_cast<double>(grad.first) : deriveEdgeSample(true);
+            if (hasFirst && std::abs(firstVal) > 1.0 + 1e-6 && std::abs(amp) > 0.0)
+                firstVal /= amp;
+            firstPhys = firstVal * amp;
+        }
+        if (std::isfinite(lastOverridePhys))
+        {
+            lastPhys = lastOverridePhys;
+        }
+        else
+        {
+            double lastVal = hasLast ? static_cast<double>(grad.last) : deriveEdgeSample(false);
+            if (hasLast && std::abs(lastVal) > 1.0 + 1e-6 && std::abs(amp) > 0.0)
+                lastVal /= amp;
+            lastPhys = lastVal * amp;
+        }
         const bool oversampled = blk->isArbGradWithOversampling(channel);
         const double totalSec = oversampled
             ? (static_cast<double>(numSamples) + 1.0) * 0.5 * rasterSec
@@ -323,9 +362,9 @@ namespace
         if (localSec > totalSec)
             return 0.0;
         if (localSec <= 0.0)
-            return firstVal * amp;
+            return firstPhys;
         if (localSec >= totalSec)
-            return lastVal * amp;
+            return lastPhys;
 
         if (oversampled)
         {
@@ -338,16 +377,16 @@ namespace
             {
                 // first -> sample[0] on [0, 0.5*dt]
                 const double alpha = std::clamp(s, 0.0, 1.0);
-                const double s0 = static_cast<double>(shapePtr[0]);
-                return (firstVal + (s0 - firstVal) * alpha) * amp;
+                const double s0 = static_cast<double>(shapePtr[0]) * amp;
+                return firstPhys + (s0 - firstPhys) * alpha;
             }
 
             if (s >= static_cast<double>(numSamples))
             {
                 // sample[N-1] -> last on [N*0.5*dt, (N+1)*0.5*dt]
                 const double alpha = std::clamp(s - static_cast<double>(numSamples), 0.0, 1.0);
-                const double sLast = static_cast<double>(shapePtr[numSamples - 1]);
-                return (sLast + (lastVal - sLast) * alpha) * amp;
+                const double sLast = static_cast<double>(shapePtr[numSamples - 1]) * amp;
+                return sLast + (lastPhys - sLast) * alpha;
             }
 
             // Interior sample-to-sample interpolation.
@@ -356,34 +395,34 @@ namespace
             const int idx1 = std::clamp(idx0 + 1, 0, numSamples - 1);
             const double s0 = static_cast<double>(idx0 + 1);
             const double alpha = std::clamp(s - s0, 0.0, 1.0);
-            const double v0 = static_cast<double>(shapePtr[idx0]);
-            const double v1 = static_cast<double>(shapePtr[idx1]);
-            return (v0 + (v1 - v0) * alpha) * amp;
+            const double v0 = static_cast<double>(shapePtr[idx0]) * amp;
+            const double v1 = static_cast<double>(shapePtr[idx1]) * amp;
+            return v0 + (v1 - v0) * alpha;
         }
 
         const double u = localSec / rasterSec;
         if (u < 0.5)
         {
             const double alpha = u / 0.5;
-            const double s0 = static_cast<double>(shapePtr[0]);
-            return (firstVal + (s0 - firstVal) * alpha) * amp;
+            const double s0 = static_cast<double>(shapePtr[0]) * amp;
+            return firstPhys + (s0 - firstPhys) * alpha;
         }
 
         const double uLastCenter = static_cast<double>(numSamples) - 0.5;
         if (u >= uLastCenter)
         {
             const double alpha = std::clamp((u - uLastCenter) / 0.5, 0.0, 1.0);
-            const double sLast = static_cast<double>(shapePtr[numSamples - 1]);
-            return (sLast + (lastVal - sLast) * alpha) * amp;
+            const double sLast = static_cast<double>(shapePtr[numSamples - 1]) * amp;
+            return sLast + (lastPhys - sLast) * alpha;
         }
 
         const int idx0 = static_cast<int>(std::floor(u - 0.5));
         const int idx1 = idx0 + 1;
         const double t0 = static_cast<double>(idx0) + 0.5;
         const double alpha = std::clamp(u - t0, 0.0, 1.0);
-        const double v0 = static_cast<double>(shapePtr[idx0]);
-        const double v1 = static_cast<double>(shapePtr[idx1]);
-        return (v0 + (v1 - v0) * alpha) * amp;
+        const double v0 = static_cast<double>(shapePtr[idx0]) * amp;
+        const double v1 = static_cast<double>(shapePtr[idx1]) * amp;
+        return v0 + (v1 - v0) * alpha;
     }
 
     double extTrapGradientValue(SeqBlock* blk, int channel, const GradEvent& grad, double localSec)
@@ -423,7 +462,13 @@ namespace
         return (v0 + (v1 - v0) * alpha) * static_cast<double>(grad.amplitude);
     }
 
-    double gradientValueFromBlock(SeqBlock* blk, int channel, double timeSec, double blockStartSec, double gradientRasterUs)
+    double gradientValueFromBlock(SeqBlock* blk,
+                                  int channel,
+                                  double timeSec,
+                                  double blockStartSec,
+                                  double gradientRasterUs,
+                                  double firstOverridePhys = std::numeric_limits<double>::quiet_NaN(),
+                                  double lastOverridePhys = std::numeric_limits<double>::quiet_NaN())
     {
         if (!blk)
             return 0.0;
@@ -435,10 +480,34 @@ namespace
         if (blk->isTrapGradient(channel))
             return trapezoidGradientValue(grad, localSec);
         if (blk->isArbitraryGradient(channel))
-            return arbitraryGradientValue(blk, channel, grad, localSec, gradientRasterUs);
+            return arbitraryGradientValue(blk, channel, grad, localSec, gradientRasterUs, firstOverridePhys, lastOverridePhys);
         if (blk->isExtTrapGradient(channel))
             return extTrapGradientValue(blk, channel, grad, localSec);
         return 0.0;
+    }
+
+    double sampleLocalLinear(const QVector<double>& tLocal, const QVector<double>& vLocal, double t)
+    {
+        if (tLocal.isEmpty() || vLocal.isEmpty())
+            return 0.0;
+        if (tLocal.size() == 1)
+            return vLocal.first();
+        if (t < 0.0)
+            return 0.0;
+        if (t <= tLocal.first())
+            return vLocal.first();
+        if (t >= tLocal.last())
+            return vLocal.last();
+        auto it = std::lower_bound(tLocal.begin(), tLocal.end(), t);
+        int i1 = static_cast<int>(it - tLocal.begin());
+        int i0 = std::max(0, i1 - 1);
+        double t0 = tLocal[i0];
+        double t1 = tLocal[i1];
+        if (t1 <= t0)
+            return vLocal[i1];
+        double a = (t - t0) / (t1 - t0);
+        a = std::clamp(a, 0.0, 1.0);
+        return vLocal[i0] + (vLocal[i1] - vLocal[i0]) * a;
     }
 
     void mergeTimeVectors(QVector<double>& base, const QVector<double>& extra, double tFactor)
@@ -612,6 +681,156 @@ Result compute(const Input& input)
     for (int i = 0; i < input.blockEdges.size(); ++i)
         blockEdgesSec[i] = internalToSecRounded(input.blockEdges[i]);
 
+    const int nBlocks = static_cast<int>(input.blocks.size());
+    QVector<std::array<double, 3>> legacyFirstOverride(nBlocks);
+    QVector<std::array<double, 3>> legacyLastOverride(nBlocks);
+    QVector<std::array<QVector<double>, 3>> legacyRestoredTimes(nBlocks);
+    QVector<std::array<QVector<double>, 3>> legacyRestoredValues(nBlocks);
+    QVector<std::array<bool, 3>> legacyUseRestored(nBlocks);
+    for (int i = 0; i < nBlocks; ++i)
+    {
+        legacyFirstOverride[i] = { qQNaN(), qQNaN(), qQNaN() };
+        legacyLastOverride[i] = { qQNaN(), qQNaN(), qQNaN() };
+        legacyUseRestored[i] = { false, false, false };
+    }
+
+    // Legacy compatibility for files where arbitrary gradients do not carry
+    // explicit first/last fields (e.g. old v1.4.x sources). MATLAB read()
+    // reconstructs these using channel continuity and odd-step integration.
+    // Reproduce the same semantics here for trajectory computation.
+    {
+        static bool s_warnedLegacyGradEdgeRecovery = false;
+        std::array<double, 3> prevLast = {0.0, 0.0, 0.0};
+        for (int bi = 0; bi < nBlocks; ++bi)
+        {
+            SeqBlock* blk = input.blocks[bi];
+            const double blockDurSec = (bi + 1 < blockEdgesSec.size())
+                ? (blockEdgesSec[bi + 1] - blockEdgesSec[bi])
+                : 0.0;
+            for (int ch = 0; ch < 3; ++ch)
+            {
+                if (!blk)
+                {
+                    prevLast[ch] = 0.0;
+                    continue;
+                }
+                if (!blk->isArbitraryGradient(ch))
+                {
+                    prevLast[ch] = 0.0;
+                    continue;
+                }
+
+                const GradEvent& grad = blk->GetGradEvent(ch);
+                const bool hasFirst = (grad.first != FLOAT_UNDEFINED);
+                const bool hasLast = (grad.last != FLOAT_UNDEFINED);
+                if (hasFirst && hasLast)
+                {
+                    // Keep prevLast untouched for modern files where metadata exists.
+                    continue;
+                }
+
+                const int n = blk->GetArbGradNumSamples(ch);
+                const float* s = blk->GetArbGradShapePtr(ch);
+                if (n <= 0 || !s)
+                {
+                    prevLast[ch] = 0.0;
+                    continue;
+                }
+
+                if (!s_warnedLegacyGradEdgeRecovery)
+                {
+                    qWarning() << "Arbitrary gradient edge metadata (first/last) missing;"
+                               << "using legacy continuity-based edge recovery for trajectory.";
+                    s_warnedLegacyGradEdgeRecovery = true;
+                }
+
+                const double amp = static_cast<double>(grad.amplitude);
+                const double firstPhys = (grad.delay > 0) ? 0.0 : prevLast[ch];
+                legacyFirstOverride[bi][ch] = firstPhys;
+
+                double lastPhys = static_cast<double>(s[n - 1]) * amp;
+                if (!blk->isArbGradWithOversampling(ch))
+                {
+                    // MATLAB v1.4.x reconstruction for center-raster arbitrary
+                    // gradients: odd-step cumulative endpoint recovery.
+                    QVector<double> w(n);
+                    double maxAbs = 0.0;
+                    for (int k = 0; k < n; ++k)
+                    {
+                        w[k] = static_cast<double>(s[k]) * amp;
+                        maxAbs = std::max(maxAbs, std::abs(w[k]));
+                    }
+
+                    QVector<double> oddStep2(n + 1);
+                    oddStep2[0] = firstPhys; // + sign at index 1 in MATLAB
+                    for (int k = 0; k < n; ++k)
+                    {
+                        oddStep2[k + 1] = 2.0 * w[k];
+                    }
+                    for (int k = 0; k < oddStep2.size(); ++k)
+                    {
+                        const double sign = ((k % 2) == 0) ? 1.0 : -1.0;
+                        oddStep2[k] *= sign;
+                    }
+                    QVector<double> oddRest(oddStep2.size());
+                    double csum = 0.0;
+                    for (int k = 0; k < oddStep2.size(); ++k)
+                    {
+                        csum += oddStep2[k];
+                        const double sign = ((k % 2) == 0) ? 1.0 : -1.0;
+                        oddRest[k] = csum * sign;
+                    }
+
+                    QVector<double> oddInterp(n + 1);
+                    oddInterp[0] = firstPhys;
+                    for (int k = 0; k < n - 1; ++k)
+                        oddInterp[k + 1] = 0.5 * (w[k] + w[k + 1]);
+                    oddInterp[n] = oddRest.last();
+
+                    const double thresh = std::numeric_limits<double>::epsilon() + 2e-5 * maxAbs;
+                    QVector<double> odd(oddRest.size());
+                    for (int k = 0; k < odd.size(); ++k)
+                    {
+                        odd[k] = (std::abs(oddRest[k] - oddInterp[k]) <= thresh) ? oddInterp[k] : oddRest[k];
+                    }
+
+                    const double halfDt = 0.5 * gradRasterSec;
+                    QVector<double>& tLocal = legacyRestoredTimes[bi][ch];
+                    QVector<double>& vLocal = legacyRestoredValues[bi][ch];
+                    tLocal.clear();
+                    vLocal.clear();
+                    tLocal.reserve(2 * n);
+                    vLocal.reserve(2 * n);
+
+                    // Match MATLAB restoreAdditionalShapeSamples() output:
+                    // waveform_os = [first, wave(1), odd(2), wave(2), ..., odd(n), wave(n)]
+                    // sampled on tt_os = (0:(2*n-1))*0.5*dt
+                    tLocal.append(0.0);
+                    vLocal.append(odd[0]); // first
+                    for (int k = 0; k < n - 1; ++k)
+                    {
+                        tLocal.append((2.0 * static_cast<double>(k) + 1.0) * halfDt);
+                        vLocal.append(w[k]);
+                        tLocal.append((2.0 * static_cast<double>(k) + 2.0) * halfDt);
+                        vLocal.append(odd[k + 1]);
+                    }
+                    tLocal.append((2.0 * static_cast<double>(n - 1) + 1.0) * halfDt);
+                    vLocal.append(w[n - 1]);
+
+                    legacyUseRestored[bi][ch] = true;
+                    lastPhys = oddRest.last();
+                }
+                legacyLastOverride[bi][ch] = lastPhys;
+
+                const double gradDurSec = static_cast<double>(grad.delay) * 1e-6
+                    + (blk->isArbGradWithOversampling(ch)
+                        ? (static_cast<double>(n) + 1.0) * 0.5 * gradRasterSec
+                        : static_cast<double>(n) * gradRasterSec);
+                prevLast[ch] = (gradDurSec + 1e-12 < blockDurSec) ? 0.0 : lastPhys;
+            }
+        }
+    }
+
     auto gradientAtSec = [&](double sec, double& gx, double& gy, double& gz) {
         gx = 0.0; gy = 0.0; gz = 0.0;
         if (blockEdgesSec.size() < 2)
@@ -627,10 +846,31 @@ Result compute(const Input& input)
             
         SeqBlock* blk = input.blocks[blockIdx];
         double blockStartSec = blockEdgesSec[blockIdx];
-        
-        double lgx = gradientValueFromBlock(blk, 0, sec, blockStartSec, input.gradientRasterUs);
-        double lgy = gradientValueFromBlock(blk, 1, sec, blockStartSec, input.gradientRasterUs);
-        double lgz = gradientValueFromBlock(blk, 2, sec, blockStartSec, input.gradientRasterUs);
+
+        double lgx = 0.0, lgy = 0.0, lgz = 0.0;
+        for (int ch = 0; ch < 3; ++ch)
+        {
+            if (legacyUseRestored[blockIdx][ch])
+            {
+                const GradEvent& g = blk->GetGradEvent(ch);
+                const double localSec = sec - (blockStartSec + static_cast<double>(g.delay) * 1e-6);
+                double v = 0.0;
+                if (localSec >= 0.0)
+                    v = sampleLocalLinear(legacyRestoredTimes[blockIdx][ch], legacyRestoredValues[blockIdx][ch], localSec);
+                if (ch == 0) lgx = v;
+                if (ch == 1) lgy = v;
+                if (ch == 2) lgz = v;
+            }
+            else
+            {
+                const double v = gradientValueFromBlock(blk, ch, sec, blockStartSec, input.gradientRasterUs,
+                                                        legacyFirstOverride[blockIdx][ch],
+                                                        legacyLastOverride[blockIdx][ch]);
+                if (ch == 0) lgx = v;
+                if (ch == 1) lgy = v;
+                if (ch == 2) lgz = v;
+            }
+        }
         
         if (blk && blk->isRotation())
         {
