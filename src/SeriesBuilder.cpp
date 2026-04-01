@@ -187,7 +187,11 @@ void buildGradientSeries(
                 if (hasLast && std::abs(lastVal) > 1.0 + 1e-6 && std::abs(ampScale) > 0.0)
                     lastVal /= ampScale;
 
-                const bool oversampled = blk->isArbGradWithOversampling(channel);
+                // Robust v1.5.x oversampling detection:
+                // prefer parser helper, but also trust raw grad.timeShape==-1
+                // in case metadata wiring changes in loader paths.
+                const bool oversampled = blk->isArbGradWithOversampling(channel) ||
+                                         (grad.timeShape == -1);
 
                 // Start endpoint
                 blockTime.append(tStart);

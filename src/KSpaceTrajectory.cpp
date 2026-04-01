@@ -355,7 +355,10 @@ namespace
                 lastVal /= amp;
             lastPhys = lastVal * amp;
         }
-        const bool oversampled = blk->isArbGradWithOversampling(channel);
+        // Robust v1.5.x oversampling detection:
+        // use parser helper plus raw grad.timeShape sentinel (-1).
+        const bool oversampled = blk->isArbGradWithOversampling(channel) ||
+                                 (grad.timeShape == -1);
         const double totalSec = oversampled
             ? (static_cast<double>(numSamples) + 1.0) * 0.5 * rasterSec
             : static_cast<double>(numSamples) * rasterSec;
@@ -749,7 +752,9 @@ Result compute(const Input& input)
                 legacyFirstOverride[bi][ch] = firstPhys;
 
                 double lastPhys = static_cast<double>(s[n - 1]) * amp;
-                if (!blk->isArbGradWithOversampling(ch))
+                const bool oversampled = blk->isArbGradWithOversampling(ch) ||
+                                         (grad.timeShape == -1);
+                if (!oversampled)
                 {
                     // MATLAB v1.4.x reconstruction for center-raster arbitrary
                     // gradients: odd-step cumulative endpoint recovery.
@@ -823,7 +828,7 @@ Result compute(const Input& input)
                 legacyLastOverride[bi][ch] = lastPhys;
 
                 const double gradDurSec = static_cast<double>(grad.delay) * 1e-6
-                    + (blk->isArbGradWithOversampling(ch)
+                    + (oversampled
                         ? (static_cast<double>(n) + 1.0) * 0.5 * gradRasterSec
                         : static_cast<double>(n) * gradRasterSec);
                 prevLast[ch] = (gradDurSec + 1e-12 < blockDurSec) ? 0.0 : lastPhys;
