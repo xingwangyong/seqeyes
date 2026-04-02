@@ -1,0 +1,59 @@
+name: Capture Trajectory Baselines (Windows)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  capture:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # ---- Qt ----
+    - name: Install Qt 6.5.3 (MSVC 2019)
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.5.3'
+        arch: 'win64_msvc2019_64'
+        cache: true
+
+    # ---- MSVC ----
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    # ---- Build ----
+    - name: Configure (CMake)
+      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build
+      run: cmake --build build --config Release
+
+    # ---- Deploy Qt ----
+    - name: Run windeployqt
+      run: |
+        cd build
+        windeployqt seqeyes.exe
+
+    # ---- Trajectory Baseline Capture ----
+    - name: Setup Python Dependencies
+      run: pip install pyyaml
+
+    - name: Generate Trajectory Baselines
+      run: |
+        python test/tools/generate_trajectory_baselines.py --bin-dir build --cases test/trajectory_regression_cases.yaml --out-dir test/trajectory_baselines --clean
+
+    - name: Pack Baselines as Single Zip
+      shell: pwsh
+      run: |
+        $zip = "trajectory-baselines-windows-latest.zip"
+        if (Test-Path $zip) { Remove-Item $zip -Force }
+        Compress-Archive -Path test/trajectory_baselines/* -DestinationPath $zip
+        Write-Host "Packed $zip"
+
+    - name: Upload Trajectory Baseline Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: trajectory-baselines-windows-latest
+        path: trajectory-baselines-windows-latest.zip

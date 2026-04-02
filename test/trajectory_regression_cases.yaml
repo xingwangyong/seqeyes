@@ -1,0 +1,26 @@
+defaults:
+  thresholds:
+    max_abs: 1.0e-5
+    rmse: 1.0e-5
+    mean_abs: 5.0e-6
+
+cases:
+  - id: v151_gre
+    seq: test/seq_files/writeGradientEcho.seq
+    pulseq_matlab_dir: ${PULSEQ_V151_MATLAB_DIR}
+
+  - id: v151_spiral
+    seq: test/seq_files/writeSpiral.seq
+    pulseq_matlab_dir: ${PULSEQ_V151_MATLAB_DIR}
+
+  - id: v142_gre
+    seq: test/seq_files/v142/writeGradientEcho.seq
+    pulseq_matlab_dir: ${PULSEQ_V142_MATLAB_DIR}
+
+  - id: v142_spiral
+    seq: test/seq_files/v142/writeSpiral.seq
+    pulseq_matlab_dir: ${PULSEQ_V142_MATLAB_DIR}
+    thresholds:
+      max_abs: 2.0e-5
+      rmse: 1.0e-5
+      mean_abs: 1.0e-5
