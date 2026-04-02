@@ -45,12 +45,20 @@ jobs:
       - name: Setup Python Dependencies
         run: pip install Pillow gdown pyyaml
 
-      - name: Download Baselines from Google Drive
+      - name: Download Baseline Folder from Google Drive
         env:
           GDRIVE_BASELINE_FOLDER_ID: "1Lhbd8zXQlI6z_o0f6HQPDb1umb_zLush"
         run: |
           mkdir test/baselines -ErrorAction SilentlyContinue
-          gdown --folder "https://drive.google.com/drive/folders/$env:GDRIVE_BASELINE_FOLDER_ID" -O test/baselines/
+          mkdir test/baseline_downloads -ErrorAction SilentlyContinue
+          gdown --folder "https://drive.google.com/drive/folders/$env:GDRIVE_BASELINE_FOLDER_ID" -O test/baseline_downloads/
+          $visual = Get-ChildItem -Path test/baseline_downloads -Recurse -File | Where-Object { $_.Name -match '^traj-seq-pngs(\.zip)?$' -or $_.Name -match '^traj-seq-pngs.*\.zip$' } | Select-Object -First 1
+          if (-not $visual) {
+            Write-Error "Cannot find visual baseline zip named like 'traj-seq-pngs' in downloaded folder."
+            exit 1
+          }
+          Copy-Item -Path $visual.FullName -Destination test/visual-baselines.zip -Force
+          python -c "import zipfile; zipfile.ZipFile('test/visual-baselines.zip').extractall('test/baselines')"
 
       - name: Run Visual Regression Test
         run: |
@@ -65,6 +73,49 @@ jobs:
             test/snapshots/*_baseline.png
             test/snapshots/*_current.png
             test/snapshots/*_diff.png
+
+  trajectory_regression:
+    needs: build_windows
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Runtime Zip
+        uses: actions/download-artifact@v4
+        with:
+          name: seqeyes-ci-runtime
+          path: .
+
+      - name: Extract Runtime
+        shell: pwsh
+        run: |
+          Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath runtime -Force
+
+      - name: Setup Python Dependencies
+        run: pip install gdown pyyaml
+
+      - name: Download Baseline Folder from Google Drive
+        env:
+          GDRIVE_BASELINE_FOLDER_ID: "1Lhbd8zXQlI6z_o0f6HQPDb1umb_zLush"
+        run: |
+          mkdir test/trajectory_baselines -ErrorAction SilentlyContinue
+          mkdir test/baseline_downloads -ErrorAction SilentlyContinue
+          gdown --folder "https://drive.google.com/drive/folders/$env:GDRIVE_BASELINE_FOLDER_ID" -O test/baseline_downloads/
+          $traj = Get-ChildItem -Path test/baseline_downloads -Recurse -File | Where-Object { $_.Name -match '^traj-txt(\.zip)?$' -or $_.Name -match '^traj-txt.*\.zip$' } | Select-Object -First 1
+          if (-not $traj) {
+            Write-Error "Cannot find trajectory baseline zip named like 'traj-txt' in downloaded folder."
+            exit 1
+          }
+          Copy-Item -Path $traj.FullName -Destination test/trajectory-baselines.zip -Force
+          python -c "import zipfile; zipfile.ZipFile('test/trajectory-baselines.zip').extractall('test/trajectory_baselines')"
+
+      - name: Run Trajectory Baseline Regression
+        run: |
+          python test/tools/check_trajectory_against_baseline.py --bin-dir runtime/seqeyes --cases test/trajectory_regression_cases.yaml --baseline-root test/trajectory_baselines --out-dir test/trajectory_regression_ci_out
 
   headless_load:
     needs: build_windows
@@ -116,7 +167,7 @@ jobs:
           python test/test_perf_zoom.py --bin-dir runtime/seqeyes --github-benchmark-out test/perf_bench.json --repeat 5 --warmup
 
   package_windows_artifact:
-    needs: [build_windows, visual_regression, headless_load, performance]
+    needs: [build_windows, visual_regression, trajectory_regression, headless_load, performance]
     runs-on: windows-latest
     permissions:
       contents: read
@@ -141,7 +192,7 @@ jobs:
 
   cleanup_internal_artifacts:
     if: ${{ always() }}
-    needs: [build_windows, build_linux, visual_regression, headless_load, performance, package_windows_artifact]
+    needs: [build_windows, build_linux, visual_regression, trajectory_regression, headless_load, performance, package_windows_artifact]
     runs-on: windows-latest
     permissions:
       actions: write
