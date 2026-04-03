@@ -175,7 +175,7 @@ jobs:
           python test/test_perf_zoom.py --bin-dir runtime/seqeyes --github-benchmark-out test/perf_bench.json --repeat 5 --warmup
 
   package_windows_artifact:
-    needs: [build_windows, visual_regression, trajectory_regression, headless_load, performance]
+    needs: build_windows
     runs-on: windows-latest
     permissions:
       contents: read
