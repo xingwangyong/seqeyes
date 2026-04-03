@@ -1016,6 +1016,31 @@ void MainWindow::renderTrajectoryScatter()
 
 void MainWindow::refreshTrajectoryPlotData()
 {
+    auto clearTrajectoryVisuals = [this]() {
+        if (m_pTrajectoryCurve)
+            m_pTrajectoryCurve->data()->clear();
+        if (m_pTrajectorySamplesGraph)
+            m_pTrajectorySamplesGraph->data()->clear();
+        for (QCPCurve* g : m_trajColorGraphs)
+            if (g)
+                g->data()->clear();
+
+        m_trajScatterKx.clear();
+        m_trajScatterKy.clear();
+        m_trajScatterColors.clear();
+
+        if (m_pTrajectoryScatterItem)
+            m_pTrajectoryScatterItem->setVisible(false);
+        if (m_pTrajectoryCursorMarker)
+            m_pTrajectoryCursorMarker->setVisible(false);
+
+        auto* overlay = static_cast<TrajectoryCrosshairOverlay*>(m_pTrajectoryCrosshairOverlay);
+        if (overlay)
+            overlay->clearCrosshair();
+        if (m_pTrajectoryCrosshairLabel)
+            m_pTrajectoryCrosshairLabel->clear();
+    };
+
     if (!m_pTrajectoryCurve)
     {
         updateTrajectoryExportState();
@@ -1026,9 +1051,7 @@ void MainWindow::refreshTrajectoryPlotData()
     PulseqLoader* loader = getPulseqLoader();
     if (!loader)
     {
-        m_pTrajectoryCurve->data()->clear();
-        if (m_pTrajectorySamplesGraph)
-            m_pTrajectorySamplesGraph->data()->clear();
+        clearTrajectoryVisuals();
         if (!m_trajectoryRangeInitialized)
         {
             m_trajectoryBaseXRange = QCPRange(-1.0, 1.0);
@@ -1042,6 +1065,8 @@ void MainWindow::refreshTrajectoryPlotData()
         }
         updateTrajectoryExportState();
         refreshTrajectoryCursor();
+        if (m_pTrajectoryPlot)
+            m_pTrajectoryPlot->replot(QCustomPlot::rpQueuedReplot);
         return;
     }
 
@@ -1057,11 +1082,11 @@ void MainWindow::refreshTrajectoryPlotData()
     const int sampleCount = std::min(kx.size(), ky.size());
     if (sampleCount <= 0)
     {
-        m_pTrajectoryCurve->data()->clear();
-        if (m_pTrajectorySamplesGraph)
-            m_pTrajectorySamplesGraph->data()->clear();
+        clearTrajectoryVisuals();
         updateTrajectoryExportState();
         refreshTrajectoryCursor();
+        if (m_pTrajectoryPlot)
+            m_pTrajectoryPlot->replot(QCustomPlot::rpQueuedReplot);
         return;
     }
 
