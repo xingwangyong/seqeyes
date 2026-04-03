@@ -15,6 +15,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QDir>
+#include <QInputDialog>
 #include "PnsCalculator.h"
 
 SettingsDialog::SettingsDialog(QWidget *parent)
@@ -277,7 +278,7 @@ void SettingsDialog::setupUI()
     pnsPathLayout->setSpacing(6);
 
     m_pnsAscPathCombo = new QComboBox(safetyTab);
-    m_pnsAscPathCombo->setEditable(true);
+    m_pnsAscPathCombo->setEditable(false);
     m_pnsAscPathCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_pnsBrowseButton = new QPushButton("Browse...", safetyTab);
     m_pnsRemoveInvalidButton = new QPushButton("Remove Invalid", safetyTab);
@@ -290,8 +291,7 @@ void SettingsDialog::setupUI()
 
     // Nickname row (below ASC Path)
     m_pnsNicknameEdit = new QLineEdit(safetyTab);
-    m_pnsNicknameEdit->setPlaceholderText("e.g. Prisma  (optional, shown in dropdown)");
-    m_pnsNicknameEdit->setMaxLength(64);
+    m_pnsNicknameEdit->setPlaceholderText("Enter nickname for the selected profile");
     pnsForm->addRow("ASC Nickname:", m_pnsNicknameEdit);
 
     QWidget* pnsChannelsRow = new QWidget(safetyTab);
@@ -358,6 +358,8 @@ void SettingsDialog::setupUI()
             this, &SettingsDialog::onRemoveInvalidPnsAscPaths);
     connect(m_pnsAscPathCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SettingsDialog::onPnsAscPathComboChanged);
+    connect(m_pnsNicknameEdit, &QLineEdit::editingFinished,
+            this, &SettingsDialog::onPnsNicknameEditingFinished);
 }
 
 void SettingsDialog::loadCurrentSettings()
@@ -435,51 +437,33 @@ void SettingsDialog::loadCurrentSettings()
     m_panWheelCheck->setChecked(m_originalPanWheelEnabled);
     updateInteractionControlsForExclusivity();
 
-    if (m_pnsAscPathCombo)
+    if (m_pnsAscPathCombo && m_pnsNicknameEdit)
     {
-        // Temporarily block signals so nickname edit is only updated once at the end
-        QSignalBlocker blocker(m_pnsAscPathCombo);
+        const QSignalBlocker blockPath(m_pnsAscPathCombo);
+
         m_pnsAscPathCombo->clear();
-        m_pnsAscPathCombo->setPlaceholderText("Not configured");
-        const QStringList history = settings.getPnsAscHistory();
-        for (const QString& p : history)
+
+        QStringList paths = settings.getPnsAscHistory();
+        const QString current = settings.getPnsAscPath();
+        if (!current.isEmpty() && !paths.contains(current))
+            paths.prepend(current);
+
+        for (const QString& p : paths)
         {
             const QString nick = settings.getPnsAscNickname(p);
-            const QString displayText = nick.isEmpty() ? p : nick + " | " + p;
-            m_pnsAscPathCombo->addItem(displayText, p); // data = real path
+            m_pnsAscPathCombo->addItem(pnsPathDisplayText(p, nick), p);
         }
-        const QString current = settings.getPnsAscPath();
+
         if (!current.isEmpty())
         {
-            // Find by data (real path)
-            int idx = -1;
-            for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
-            {
-                if (m_pnsAscPathCombo->itemData(i).toString() == current)
-                {
-                    idx = i;
-                    break;
-                }
-            }
-            if (idx < 0)
-            {
-                m_pnsAscPathCombo->insertItem(0, current, current);
-                idx = 0;
-            }
-            m_pnsAscPathCombo->setCurrentIndex(idx);
-            m_pnsAscPathCombo->setEditText(m_pnsAscPathCombo->itemText(idx));
+            selectPathInComboByPath(current);
+            m_pnsNicknameEdit->setText(settings.getPnsAscNickname(current));
         }
         else
         {
             m_pnsAscPathCombo->setCurrentIndex(-1);
-            m_pnsAscPathCombo->setEditText("");
+            m_pnsNicknameEdit->setText("");
         }
-    }
-    // Populate nickname edit for the currently selected path
-    if (m_pnsNicknameEdit)
-    {
-        const QString current = settings.getPnsAscPath();
-        m_pnsNicknameEdit->setText(settings.getPnsAscNickname(current));
     }
     if (m_pnsShowXCheck) m_pnsShowXCheck->setChecked(settings.getPnsChannelVisibleX());
     if (m_pnsShowYCheck) m_pnsShowYCheck->setChecked(settings.getPnsChannelVisibleY());
@@ -514,7 +498,7 @@ void SettingsDialog::loadCurrentSettings()
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
 }
 
-void SettingsDialog::applySettings()
+bool SettingsDialog::applySettings()
 {
     Settings& settings = Settings::getInstance();
     
@@ -567,8 +551,72 @@ void SettingsDialog::applySettings()
     bool panWheel = (zoomMode == Settings::ZoomInputMode::Wheel) ? false : m_panWheelCheck->isChecked();
     settings.setPanWheelEnabled(panWheel);
 
-    if (m_pnsAscPathCombo)
+    if (m_pnsAscPathCombo && m_pnsNicknameEdit)
     {
+        const QString currentPath = resolveCurrentPnsAscPath();
+        QString nickname = currentNicknameText();
+
+        const QStringList previousHistory = settings.getPnsAscHistory();
+        const bool isNewPath = !currentPath.isEmpty() && !previousHistory.contains(currentPath);
+        if (isNewPath && nickname.isEmpty())
+        {
+            bool ok = false;
+            const QString suggested = QFileInfo(currentPath).baseName();
+            const QString entered = QInputDialog::getText(
+                this,
+                tr("ASC Nickname (Optional)"),
+                tr("Set a nickname for this ASC profile (optional):"),
+                QLineEdit::Normal,
+                suggested,
+                &ok).trimmed();
+            if (ok)
+                nickname = entered;
+        }
+
+        QMap<QString, QString> nicknameMap = settings.getPnsAscNicknames();
+        if (!currentPath.isEmpty())
+        {
+            if (!nickname.isEmpty())
+                nicknameMap[currentPath] = nickname;
+        }
+
+        QString duplicateNick;
+        QString firstPath;
+        QString secondPath;
+        if (!validatePnsNicknameUniqueness(nicknameMap, &duplicateNick, &firstPath, &secondPath))
+        {
+            QMessageBox::warning(
+                this,
+                tr("Duplicate ASC nickname"),
+                tr("ASC nickname \"%1\" is already used by another ASC path.\n\n"
+                   "Please use a unique nickname.\n"
+                   "Path 1: %2\n"
+                   "Path 2: %3")
+                    .arg(duplicateNick, firstPath, secondPath));
+            return false;
+        }
+
+        // Validate before persisting, so failed validation never writes a broken path.
+        if (!currentPath.isEmpty())
+        {
+            PnsCalculator::Hardware hw;
+            QString parseError;
+            if (!QFileInfo::exists(currentPath))
+            {
+                QMessageBox::warning(this, "PNS ASC warning",
+                                     "Selected ASC path does not exist.\n"
+                                     "Please select a valid ASC file before applying.");
+                return false;
+            }
+            else if (!PnsCalculator::parseAscFile(currentPath, hw, &parseError))
+            {
+                QMessageBox::warning(this, "PNS ASC warning",
+                                     "Selected ASC file is invalid for PNS calculation:\n" + parseError +
+                                     "\n\nPlease select a valid ASC file before applying.");
+                return false;
+            }
+        }
+
         // Collect history from itemData (real paths, not display text)
         QStringList history;
         for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
@@ -577,10 +625,6 @@ void SettingsDialog::applySettings()
             if (!path.isEmpty() && !history.contains(path))
                 history.append(path);
         }
-        // Current path: prefer itemData; fall back to edit text if user typed directly
-        QString currentPath = m_pnsAscPathCombo->currentData().toString().trimmed();
-        if (currentPath.isEmpty())
-            currentPath = m_pnsAscPathCombo->currentText().trimmed();
         if (!currentPath.isEmpty())
         {
             history.removeAll(currentPath);
@@ -590,32 +634,8 @@ void SettingsDialog::applySettings()
         settings.setPnsAscPath(currentPath);
 
         // Save nickname for the current path
-        if (m_pnsNicknameEdit && !currentPath.isEmpty())
-            settings.setPnsAscNickname(currentPath, m_pnsNicknameEdit->text().trimmed());
-
-        // Soft validation in "wide" mode: keep settings, warn, and let compute path decide.
-        if (currentPath.isEmpty())
-        {
-            QMessageBox::warning(this, "PNS ASC not configured",
-                                 "PNS is disabled until a valid ASC profile is selected in Settings > Safety.");
-        }
-        else
-        {
-            PnsCalculator::Hardware hw;
-            QString parseError;
-            if (!QFileInfo::exists(currentPath))
-            {
-                QMessageBox::warning(this, "PNS ASC warning",
-                                     "Selected ASC path does not exist.\n"
-                                     "PNS will not be calculated until a valid file is selected.");
-            }
-            else if (!PnsCalculator::parseAscFile(currentPath, hw, &parseError))
-            {
-                QMessageBox::warning(this, "PNS ASC warning",
-                                     "Selected ASC file is invalid for PNS calculation:\n" + parseError +
-                                     "\n\nPNS will not be calculated until this is fixed.");
-            }
-        }
+        if (!currentPath.isEmpty() && !nickname.isEmpty())
+            settings.setPnsAscNickname(currentPath, nickname);
     }
     if (m_pnsShowXCheck) settings.setPnsChannelVisibleX(m_pnsShowXCheck->isChecked());
     if (m_pnsShowYCheck) settings.setPnsChannelVisibleY(m_pnsShowYCheck->isChecked());
@@ -633,18 +653,19 @@ void SettingsDialog::applySettings()
     qDebug() << "  Zoom Input Mode:" << settings.getZoomInputModeString();
     qDebug() << "  Pan Wheel Enabled:" << settings.getPanWheelEnabled();
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
+    return true;
 }
 
 void SettingsDialog::onApplyClicked()
 {
-    applySettings();
-    QMessageBox::information(this, "Settings", "Settings have been applied successfully!");
+    if (applySettings())
+        loadCurrentSettings();
 }
 
 void SettingsDialog::onOKClicked()
 {
-    applySettings();
-    accept();
+    if (applySettings())
+        accept();
 }
 
 void SettingsDialog::onCancelClicked()
@@ -662,10 +683,15 @@ void SettingsDialog::onCancelClicked()
     settings.setPnsAscHistory(m_originalPnsAscHistory);
     settings.setPnsAscPath(m_originalPnsAscPath);
     // Restore nicknames
-    for (const QString& path : m_originalPnsAscHistory)
+    const QMap<QString, QString> currentNicknames = settings.getPnsAscNicknames();
+    for (auto it = currentNicknames.constBegin(); it != currentNicknames.constEnd(); ++it)
     {
-        const QString nick = m_originalPnsAscNicknames.value(path);
-        settings.setPnsAscNickname(path, nick);
+        if (!m_originalPnsAscNicknames.contains(it.key()))
+            settings.setPnsAscNickname(it.key(), QString());
+    }
+    for (auto it = m_originalPnsAscNicknames.constBegin(); it != m_originalPnsAscNicknames.constEnd(); ++it)
+    {
+        settings.setPnsAscNickname(it.key(), it.value());
     }
     settings.setPnsChannelVisibleX(m_originalPnsShowX);
     settings.setPnsChannelVisibleY(m_originalPnsShowY);
@@ -897,9 +923,128 @@ void SettingsDialog::updateInteractionControlsForExclusivity()
     }
 }
 
+QString SettingsDialog::resolvePathFromPathComboText(const QString& text) const
+{
+    if (!m_pnsAscPathCombo)
+        return QString();
+
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty())
+        return QString();
+
+    for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
+    {
+        if (m_pnsAscPathCombo->itemText(i) == trimmed)
+            return m_pnsAscPathCombo->itemData(i).toString().trimmed();
+    }
+    return trimmed;
+}
+
+QString SettingsDialog::resolveCurrentPnsAscPath() const
+{
+    if (!m_pnsAscPathCombo)
+        return QString();
+
+    const QString fromText = resolvePathFromPathComboText(m_pnsAscPathCombo->currentText());
+    if (!fromText.isEmpty())
+        return fromText;
+
+    return m_pnsAscPathCombo->currentData().toString().trimmed();
+}
+
+QString SettingsDialog::currentNicknameText() const
+{
+    if (!m_pnsNicknameEdit)
+        return QString();
+    return m_pnsNicknameEdit->text().trimmed();
+}
+
+QString SettingsDialog::pnsPathDisplayText(const QString& path, const QString& nickname) const
+{
+    const QString p = path.trimmed();
+    const QString n = nickname.trimmed();
+    const QString shown = n.isEmpty() ? QStringLiteral("Unnamed") : n;
+    return QString("[%1] - %2").arg(shown, p);
+}
+
+void SettingsDialog::selectPathInComboByPath(const QString& path)
+{
+    if (!m_pnsAscPathCombo)
+        return;
+
+    const QSignalBlocker blocker(m_pnsAscPathCombo);
+
+    const QString p = path.trimmed();
+    if (p.isEmpty())
+    {
+        m_pnsAscPathCombo->setCurrentIndex(-1);
+        return;
+    }
+
+    for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
+    {
+        if (m_pnsAscPathCombo->itemData(i).toString().trimmed() == p)
+        {
+            m_pnsAscPathCombo->setCurrentIndex(i);
+            return;
+        }
+    }
+
+    m_pnsAscPathCombo->setCurrentIndex(-1);
+}
+
+void SettingsDialog::persistCurrentPnsPathSelection()
+{
+    if (!m_pnsAscPathCombo)
+        return;
+
+    Settings& settings = Settings::getInstance();
+    const QString currentPath = resolveCurrentPnsAscPath();
+
+    QStringList history;
+    for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
+    {
+        const QString path = m_pnsAscPathCombo->itemData(i).toString().trimmed();
+        if (!path.isEmpty() && !history.contains(path))
+            history.append(path);
+    }
+    if (!currentPath.isEmpty())
+    {
+        history.removeAll(currentPath);
+        history.prepend(currentPath);
+    }
+    settings.setPnsAscHistory(history);
+    settings.setPnsAscPath(currentPath);
+}
+
+bool SettingsDialog::validatePnsNicknameUniqueness(const QMap<QString, QString>& nickMap, QString* duplicateNickname, QString* firstPath, QString* secondPath) const
+{
+    QMap<QString, QString> firstPathByNick;
+    QMap<QString, QString> displayNickByKey;
+    for (auto it = nickMap.constBegin(); it != nickMap.constEnd(); ++it)
+    {
+        const QString path = it.key().trimmed();
+        const QString nick = it.value().trimmed();
+        if (path.isEmpty() || nick.isEmpty())
+            continue;
+
+        const QString key = nick.toCaseFolded();
+        if (firstPathByNick.contains(key) && firstPathByNick.value(key) != path)
+        {
+            if (duplicateNickname) *duplicateNickname = displayNickByKey.value(key, nick);
+            if (firstPath) *firstPath = firstPathByNick.value(key);
+            if (secondPath) *secondPath = path;
+            return false;
+        }
+        firstPathByNick.insert(key, path);
+        displayNickByKey.insert(key, nick);
+    }
+    return true;
+}
+
 void SettingsDialog::onBrowsePnsAscPath()
 {
-    const QString currentPath = m_pnsAscPathCombo ? m_pnsAscPathCombo->currentText().trimmed() : QString();
+    const QString currentPath = resolveCurrentPnsAscPath();
     const QString startDir = QFileInfo(currentPath).exists()
         ? QFileInfo(currentPath).absolutePath()
         : QDir::homePath();
@@ -915,7 +1060,6 @@ void SettingsDialog::onBrowsePnsAscPath()
     }
 
     const QString nick = Settings::getInstance().getPnsAscNickname(selected);
-    const QString displayText = nick.isEmpty() ? selected : nick + " | " + selected;
     int idx = -1;
     for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
     {
@@ -927,11 +1071,14 @@ void SettingsDialog::onBrowsePnsAscPath()
     }
     if (idx < 0)
     {
-        m_pnsAscPathCombo->insertItem(0, displayText, selected);
+        m_pnsAscPathCombo->insertItem(0, pnsPathDisplayText(selected, nick), selected);
         idx = 0;
     }
     m_pnsAscPathCombo->setCurrentIndex(idx);
-    m_pnsAscPathCombo->setEditText(m_pnsAscPathCombo->itemText(idx));
+    if (m_pnsNicknameEdit)
+    {
+        m_pnsNicknameEdit->setText(nick);
+    }
 }
 
 void SettingsDialog::onRemoveInvalidPnsAscPaths()
@@ -947,11 +1094,49 @@ void SettingsDialog::onRemoveInvalidPnsAscPaths()
 
 void SettingsDialog::onPnsAscPathComboChanged(int index)
 {
+    Q_UNUSED(index);
     if (!m_pnsAscPathCombo || !m_pnsNicknameEdit)
         return;
-    const QString realPath = m_pnsAscPathCombo->itemData(index).toString();
-    if (realPath.isEmpty())
+    const QString path = resolveCurrentPnsAscPath();
+    m_pnsNicknameEdit->setText(Settings::getInstance().getPnsAscNickname(path));
+    persistCurrentPnsPathSelection();
+}
+
+void SettingsDialog::onPnsNicknameEditingFinished()
+{
+    if (!m_pnsNicknameEdit || !m_pnsAscPathCombo)
         return;
-    const QString nick = Settings::getInstance().getPnsAscNickname(realPath);
-    m_pnsNicknameEdit->setText(nick);
+
+    const QString currentPath = resolveCurrentPnsAscPath();
+    if (currentPath.isEmpty())
+        return;
+
+    Settings& settings = Settings::getInstance();
+    const QString nickname = currentNicknameText();
+
+    QMap<QString, QString> nicknameMap = settings.getPnsAscNicknames();
+    if (!nickname.isEmpty())
+        nicknameMap[currentPath] = nickname;
+
+    QString duplicateNick;
+    QString firstPath;
+    QString secondPath;
+    if (!validatePnsNicknameUniqueness(nicknameMap, &duplicateNick, &firstPath, &secondPath))
+    {
+        QMessageBox::warning(
+            this,
+            tr("Duplicate ASC nickname"),
+            tr("ASC nickname \"%1\" is already used by another ASC path.\n\n"
+               "Please use a unique nickname.\n"
+               "Path 1: %2\n"
+               "Path 2: %3")
+                .arg(duplicateNick, firstPath, secondPath));
+        m_pnsNicknameEdit->setText(settings.getPnsAscNickname(currentPath));
+        return;
+    }
+
+    if (!nickname.isEmpty())
+        settings.setPnsAscNickname(currentPath, nickname);
+
+    loadCurrentSettings();
 }

@@ -1,10 +1,5 @@
 # Known Issues
 
-## RF/ADC phases not accurate
-
-- **Issue**: RF and ADC phases displayed in the waveform diagram is not accurate.
-- **Workaround**: None currently available. Please verify phase information using other tools.
-
 ## Wrong rendering on Linux
 
 - **Issue**: Waveforms in diferent blocks may shown as connected.

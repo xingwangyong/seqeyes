@@ -1828,6 +1828,8 @@ void TRManager::onShowPnsToggled(bool checked)
         else
         {
             PulseqLoader* loader = m_mainWindow ? m_mainWindow->getPulseqLoader() : nullptr;
+            if (loader)
+                loader->recomputePnsFromSettings();
             const QString status = loader ? loader->getPnsStatusMessage() : QString();
             if (!status.isEmpty() && status.contains("ASC", Qt::CaseInsensitive))
             {

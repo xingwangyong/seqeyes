@@ -40,13 +40,21 @@ private slots:
     void onBrowsePnsAscPath();
     void onRemoveInvalidPnsAscPaths();
     void onPnsAscPathComboChanged(int index);
+    void onPnsNicknameEditingFinished();
 
 private:
     void setupUI();
     void loadCurrentSettings();
-    void applySettings();
+    bool applySettings();
     void showCustomGammaDialog();
     void updateInteractionControlsForExclusivity();
+    QString resolveCurrentPnsAscPath() const;
+    QString resolvePathFromPathComboText(const QString& text) const;
+    QString currentNicknameText() const;
+    QString pnsPathDisplayText(const QString& path, const QString& nickname) const;
+    void selectPathInComboByPath(const QString& path);
+    void persistCurrentPnsPathSelection();
+    bool validatePnsNicknameUniqueness(const QMap<QString, QString>& nickMap, QString* duplicateNickname = nullptr, QString* firstPath = nullptr, QString* secondPath = nullptr) const;
 
     // UI components - Ribbon style
     QTabWidget* m_tabWidget;
