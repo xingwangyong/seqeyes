@@ -912,19 +912,8 @@ void TRManager::updateTrStatusDisplay()
     {
         QString currentText = m_mainWindow->getCoordLabel()->text();
 
-        // Keep any coordinate prefix, but replace an existing render status segment
-        // so the label does not grow on every file load.
-        const int renderSepPos = currentText.indexOf(" | Render:");
-        if (renderSepPos >= 0)
-        {
-            currentText = currentText.left(renderSepPos);
-        }
-        else if (currentText.startsWith("Render:"))
-        {
-            currentText.clear();
-        }
-
-        if (!currentText.trimmed().isEmpty())
+        // Keep behavior simple and stable: append once unless a render status already exists.
+        if (!currentText.isEmpty() && !currentText.contains("Render:"))
             m_mainWindow->getCoordLabel()->setText(currentText + " | " + statusText);
         else
             m_mainWindow->getCoordLabel()->setText(statusText);

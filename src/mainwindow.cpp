@@ -190,11 +190,6 @@ MainWindow::MainWindow(QWidget* parent)
         chosen.setStyleStrategy(QFont::PreferAntialias);
         m_pCoordLabel->setFont(chosen);
     }
-    // Keep status text from forcing main-window width growth when opening files.
-    // Use Ignored horizontally on all platforms so long status text compresses
-    // instead of expanding the main window width.
-    m_pCoordLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
-    m_pCoordLabel->setMinimumWidth(0);
     ui->statusbar->addWidget(m_pCoordLabel);
     m_pPnsStatusLabel = new QLabel(this);
     m_pPnsStatusLabel->setFont(m_pCoordLabel->font());
@@ -2367,7 +2362,6 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         });
     });
 }
-
 
 
 
