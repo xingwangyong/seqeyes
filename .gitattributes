@@ -1,0 +1,37 @@
+# Normalize text files by default.
+* text=auto eol=lf
+
+# Enforce UTF-8 for source/config/docs to avoid mojibake.
+*.c            text working-tree-encoding=UTF-8
+*.cc           text working-tree-encoding=UTF-8
+*.cpp          text working-tree-encoding=UTF-8
+*.cxx          text working-tree-encoding=UTF-8
+*.h            text working-tree-encoding=UTF-8
+*.hh           text working-tree-encoding=UTF-8
+*.hpp          text working-tree-encoding=UTF-8
+*.hxx          text working-tree-encoding=UTF-8
+*.ui           text working-tree-encoding=UTF-8
+*.qrc          text working-tree-encoding=UTF-8
+*.pro          text working-tree-encoding=UTF-8
+*.pri          text working-tree-encoding=UTF-8
+*.cmake        text working-tree-encoding=UTF-8
+CMakeLists.txt text working-tree-encoding=UTF-8
+*.py           text working-tree-encoding=UTF-8
+*.json         text working-tree-encoding=UTF-8
+*.yml          text working-tree-encoding=UTF-8
+*.yaml         text working-tree-encoding=UTF-8
+*.md           text working-tree-encoding=UTF-8
+*.txt          text working-tree-encoding=UTF-8
+
+# Keep Windows command scripts in CRLF for cmd.exe compatibility.
+*.cmd          text eol=crlf working-tree-encoding=UTF-8
+*.bat          text eol=crlf working-tree-encoding=UTF-8
+
+# Common binary assets.
+*.png          binary
+*.jpg          binary
+*.jpeg         binary
+*.gif          binary
+*.ico          binary
+*.pdf          binary
+*.zip          binary
