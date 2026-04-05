@@ -22,6 +22,7 @@ CMakeLists.txt text working-tree-encoding=UTF-8
 *.yaml         text working-tree-encoding=UTF-8
 *.md           text working-tree-encoding=UTF-8
 *.txt          text working-tree-encoding=UTF-8
+*.seq          -text
 
 # Keep Windows command scripts in CRLF for cmd.exe compatibility.
 *.cmd          text eol=crlf working-tree-encoding=UTF-8
