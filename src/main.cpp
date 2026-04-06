@@ -1,4 +1,4 @@
-#include "mainwindow.h"
+﻿#include "mainwindow.h"
 #include "PulseqLoader.h"
 
 #include <QApplication>
@@ -6,6 +6,7 @@
 #include <QCommandLineParser>
 #include <QCommandLineOption>
 #include <QDir>
+#include <QIcon>
 #include "WaveformDrawer.h"
 #include "InteractionHandler.h"
 #include "TRManager.h"
@@ -260,6 +261,7 @@ int main(int argc, char *argv[])
     // (e.g. "Title - SeqEyes"), because we fully control the main window title ourselves.
     app.setOrganizationName("SeqEyes");
     app.setApplicationVersion(SEQEYES_APP_VERSION_PLAIN);
+    app.setWindowIcon(QIcon(QStringLiteral(":/images/logo.svg")));
     // Force LTR across the whole app to avoid inverted scrollbars/RTL behavior on some platforms/styles.
     app.setLayoutDirection(Qt::LeftToRight);
 
@@ -381,3 +383,4 @@ int main(int argc, char *argv[])
 
     return exitCode;
 }
+

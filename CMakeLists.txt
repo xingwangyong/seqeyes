@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+﻿cmake_minimum_required(VERSION 3.20)
 
 project(seqeyes)
 
@@ -75,6 +75,10 @@ find_package(Qt6 COMPONENTS
 set(UI_LIST
     ${PROJECT_ROOT}/src/mainwindow.ui
 )
+
+set(RESOURCE_LIST
+    ${PROJECT_ROOT}/resources/resources.qrc
+)
 source_group("Form" FILES ${UI_LIST})
 
 set(SRC_LIST
@@ -126,7 +130,7 @@ set(HEADER_LIST
 
 include_directories(${PULSEQ_DIR} ${QCUSTOM_PLOT_DIR})
 
-add_executable(${PROJECT_NAME} ${SRC_LIST} ${HEADER_LIST} ${UI_LIST} ${EXTERNAL_LIST})
+add_executable(${PROJECT_NAME} ${SRC_LIST} ${HEADER_LIST} ${UI_LIST} ${RESOURCE_LIST} ${EXTERNAL_LIST})
 
 # Build as a GUI app on desktop platforms so launching the packaged binary
 # doesn't open an extra console window or lose bundle metadata on macOS.
@@ -180,11 +184,22 @@ endif()
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Installation rules – used by scikit-build-core to populate the Python wheel.
+# Optional Windows executable icon (.ico) for taskbar/pinned shortcut.
+# SVG is used at runtime in Qt; .ico is used by Windows shell when available.
+if(WIN32)
+    set(SEQEYES_APP_ICO ${PROJECT_ROOT}/resources/images/logo.ico)
+    if(EXISTS "${SEQEYES_APP_ICO}")
+        set(SEQEYES_APP_RC ${CMAKE_BINARY_DIR}/seqeyes_app_icon.rc)
+        file(WRITE "${SEQEYES_APP_RC}" "IDI_ICON1 ICON \"${SEQEYES_APP_ICO}\"\n")
+        target_sources(${PROJECT_NAME} PRIVATE "${SEQEYES_APP_RC}")
+    endif()
+endif()
+
+# 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# Installation rules 鈥?used by scikit-build-core to populate the Python wheel.
 # The seqeyes executable is placed in seqeyes/bin/ inside the wheel so that
 # viewer.py can find it without requiring a separate install.
-# ──────────────────────────────────────────────────────────────────────────────
+# 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 install(TARGETS ${PROJECT_NAME}
     RUNTIME DESTINATION seqeyes/bin
@@ -234,3 +249,4 @@ if(APPLE)
         endif()
     ")
 endif()
+
