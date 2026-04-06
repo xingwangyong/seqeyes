@@ -893,6 +893,11 @@ void TRManager::onIntraTrSliderChanged(int value)
 void TRManager::updateTrStatusDisplay()
 {
     PulseqLoader* loader = m_mainWindow->getPulseqLoader();
+    if (!loader)
+    {
+        m_mainWindow->setRenderStatusText("Render: N/A");
+        return;
+    }
     QString statusText;
     bool trMode = isTrBasedMode();
     if (trMode && loader->hasRepetitionTime())
@@ -907,17 +912,7 @@ void TRManager::updateTrStatusDisplay()
         statusText = QString("Render: Whole-Sequence (0-%1 ms)")
             .arg(static_cast<int>(std::round(total_ms)));
     }
-
-    if (m_mainWindow->getCoordLabel())
-    {
-        QString currentText = m_mainWindow->getCoordLabel()->text();
-
-        // Keep behavior simple and stable: append once unless a render status already exists.
-        if (!currentText.isEmpty() && !currentText.contains("Render:"))
-            m_mainWindow->getCoordLabel()->setText(currentText + " | " + statusText);
-        else
-            m_mainWindow->getCoordLabel()->setText(statusText);
-    }
+    m_mainWindow->setRenderStatusText(statusText);
 }
 
 void TRManager::onApplyManualTr()

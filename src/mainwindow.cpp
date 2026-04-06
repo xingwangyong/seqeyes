@@ -33,6 +33,7 @@
 #include <QElapsedTimer>
 #include <QImage>
 #include <QStyle>
+#include <QSizePolicy>
 #include <QVector>
 #include <cmath>
 #include <limits>
@@ -122,6 +123,7 @@ MainWindow::MainWindow(QWidget* parent)
       m_pVersionLabel(nullptr),
       m_pProgressBar(nullptr),
       m_pCoordLabel(nullptr),
+    m_pRenderStatusLabel(nullptr),
       m_pPnsStatusLabel(nullptr),
       m_settingsDialog(nullptr)
 {
@@ -190,11 +192,19 @@ MainWindow::MainWindow(QWidget* parent)
         chosen.setStyleStrategy(QFont::PreferAntialias);
         m_pCoordLabel->setFont(chosen);
     }
-    ui->statusbar->addWidget(m_pCoordLabel);
+    m_pCoordLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_pCoordLabel->setMinimumWidth(120);
+    ui->statusbar->addWidget(m_pCoordLabel, 1);
+
+    m_pRenderStatusLabel = new QLabel(this);
+    m_pRenderStatusLabel->setText("Render: N/A");
+    m_pRenderStatusLabel->setToolTip(m_pRenderStatusLabel->text());
+    ui->statusbar->addPermanentWidget(m_pRenderStatusLabel);
+
     m_pPnsStatusLabel = new QLabel(this);
     m_pPnsStatusLabel->setFont(m_pCoordLabel->font());
     m_pPnsStatusLabel->setVisible(false);
-    ui->statusbar->addWidget(m_pPnsStatusLabel);
+    ui->statusbar->addPermanentWidget(m_pPnsStatusLabel);
 
     // This needs to be called after the plot rects are created in InitSequenceFigure
     m_waveformDrawer->InitTracers();
@@ -428,6 +438,14 @@ void MainWindow::updatePnsStatusIndicator()
 
     m_pPnsStatusLabel->setText(text);
     m_pPnsStatusLabel->setVisible(true);
+}
+
+void MainWindow::setRenderStatusText(const QString& text)
+{
+    if (!m_pRenderStatusLabel)
+        return;
+    m_pRenderStatusLabel->setText(text);
+    m_pRenderStatusLabel->setToolTip(text);
 }
 
 void MainWindow::Init()

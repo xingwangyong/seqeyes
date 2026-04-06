@@ -95,8 +95,10 @@ public:
     // Expose UI for tests that access w.ui directly
     Ui::MainWindow* ui;
     QLabel* getCoordLabel() const { return m_pCoordLabel; }
+    QLabel* getRenderStatusLabel() const { return m_pRenderStatusLabel; }
     QLabel* getVersionLabel() const { return m_pVersionLabel; }
     QProgressBar* getProgressBar() const { return m_pProgressBar; }
+    void setRenderStatusText(const QString& text);
     void updatePnsStatusIndicator();
 
 protected:
@@ -181,6 +183,7 @@ private:
     QLabel* m_pVersionLabel;
     QProgressBar* m_pProgressBar;
     QLabel* m_pCoordLabel; // Used by InteractionHandler and TRManager
+    QLabel* m_pRenderStatusLabel {nullptr};
     QLabel* m_pPnsStatusLabel {nullptr};
     
     // Settings dialog

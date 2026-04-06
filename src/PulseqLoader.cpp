@@ -659,12 +659,15 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
 
         if (auto* coord = m_mainWindow->getCoordLabel())
         {
+            auto* render = m_mainWindow->getRenderStatusLabel();
             qDebug().noquote()
                 << "[UI_GEOM] after-load"
                 << "windowSize=" << m_mainWindow->size()
                 << "coordTextLen=" << coord->text().size()
                 << "coordSizeHintW=" << coord->sizeHint().width()
-                << "coordMinW=" << coord->minimumWidth();
+                << "coordMinW=" << coord->minimumWidth()
+                << "renderTextLen=" << (render ? render->text().size() : 0)
+                << "renderSizeHintW=" << (render ? render->sizeHint().width() : 0);
         }
     }
     addRecentFile(sPulseqFilePath);
