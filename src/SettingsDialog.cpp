@@ -1049,11 +1049,22 @@ void SettingsDialog::onBrowsePnsAscPath()
         ? QFileInfo(currentPath).absolutePath()
         : QDir::homePath();
 
+    QFileDialog::Options options;
+    QWidget* parentForDialog = this;
+#ifdef Q_OS_MAC
+    // Match the Open/Export dialog workaround on macOS: native panel can fail
+    // to appear in this app context, so force Qt dialog implementation.
+    options |= QFileDialog::DontUseNativeDialog;
+    parentForDialog = nullptr;
+#endif
+
     const QString selected = QFileDialog::getOpenFileName(
-        this,
+        parentForDialog,
         tr("Select ASC file"),
         startDir,
-        tr("ASC files (*.asc);;All files (*.*)"));
+        tr("ASC files (*.asc);;All files (*.*)"),
+        nullptr,
+        options);
     if (selected.isEmpty() || !m_pnsAscPathCombo)
     {
         return;
