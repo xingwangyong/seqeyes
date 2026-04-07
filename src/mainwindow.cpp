@@ -123,7 +123,6 @@ MainWindow::MainWindow(QWidget* parent)
       m_pVersionLabel(nullptr),
       m_pProgressBar(nullptr),
       m_pCoordLabel(nullptr),
-    m_pRenderStatusLabel(nullptr),
       m_pPnsStatusLabel(nullptr),
       m_settingsDialog(nullptr)
 {
@@ -195,11 +194,6 @@ MainWindow::MainWindow(QWidget* parent)
     m_pCoordLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_pCoordLabel->setMinimumWidth(120);
     ui->statusbar->addWidget(m_pCoordLabel, 1);
-
-    m_pRenderStatusLabel = new QLabel(this);
-    m_pRenderStatusLabel->setText("Render: N/A");
-    m_pRenderStatusLabel->setToolTip(m_pRenderStatusLabel->text());
-    ui->statusbar->addPermanentWidget(m_pRenderStatusLabel);
 
     m_pPnsStatusLabel = new QLabel(this);
     m_pPnsStatusLabel->setFont(m_pCoordLabel->font());
@@ -438,14 +432,6 @@ void MainWindow::updatePnsStatusIndicator()
 
     m_pPnsStatusLabel->setText(text);
     m_pPnsStatusLabel->setVisible(true);
-}
-
-void MainWindow::setRenderStatusText(const QString& text)
-{
-    if (!m_pRenderStatusLabel)
-        return;
-    m_pRenderStatusLabel->setText(text);
-    m_pRenderStatusLabel->setToolTip(text);
 }
 
 void MainWindow::Init()
@@ -2380,7 +2366,6 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
         });
     });
 }
-
 
 
 

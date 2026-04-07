@@ -646,8 +646,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     trManager->updateTrControls();
     trManager->refreshShowTeOverlay();
 
-    // Keep UI/status updates only; drawing was already triggered via synchronizeXAxes
-    trManager->updateTrStatusDisplay();
+    // Keep UI updates only; drawing was already triggered via synchronizeXAxes
     if (m_mainWindow && m_mainWindow->isTrajectoryVisible())
     {
         m_mainWindow->refreshTrajectoryPlotData();
@@ -659,15 +658,12 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
 
         if (auto* coord = m_mainWindow->getCoordLabel())
         {
-            auto* render = m_mainWindow->getRenderStatusLabel();
             qDebug().noquote()
                 << "[UI_GEOM] after-load"
                 << "windowSize=" << m_mainWindow->size()
                 << "coordTextLen=" << coord->text().size()
                 << "coordSizeHintW=" << coord->sizeHint().width()
-                << "coordMinW=" << coord->minimumWidth()
-                << "renderTextLen=" << (render ? render->text().size() : 0)
-                << "renderSizeHintW=" << (render ? render->sizeHint().width() : 0);
+                << "coordMinW=" << coord->minimumWidth();
         }
     }
     addRecentFile(sPulseqFilePath);
@@ -1646,10 +1642,6 @@ void PulseqLoader::rescaleTimeUnit()
         // Recompute and lock Y-axis ranges so they stay consistent
         drawer->computeAndLockYAxisRanges();
     }
-
-    // Update TR status display text
-    TRManager* trm = m_mainWindow->getTRManager();
-    if (trm) trm->updateTrStatusDisplay();
 
     // Update trajectory if visible
     if (m_mainWindow && m_mainWindow->isTrajectoryVisible())

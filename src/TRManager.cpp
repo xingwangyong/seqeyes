@@ -890,31 +890,6 @@ void TRManager::onIntraTrSliderChanged(int value)
     m_mainWindow->ui->customPlot->replot();
 }
 
-void TRManager::updateTrStatusDisplay()
-{
-    PulseqLoader* loader = m_mainWindow->getPulseqLoader();
-    if (!loader)
-    {
-        m_mainWindow->setRenderStatusText("Render: N/A");
-        return;
-    }
-    QString statusText;
-    bool trMode = isTrBasedMode();
-    if (trMode && loader->hasRepetitionTime())
-    {
-        statusText = QString("Render: TR-Segmented (%1 TRs, %2s each)")
-            .arg(loader->getTrCount())
-            .arg(loader->getRepetitionTime_us() / 1e6, 0, 'f', 3);
-    }
-    else
-    {
-        double total_ms = loader->getTotalDuration_us() / 1000.0;
-        statusText = QString("Render: Whole-Sequence (0-%1 ms)")
-            .arg(static_cast<int>(std::round(total_ms)));
-    }
-    m_mainWindow->setRenderStatusText(statusText);
-}
-
 void TRManager::onApplyManualTr()
 {
     QString inputText = m_pManualTrInput->text().trimmed();
@@ -928,7 +903,6 @@ void TRManager::onApplyManualTr()
     m_mainWindow->getPulseqLoader()->setManualRepetitionTime(trValue);
 
     updateTrControls();
-    updateTrStatusDisplay();
 }
 
 void TRManager::onTrRangeSliderChanged(int start, int end)
