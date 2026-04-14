@@ -646,8 +646,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     trManager->updateTrControls();
     trManager->refreshShowTeOverlay();
 
-    // Keep UI/status updates only; drawing was already triggered via synchronizeXAxes
-    trManager->updateTrStatusDisplay();
+    // Keep UI updates only; drawing was already triggered via synchronizeXAxes
     if (m_mainWindow && m_mainWindow->isTrajectoryVisible())
     {
         m_mainWindow->refreshTrajectoryPlotData();
@@ -1643,10 +1642,6 @@ void PulseqLoader::rescaleTimeUnit()
         // Recompute and lock Y-axis ranges so they stay consistent
         drawer->computeAndLockYAxisRanges();
     }
-
-    // Update TR status display text
-    TRManager* trm = m_mainWindow->getTRManager();
-    if (trm) trm->updateTrStatusDisplay();
 
     // Update trajectory if visible
     if (m_mainWindow && m_mainWindow->isTrajectoryVisible())

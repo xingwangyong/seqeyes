@@ -80,7 +80,6 @@ public slots:
     void onTimeIncrementEditingFinished();
     void onTrSliderChanged(int value);
     void onIntraTrSliderChanged(int value);
-    void updateTrStatusDisplay();
     void onApplyManualTr();
     void performDelayedUpdate();
     void onShowBlockEdgesToggled(bool checked);

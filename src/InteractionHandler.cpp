@@ -25,6 +25,7 @@ InteractionHandler notes:
 */
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFontMetrics>
 #include <QMenu>
 #include <QMessageBox>
 #include <QMimeData>
@@ -461,7 +462,19 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
                 coordText += QString("  |  Pick first point...");
             }
         }
-        m_mainWindow->getCoordLabel()->setText(coordText);
+        if (QLabel* coordLabel = m_mainWindow->getCoordLabel())
+        {
+            int availWidth = coordLabel->width();
+            if (availWidth <= 0)
+            {
+                availWidth = m_mainWindow ? (m_mainWindow->width() / 2) : 320;
+            }
+            availWidth = qMax(120, availWidth - 8);
+            const QString elided = coordLabel->fontMetrics().elidedText(
+                coordText, Qt::ElideRight, availWidth);
+            coordLabel->setText(elided);
+            coordLabel->setToolTip(coordText);
+        }
         // Throttle to ~60 FPS to keep PNS-on hover responsive.
         static QElapsedTimer s_mouseReplotTimer;
         static bool s_mouseReplotStarted = false;
@@ -1136,7 +1149,7 @@ bool InteractionHandler::eventFilter(QObject* obj, QEvent* event)
     TRManager* trManager = m_mainWindow->getTRManager();
     if (!trManager) return false;
 
-    // Axis drag begin/end (use label area to start) â€?only when interacting with the main plot.
+    // Axis drag begin/end (use label area to start) ï¿½?only when interacting with the main plot.
     if (obj == m_mainWindow->ui->customPlot)
     {
         if (event->type() == QEvent::MouseButtonPress)

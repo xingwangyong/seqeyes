@@ -67,6 +67,7 @@ source_group("External" FILES ${EXTERNAL_LIST})
 find_package(Qt6 COMPONENTS
     Core
     Gui
+    Svg
     Widgets
     PrintSupport  # For QCustomPlot
     REQUIRED
@@ -132,6 +133,20 @@ include_directories(${PULSEQ_DIR} ${QCUSTOM_PLOT_DIR})
 
 add_executable(${PROJECT_NAME} ${SRC_LIST} ${HEADER_LIST} ${UI_LIST} ${RESOURCE_LIST} ${EXTERNAL_LIST})
 
+# macOS-only helper: convert SVG logo to ICNS for app bundle icon.
+# Built on demand (not part of default ALL target):
+#   cmake --build <build_dir> --target svg_to_icns
+if(APPLE)
+    add_executable(svg_to_icns EXCLUDE_FROM_ALL
+        ${PROJECT_ROOT}/tools/svg_to_icns.cpp
+    )
+    target_link_libraries(svg_to_icns PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Svg
+    )
+endif()
+
 # Build as a GUI app on desktop platforms so launching the packaged binary
 # doesn't open an extra console window or lose bundle metadata on macOS.
 if(WIN32)
@@ -143,6 +158,86 @@ if(APPLE)
         INSTALL_RPATH "@executable_path/../Frameworks"
         BUILD_WITH_INSTALL_RPATH FALSE
     )
+
+    # macOS app icon (.icns) for Finder/Dock.
+    # Prefer .icns directly, then .ico, then .svg as a last resort.
+    # Note: .svg is not a native bundle icon format on macOS.
+    set(SEQEYES_APP_ICON_ICNS ${PROJECT_ROOT}/resources/images/logo.icns)
+    set(SEQEYES_APP_ICON_ICO  ${PROJECT_ROOT}/resources/images/logo.ico)
+    set(SEQEYES_APP_ICON_SVG  ${PROJECT_ROOT}/resources/images/logo.svg)
+
+    if(EXISTS "${SEQEYES_APP_ICON_ICNS}")
+        set_source_files_properties("${SEQEYES_APP_ICON_ICNS}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+        target_sources(${PROJECT_NAME} PRIVATE "${SEQEYES_APP_ICON_ICNS}")
+        set_target_properties(${PROJECT_NAME} PROPERTIES MACOSX_BUNDLE_ICON_FILE "logo.icns")
+    else()
+        set(SEQEYES_APP_ICON_SOURCE "")
+        if(EXISTS "${SEQEYES_APP_ICON_ICO}")
+            set(SEQEYES_APP_ICON_SOURCE "${SEQEYES_APP_ICON_ICO}")
+        elseif(EXISTS "${SEQEYES_APP_ICON_SVG}")
+            set(SEQEYES_APP_ICON_SOURCE "${SEQEYES_APP_ICON_SVG}")
+        endif()
+
+        if(NOT SEQEYES_APP_ICON_SOURCE STREQUAL "")
+            find_program(SIPS_EXECUTABLE sips)
+            find_program(ICONUTIL_EXECUTABLE iconutil)
+            if(SIPS_EXECUTABLE AND ICONUTIL_EXECUTABLE)
+                set(SEQEYES_APP_ICONSET_DIR ${CMAKE_BINARY_DIR}/seqeyes.iconset)
+                set(SEQEYES_APP_ICNS ${CMAKE_BINARY_DIR}/seqeyes.icns)
+                file(MAKE_DIRECTORY "${SEQEYES_APP_ICONSET_DIR}")
+
+                # Generate the required iconset filenames. We render each logical size
+                # and its @2x variant even if pixel dimensions overlap by design.
+                set(_seqeyes_base_sizes 16 32 128 256 512)
+                set(_seqeyes_icon_ok TRUE)
+                foreach(_base IN LISTS _seqeyes_base_sizes)
+                    math(EXPR _retina "${_base} * 2")
+
+                    set(_out_base "${SEQEYES_APP_ICONSET_DIR}/icon_${_base}x${_base}.png")
+                    execute_process(
+                        COMMAND "${SIPS_EXECUTABLE}" -s format png -z "${_base}" "${_base}" "${SEQEYES_APP_ICON_SOURCE}" --out "${_out_base}"
+                        RESULT_VARIABLE _sips_result_base
+                        OUTPUT_QUIET
+                        ERROR_QUIET
+                    )
+                    if(NOT _sips_result_base EQUAL 0)
+                        set(_seqeyes_icon_ok FALSE)
+                    endif()
+
+                    set(_out_retina "${SEQEYES_APP_ICONSET_DIR}/icon_${_base}x${_base}@2x.png")
+                    execute_process(
+                        COMMAND "${SIPS_EXECUTABLE}" -s format png -z "${_retina}" "${_retina}" "${SEQEYES_APP_ICON_SOURCE}" --out "${_out_retina}"
+                        RESULT_VARIABLE _sips_result_retina
+                        OUTPUT_QUIET
+                        ERROR_QUIET
+                    )
+                    if(NOT _sips_result_retina EQUAL 0)
+                        set(_seqeyes_icon_ok FALSE)
+                    endif()
+                endforeach()
+
+                if(_seqeyes_icon_ok)
+                    execute_process(
+                        COMMAND "${ICONUTIL_EXECUTABLE}" -c icns "${SEQEYES_APP_ICONSET_DIR}" -o "${SEQEYES_APP_ICNS}"
+                        RESULT_VARIABLE _iconutil_result
+                        OUTPUT_QUIET
+                        ERROR_QUIET
+                    )
+                    if(_iconutil_result EQUAL 0 AND EXISTS "${SEQEYES_APP_ICNS}")
+                        set_source_files_properties("${SEQEYES_APP_ICNS}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+                        target_sources(${PROJECT_NAME} PRIVATE "${SEQEYES_APP_ICNS}")
+                        set_target_properties(${PROJECT_NAME} PROPERTIES MACOSX_BUNDLE_ICON_FILE "seqeyes.icns")
+                    else()
+                        message(WARNING "Failed to create seqeyes.icns from ${SEQEYES_APP_ICON_SOURCE}; macOS app icon may be generic.")
+                    endif()
+                else()
+                    message(WARNING "Failed to rasterize icon source ${SEQEYES_APP_ICON_SOURCE}; macOS app icon may be generic.")
+                endif()
+            else()
+                message(WARNING "sips/iconutil not found; cannot generate macOS .icns app icon.")
+            endif()
+        endif()
+    endif()
 endif()
 
 # C++ unit tests (disabled when building the Python wheel via scikit-build-core)

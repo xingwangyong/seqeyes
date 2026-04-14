@@ -261,7 +261,17 @@ int main(int argc, char *argv[])
     // (e.g. "Title - SeqEyes"), because we fully control the main window title ourselves.
     app.setOrganizationName("SeqEyes");
     app.setApplicationVersion(SEQEYES_APP_VERSION_PLAIN);
-    app.setWindowIcon(QIcon(QStringLiteral(":/images/logo.svg")));
+    QIcon appIcon;
+#ifdef Q_OS_LINUX
+    // Linux: prefer the SVG resource directly for window/app icon.
+    appIcon = QIcon(QStringLiteral(":/images/logo.svg"));
+#else
+    appIcon = QIcon(QStringLiteral(":/images/logo.svg"));
+    if (appIcon.isNull())
+        appIcon = QIcon(QStringLiteral(":/images/logo.ico"));
+#endif
+    if (!appIcon.isNull())
+        app.setWindowIcon(appIcon);
     // Force LTR across the whole app to avoid inverted scrollbars/RTL behavior on some platforms/styles.
     app.setLayoutDirection(Qt::LeftToRight);
 
