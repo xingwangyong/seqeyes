@@ -133,6 +133,9 @@ include_directories(${PULSEQ_DIR} ${QCUSTOM_PLOT_DIR})
 
 add_executable(${PROJECT_NAME} ${SRC_LIST} ${HEADER_LIST} ${UI_LIST} ${RESOURCE_LIST} ${EXTERNAL_LIST})
 
+# Ensure UTF-8 source interpretation on MSVC so Unicode string literals (e.g. "→", "•", "–") are stable.
+target_compile_options(${PROJECT_NAME} PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+
 # macOS-only helper: convert SVG logo to ICNS for app bundle icon.
 # Built on demand (not part of default ALL target):
 #   cmake --build <build_dir> --target svg_to_icns
@@ -344,4 +347,3 @@ if(APPLE)
         endif()
     ")
 endif()
-

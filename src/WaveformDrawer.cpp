@@ -1378,7 +1378,7 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
     PulseqLoader* loader = m_mainWindow->getPulseqLoader();
     if (loader->getDecodedSeqBlocks().empty()) return;
     
-    // ʹ��PulseqLabelAnalyzer����ȷ������ǩ״̬
+    // Use PulseqLabelAnalyzer to determine label state accurately.
     static PulseqLabelAnalyzer* labelAnalyzer = nullptr;
     if (!labelAnalyzer) {
         auto seq = loader->getSequence();

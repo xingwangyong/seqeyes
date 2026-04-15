@@ -1149,7 +1149,7 @@ bool InteractionHandler::eventFilter(QObject* obj, QEvent* event)
     TRManager* trManager = m_mainWindow->getTRManager();
     if (!trManager) return false;
 
-    // Axis drag begin/end (use label area to start) �?only when interacting with the main plot.
+    // Axis drag begin/end (use label area to start) -> only when interacting with the main plot.
     if (obj == m_mainWindow->ui->customPlot)
     {
         if (event->type() == QEvent::MouseButtonPress)
@@ -1769,7 +1769,6 @@ void InteractionHandler::handleTimeInputWheelEvent(QWheelEvent* event, QLineEdit
         trManager->onTimeEndInputChanged();
     }
 }
-
 
 
 
