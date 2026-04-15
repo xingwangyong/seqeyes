@@ -1,0 +1,305 @@
+name: Windows Bisect Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_commit:
+        description: "Start commit hash (one endpoint)"
+        required: true
+        type: string
+      end_commit:
+        description: "End commit hash (the other endpoint)"
+        required: true
+        type: string
+      max_commits:
+        description: "Max commits to build (default: 40)"
+        required: false
+        default: "40"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare Commit Matrix
+    runs-on: windows-latest
+    outputs:
+      matrix: ${{ steps.range.outputs.matrix }}
+      commit_count: ${{ steps.range.outputs.commit_count }}
+      older_commit: ${{ steps.range.outputs.older_commit }}
+      newer_commit: ${{ steps.range.outputs.newer_commit }}
+      older_short: ${{ steps.range.outputs.older_short }}
+      newer_short: ${{ steps.range.outputs.newer_short }}
+
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Commit Range
+        id: range
+        shell: pwsh
+        env:
+          START_COMMIT: ${{ inputs.start_commit }}
+          END_COMMIT: ${{ inputs.end_commit }}
+          MAX_COMMITS: ${{ inputs.max_commits }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $start = $env:START_COMMIT.Trim()
+          $end = $env:END_COMMIT.Trim()
+          if ([string]::IsNullOrWhiteSpace($start) -or [string]::IsNullOrWhiteSpace($end)) {
+            throw "start_commit and end_commit are required."
+          }
+
+          $maxCommits = 40
+          if (-not [string]::IsNullOrWhiteSpace($env:MAX_COMMITS)) {
+            if (-not [int]::TryParse($env:MAX_COMMITS, [ref]$maxCommits)) {
+              throw "max_commits must be an integer."
+            }
+            if ($maxCommits -le 0) {
+              throw "max_commits must be > 0."
+            }
+          }
+
+          git cat-file -e "$start^{commit}" 2>$null
+          if ($LASTEXITCODE -ne 0) { throw "start_commit '$start' is not a valid commit." }
+          git cat-file -e "$end^{commit}" 2>$null
+          if ($LASTEXITCODE -ne 0) { throw "end_commit '$end' is not a valid commit." }
+
+          $older = ""
+          $newer = ""
+          git merge-base --is-ancestor $start $end
+          if ($LASTEXITCODE -eq 0) {
+            $older = (git rev-parse $start).Trim()
+            $newer = (git rev-parse $end).Trim()
+          } else {
+            git merge-base --is-ancestor $end $start
+            if ($LASTEXITCODE -eq 0) {
+              $older = (git rev-parse $end).Trim()
+              $newer = (git rev-parse $start).Trim()
+            } else {
+              throw "Inputs are not on a single ancestor chain. Please choose two commits where one is ancestor of the other."
+            }
+          }
+
+          $middle = @(git rev-list --first-parent --ancestry-path "$older..$newer")
+          $middle = @($middle | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+          [array]::Reverse($middle)
+          $commitsChrono = @($older) + $middle
+          $count = $commitsChrono.Count
+          $olderShort = (git rev-parse --short=7 $older).Trim()
+          $newerShort = (git rev-parse --short=7 $newer).Trim()
+
+          if ($count -gt $maxCommits) {
+            throw "Commit range has $count commits, exceeding max_commits=$maxCommits."
+          }
+
+          $include = @()
+          for ($i = 0; $i -lt $count; $i++) {
+            $sha = $commitsChrono[$i].Trim()
+            $short = (git rev-parse --short=7 $sha).Trim()
+            $index = $i + 1
+            $include += [ordered]@{
+              index = $index
+              full_sha = $sha
+              short_sha = $short
+              exe_name = "$index-$short.exe"
+            }
+          }
+
+          $matrixObj = [ordered]@{ include = $include }
+          $matrixJson = $matrixObj | ConvertTo-Json -Depth 4 -Compress
+
+          "commit_count=$count" >> $env:GITHUB_OUTPUT
+          "older_commit=$older" >> $env:GITHUB_OUTPUT
+          "newer_commit=$newer" >> $env:GITHUB_OUTPUT
+          "older_short=$olderShort" >> $env:GITHUB_OUTPUT
+          "newer_short=$newerShort" >> $env:GITHUB_OUTPUT
+          "matrix<<EOF" >> $env:GITHUB_OUTPUT
+          $matrixJson >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
+
+  build:
+    name: Build ${{ matrix.exe_name }}
+    runs-on: windows-latest
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: Checkout target commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ matrix.full_sha }}
+
+      - name: Install Qt 6.5.3 (MSVC 2019)
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: "6.5.3"
+          arch: "win64_msvc2019_64"
+          cache: true
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: "v0.10.0"
+
+      - name: Configure + Build
+        id: build_step
+        continue-on-error: true
+        shell: pwsh
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+          COMMIT_INDEX: ${{ matrix.index }}
+          FULL_SHA: ${{ matrix.full_sha }}
+          SHORT_SHA: ${{ matrix.short_sha }}
+          EXE_NAME: ${{ matrix.exe_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path out -Force | Out-Null
+          New-Item -ItemType Directory -Path build -Force | Out-Null
+
+          $status = "success"
+          $errorMessage = ""
+
+          try {
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
+            cmake --build build --config Release
+
+            $builtExe = Join-Path $PWD "build\seqeyes.exe"
+            if (-not (Test-Path $builtExe)) {
+              throw "Build succeeded but build\seqeyes.exe was not found."
+            }
+            Copy-Item -Path $builtExe -Destination (Join-Path $PWD ("out\" + $env:EXE_NAME)) -Force
+          } catch {
+            $status = "failed"
+            $errorMessage = $_.Exception.Message
+            throw
+          } finally {
+            $statusObj = [ordered]@{
+              index = [int]$env:COMMIT_INDEX
+              full_sha = $env:FULL_SHA
+              short_sha = $env:SHORT_SHA
+              exe_name = $env:EXE_NAME
+              status = $status
+              error = $errorMessage
+            }
+            ($statusObj | ConvertTo-Json -Depth 3) | Out-File -FilePath (Join-Path $PWD "out\status.json") -Encoding utf8
+          }
+
+      - name: Print sccache stats
+        if: always()
+        shell: pwsh
+        run: sccache --show-stats
+
+      - name: Upload commit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bisect-build-${{ matrix.index }}-${{ matrix.short_sha }}
+          path: out
+
+  package:
+    name: Aggregate & Package
+    runs-on: windows-latest
+    needs: [prepare, build]
+    if: ${{ always() && needs.prepare.result == 'success' }}
+
+    steps:
+      - name: Install Qt 6.5.3 (MSVC 2019)
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: "6.5.3"
+          arch: "win64_msvc2019_64"
+          cache: true
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Download matrix artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bisect-build-*
+          path: collected
+
+      - name: Merge outputs and generate manifest
+        id: manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $bundleDir = Join-Path $PWD "bundle"
+          New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
+
+          $rows = @()
+          $artifactDirs = Get-ChildItem -Path (Join-Path $PWD "collected") -Directory
+
+          foreach ($artifactDir in $artifactDirs) {
+            $statusPath = Join-Path $artifactDir.FullName "status.json"
+            if (-not (Test-Path $statusPath)) {
+              continue
+            }
+
+            $status = Get-Content $statusPath -Raw | ConvertFrom-Json
+
+            $exePath = Join-Path $artifactDir.FullName $status.exe_name
+            $hasExe = Test-Path $exePath
+            if ($hasExe) {
+              Copy-Item -Path $exePath -Destination (Join-Path $bundleDir $status.exe_name) -Force
+            }
+
+            $rows += [pscustomobject]@{
+              index = [int]$status.index
+              full_sha = $status.full_sha
+              short_sha = $status.short_sha
+              exe_name = $status.exe_name
+              status = if ($hasExe -and $status.status -eq "success") { "success" } else { "failed" }
+              error = if ($hasExe -and $status.status -eq "success") { "" } else { $status.error }
+            }
+          }
+
+          if ($rows.Count -eq 0) {
+            throw "No status files found from matrix jobs."
+          }
+
+          $rows = $rows | Sort-Object index
+          $rows | Export-Csv -NoTypeInformation -Encoding utf8 -Path (Join-Path $bundleDir "manifest.csv")
+
+          $deployRow = $rows | Where-Object { $_.status -eq "success" } | Sort-Object index | Select-Object -First 1
+          if (-not $deployRow) {
+            throw "No successful build in range. Nothing to deploy."
+          }
+
+          $deployExe = Join-Path $bundleDir $deployRow.exe_name
+          if (-not (Test-Path $deployExe)) {
+            throw "Selected deploy exe not found: $deployExe"
+          }
+
+          "deploy_exe=$deployExe" >> $env:GITHUB_OUTPUT
+
+      - name: Run windeployqt once for shared runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $bundleDir = Join-Path $PWD "bundle"
+          windeployqt --release --dir $bundleDir "${{ steps.manifest.outputs.deploy_exe }}"
+
+      - name: Create zip package
+        shell: pwsh
+        run: |
+          $zip = "seqeyes-bisect-${{ needs.prepare.outputs.older_short }}-${{ needs.prepare.outputs.newer_short }}-${{ github.run_id }}.zip"
+          Compress-Archive -Path bundle\* -DestinationPath $zip -Force
+
+      - name: Upload bisect package
+        uses: actions/upload-artifact@v4
+        with:
+          name: seqeyes-bisect-package-${{ needs.prepare.outputs.older_short }}-${{ needs.prepare.outputs.newer_short }}
+          path: seqeyes-bisect-${{ needs.prepare.outputs.older_short }}-${{ needs.prepare.outputs.newer_short }}-${{ github.run_id }}.zip
