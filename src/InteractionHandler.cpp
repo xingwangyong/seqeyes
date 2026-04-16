@@ -235,7 +235,7 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
 
             // Status text is appended in the normal hover path for consistency.
 
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
         }
         // Continue to normal hover path so that status text appends Δt consistently
     }
@@ -296,24 +296,6 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
 			vline->point2->setCoords(guideX, yRange.upper);
 			vline->setVisible(!m_measureMode);
 		}
-
-            if (!allowHeavyHoverWork)
-            {
-                // Fast path for dense mouse-move events: keep only red-guide updates.
-                static QElapsedTimer s_mouseReplotTimerLite;
-                static bool s_mouseReplotStartedLite = false;
-                if (!s_mouseReplotStartedLite)
-                {
-                    s_mouseReplotTimerLite.start();
-                    s_mouseReplotStartedLite = true;
-                }
-                if (s_mouseReplotTimerLite.elapsed() >= 33)
-                {
-                    m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
-                    s_mouseReplotTimerLite.restart();
-                }
-                return;
-            }
 
 		// Build fixed-width, monospaced segments for status bar
         auto fixed = [](const QString& s, int width){ return s.leftJustified(width, ' ', true); };
@@ -391,18 +373,26 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
         QString segGrad = fixed(QString("Gxyz=%1,%2,%3 %4").arg(gx, gy, gz, toUnit), W_GRAD);
         QString segKSpace;
         {
+            static bool s_kspaceCacheValid = false;
+            static double s_cachedKx = 0.0;
+            static double s_cachedKy = 0.0;
+            static double s_cachedKz = 0.0;
             double kxVal = 0.0, kyVal = 0.0, kzVal = 0.0;
             auto fmt1 = [](double v){ return QString::number(v, 'f', 1); };
             QString kxStr = "--.-", kyStr = "--.-", kzStr = "--.-";
-            if (allowHeavyHoverWork && m_mainWindow && m_mainWindow->isTrajectoryVisible() &&
+            if (allowHeavyHoverWork && m_mainWindow &&
                 m_mainWindow->sampleTrajectoryAtInternalTime(guideX, kxVal, kyVal, kzVal))
             {
-                kxVal *= trajScale;
-                kyVal *= trajScale;
-                kzVal *= trajScale;
-                kxStr = fmt1(kxVal);
-                kyStr = fmt1(kyVal);
-                kzStr = fmt1(kzVal);
+                s_cachedKx = kxVal;
+                s_cachedKy = kyVal;
+                s_cachedKz = kzVal;
+                s_kspaceCacheValid = true;
+            }
+            if (s_kspaceCacheValid)
+            {
+                kxStr = fmt1(s_cachedKx * trajScale);
+                kyStr = fmt1(s_cachedKy * trajScale);
+                kzStr = fmt1(s_cachedKz * trajScale);
             }
             segKSpace = fixed(QString("kxyz=%1,%2,%3 %4").arg(kxStr, kyStr, kzStr, trajUnitLabel), W_KSPACE);
         }
@@ -483,9 +473,9 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
             s_mouseReplotTimer.start();
             s_mouseReplotStarted = true;
         }
-        if (s_mouseReplotTimer.elapsed() >= 33)
+        if (s_mouseReplotTimer.elapsed() >= 16)
         {
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
             s_mouseReplotTimer.restart();
         }
 	}
@@ -1769,7 +1759,6 @@ void InteractionHandler::handleTimeInputWheelEvent(QWheelEvent* event, QLineEdit
         trManager->onTimeEndInputChanged();
     }
 }
-
 
 
 
