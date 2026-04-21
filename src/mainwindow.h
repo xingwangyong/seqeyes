@@ -97,6 +97,7 @@ public:
     QLabel* getCoordLabel() const { return m_pCoordLabel; }
     QLabel* getVersionLabel() const { return m_pVersionLabel; }
     QProgressBar* getProgressBar() const { return m_pProgressBar; }
+    QString getPnsStatusText() const;
     void updatePnsStatusIndicator();
 
 protected:
@@ -181,7 +182,6 @@ private:
     QLabel* m_pVersionLabel;
     QProgressBar* m_pProgressBar;
     QLabel* m_pCoordLabel; // Used by InteractionHandler and TRManager
-    QLabel* m_pPnsStatusLabel {nullptr};
     
     // Settings dialog
     SettingsDialog* m_settingsDialog;
@@ -236,6 +236,5 @@ private:
 };
 
 #endif // MAINWINDOW_H
-
 
 

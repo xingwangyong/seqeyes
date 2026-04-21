@@ -123,7 +123,6 @@ MainWindow::MainWindow(QWidget* parent)
       m_pVersionLabel(nullptr),
       m_pProgressBar(nullptr),
       m_pCoordLabel(nullptr),
-      m_pPnsStatusLabel(nullptr),
       m_settingsDialog(nullptr)
 {
     ui->setupUi(this);
@@ -194,11 +193,6 @@ MainWindow::MainWindow(QWidget* parent)
     m_pCoordLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_pCoordLabel->setMinimumWidth(120);
     ui->statusbar->addWidget(m_pCoordLabel, 1);
-
-    m_pPnsStatusLabel = new QLabel(this);
-    m_pPnsStatusLabel->setFont(m_pCoordLabel->font());
-    m_pPnsStatusLabel->setVisible(false);
-    ui->statusbar->addPermanentWidget(m_pPnsStatusLabel);
 
     // This needs to be called after the plot rects are created in InitSequenceFigure
     m_waveformDrawer->InitTracers();
@@ -334,104 +328,89 @@ MainWindow::~MainWindow()
     //SAFE_DELETE(m_pVersionLabel);
     //SAFE_DELETE(m_pProgressBar);
     //SAFE_DELETE(m_pCoordLabel);
-    //SAFE_DELETE(m_pPnsStatusLabel);
     //SAFE_DELETE(m_settingsDialog);
     delete ui;
 }
 
-void MainWindow::updatePnsStatusIndicator()
+QString MainWindow::getPnsStatusText() const
 {
-    if (!m_pPnsStatusLabel)
-        return;
-
     const bool showByCheckbox = (m_trManager && m_trManager->isShowPnsChecked());
     if (!showByCheckbox)
     {
-        m_pPnsStatusLabel->setVisible(false);
-        m_pPnsStatusLabel->setText("");
-        return;
+        return QString();
     }
 
-    QString text;
     const QString ascPath = Settings::getInstance().getPnsAscPath().trimmed();
     if (ascPath.isEmpty())
     {
-        text = " | PNS: Not configured";
+        return QString();
     }
-    else if (!m_pulseqLoader || !m_pulseqLoader->hasPnsData())
+
+    if (!m_pulseqLoader || !m_pulseqLoader->hasPnsData())
     {
-        const QString status = m_pulseqLoader ? m_pulseqLoader->getPnsStatusMessage() : QString();
-        if (status.contains("ASC", Qt::CaseInsensitive) ||
-            status.contains("invalid", Qt::CaseInsensitive) ||
-            status.contains("not found", Qt::CaseInsensitive))
+        return QString();
+    }
+
+    auto maxOf = [](const QVector<double>& v) {
+        double m = 0.0;
+        for (double x : v)
         {
-            text = " | PNS: Invalid asc file";
+            if (std::isfinite(x))
+                m = std::max(m, x);
         }
-        else
+        return m;
+    };
+    auto sampleAt = [](const QVector<double>& t, const QVector<double>& v, double ts) {
+        if (t.isEmpty() || v.isEmpty()) return 0.0;
+        const int n = std::min(t.size(), v.size());
+        if (n <= 0) return 0.0;
+        if (ts <= t[0]) return v[0];
+        if (ts >= t[n - 1]) return v[n - 1];
+        auto it = std::lower_bound(t.constBegin(), t.constBegin() + n, ts);
+        int i1 = static_cast<int>(it - t.constBegin());
+        if (i1 <= 0) return v[0];
+        if (i1 >= n) return v[n - 1];
+        const int i0 = i1 - 1;
+        const double t0 = t[i0], t1 = t[i1];
+        if (!(std::isfinite(t0) && std::isfinite(t1)) || t1 <= t0) return v[i0];
+        const double a = std::clamp((ts - t0) / (t1 - t0), 0.0, 1.0);
+        return v[i0] + (v[i1] - v[i0]) * a;
+    };
+
+    int xp = 0, yp = 0, zp = 0, np = 0;
+    const QVector<double>& pnsT = m_pulseqLoader->getPnsTimeSec();
+    const QVector<double>& pnsX = m_pulseqLoader->getPnsX();
+    const QVector<double>& pnsY = m_pulseqLoader->getPnsY();
+    const QVector<double>& pnsZ = m_pulseqLoader->getPnsZ();
+    const QVector<double>& pnsN = m_pulseqLoader->getPnsNorm();
+
+    if (m_hasTrajectoryCursorTime)
+    {
+        const double tFactor = m_pulseqLoader->getTFactor();
+        if (tFactor > 0.0)
         {
-            text = " | PNS: Ready";
+            const double cursorTimeSec = (m_currentTrajectoryTimeInternal / tFactor) * 1e-6;
+            xp = static_cast<int>(std::lround(100.0 * sampleAt(pnsT, pnsX, cursorTimeSec)));
+            yp = static_cast<int>(std::lround(100.0 * sampleAt(pnsT, pnsY, cursorTimeSec)));
+            zp = static_cast<int>(std::lround(100.0 * sampleAt(pnsT, pnsZ, cursorTimeSec)));
+            np = static_cast<int>(std::lround(100.0 * sampleAt(pnsT, pnsN, cursorTimeSec)));
         }
     }
     else
     {
-        auto maxOf = [](const QVector<double>& v) {
-            double m = 0.0;
-            for (double x : v)
-            {
-                if (std::isfinite(x))
-                    m = std::max(m, x);
-            }
-            return m;
-        };
-        auto sampleAt = [](const QVector<double>& t, const QVector<double>& v, double ts) {
-            if (t.isEmpty() || v.isEmpty()) return 0.0;
-            const int n = std::min(t.size(), v.size());
-            if (n <= 0) return 0.0;
-            if (ts <= t[0]) return v[0];
-            if (ts >= t[n - 1]) return v[n - 1];
-            auto it = std::lower_bound(t.constBegin(), t.constBegin() + n, ts);
-            int i1 = static_cast<int>(it - t.constBegin());
-            if (i1 <= 0) return v[0];
-            if (i1 >= n) return v[n - 1];
-            const int i0 = i1 - 1;
-            const double t0 = t[i0], t1 = t[i1];
-            if (!(std::isfinite(t0) && std::isfinite(t1)) || t1 <= t0) return v[i0];
-            const double a = std::clamp((ts - t0) / (t1 - t0), 0.0, 1.0);
-            return v[i0] + (v[i1] - v[i0]) * a;
-        };
-
-        int xp = 0, yp = 0, zp = 0, np = 0;
-        const QVector<double>& pnsT = m_pulseqLoader->getPnsTimeSec();
-        const QVector<double>& pnsX = m_pulseqLoader->getPnsX();
-        const QVector<double>& pnsY = m_pulseqLoader->getPnsY();
-        const QVector<double>& pnsZ = m_pulseqLoader->getPnsZ();
-        const QVector<double>& pnsN = m_pulseqLoader->getPnsNorm();
-
-        if (m_hasTrajectoryCursorTime)
-        {
-            const double tFactor = m_pulseqLoader->getTFactor();
-            if (tFactor > 0.0)
-            {
-                const double cursorTimeSec = (m_currentTrajectoryTimeInternal / tFactor) * 1e-6;
-                xp = static_cast<int>(std::lround(100.0 * sampleAt(pnsT, pnsX, cursorTimeSec)));
-                yp = static_cast<int>(std::lround(100.0 * sampleAt(pnsT, pnsY, cursorTimeSec)));
-                zp = static_cast<int>(std::lround(100.0 * sampleAt(pnsT, pnsZ, cursorTimeSec)));
-                np = static_cast<int>(std::lround(100.0 * sampleAt(pnsT, pnsN, cursorTimeSec)));
-            }
-        }
-        else
-        {
-            xp = static_cast<int>(std::lround(100.0 * maxOf(pnsX)));
-            yp = static_cast<int>(std::lround(100.0 * maxOf(pnsY)));
-            zp = static_cast<int>(std::lround(100.0 * maxOf(pnsZ)));
-            np = static_cast<int>(std::lround(100.0 * maxOf(pnsN)));
-        }
-
-        text = QString(" | PNS: xyzn=%1,%2,%3,%4").arg(xp).arg(yp).arg(zp).arg(np) + "%";
+        xp = static_cast<int>(std::lround(100.0 * maxOf(pnsX)));
+        yp = static_cast<int>(std::lround(100.0 * maxOf(pnsY)));
+        zp = static_cast<int>(std::lround(100.0 * maxOf(pnsZ)));
+        np = static_cast<int>(std::lround(100.0 * maxOf(pnsN)));
     }
 
-    m_pPnsStatusLabel->setText(text);
-    m_pPnsStatusLabel->setVisible(true);
+    return QString("PNSxyzn=%1,%2,%3,%4").arg(xp).arg(yp).arg(zp).arg(np) + "%";
+}
+
+void MainWindow::updatePnsStatusIndicator()
+{
+    // PNS is appended to the normal coordinate status text by InteractionHandler.
+    // This method remains as a lightweight compatibility hook for existing callers.
 }
 
 void MainWindow::Init()
