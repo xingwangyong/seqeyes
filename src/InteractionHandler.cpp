@@ -435,6 +435,12 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
             }
         }
         // Channel-specific inline appends removed; now summarized above
+        if (m_mainWindow)
+        {
+            const QString pnsStatus = m_mainWindow->getPnsStatusText();
+            if (!pnsStatus.isEmpty())
+                coordText += " | " + pnsStatus;
+        }
         // If measuring and at least one point exists, append Δt info
         if (m_measureMode)
         {
@@ -1759,7 +1765,6 @@ void InteractionHandler::handleTimeInputWheelEvent(QWheelEvent* event, QLineEdit
         trManager->onTimeEndInputChanged();
     }
 }
-
 
 
 

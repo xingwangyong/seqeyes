@@ -646,6 +646,14 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     trManager->updateTrControls();
     trManager->refreshShowTeOverlay();
 
+    // If PNS was already enabled before this sequence finished loading (for example
+    // via automation or a restored UI state), compute it now. Otherwise the drawer
+    // can show the PNS axis with no data until the checkbox is toggled again.
+    if (trManager && trManager->isShowPnsChecked())
+    {
+        recomputePnsFromSettings();
+    }
+
     // Keep UI updates only; drawing was already triggered via synchronizeXAxes
     if (m_mainWindow && m_mainWindow->isTrajectoryVisible())
     {
