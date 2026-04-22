@@ -16,6 +16,9 @@
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QPointer>
+#include <QCoreApplication>
+#include <QEventLoop>
+#include <QElapsedTimer>
 #include <iostream>
 #include <sstream>
 #include <complex>
@@ -1571,6 +1574,22 @@ void PulseqLoader::ensureTrajectoryPrepared()
     m_kTrajectoryReady = false;
     setTrajectoryState(TrajectoryState::Calculating);
     computeKSpaceTrajectory();
+}
+
+bool PulseqLoader::waitForBackgroundComputations(int timeoutMs)
+{
+    if (timeoutMs < 0)
+        timeoutMs = 0;
+
+    QElapsedTimer timer;
+    timer.start();
+    while (isTrajectoryCalculating() || isPnsCalculating())
+    {
+        if (timer.elapsed() >= timeoutMs)
+            return false;
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    }
+    return true;
 }
 
 QVector<double> PulseqLoader::getKxKyZeroTimes() const

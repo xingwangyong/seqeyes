@@ -12,8 +12,6 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QElapsedTimer>
-#include <QCoreApplication>
-#include <QEventLoop>
 #include <QDebug>
 #include <QFileInfo>
 #include <QDir>
@@ -84,6 +82,12 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
             loader->setSilentMode(true);
         }
         window.openFileFromCommandLine(p);
+        if (auto* loader = window.getPulseqLoader()) {
+            if (!loader->waitForBackgroundComputations()) {
+                qWarning() << "[AUTOMATION] open_file: timed out waiting for post-load computations";
+                return 22;
+            }
+        }
         return 0;
     }
 
@@ -121,6 +125,10 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
 
         if (auto* loader = window.getPulseqLoader()) {
             loader->recomputePnsFromSettings();
+            if (!loader->waitForBackgroundComputations()) {
+                qWarning() << "[AUTOMATION] configure_pns: timed out waiting for PNS computation";
+                return 23;
+            }
         }
         if (auto* tr = window.getTRManager()) {
             tr->setShowPns(showPns);
@@ -169,12 +177,9 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
             return 17;
         }
         loader->ensureTrajectoryPrepared();
-        if (!loader->hasTrajectoryData() && loader->isTrajectoryCalculating()) {
-            QElapsedTimer timer;
-            timer.start();
-            while (!loader->hasTrajectoryData() && loader->isTrajectoryCalculating() && timer.elapsed() < 60000) {
-                QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
-            }
+        if (!loader->waitForBackgroundComputations()) {
+            qWarning() << "[AUTOMATION] export_trajectory: timed out waiting for trajectory computation";
+            return 24;
         }
 
         const QVector<double>& kx = loader->getTrajectoryKx();

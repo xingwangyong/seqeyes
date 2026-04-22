@@ -355,10 +355,11 @@ int main(int argc, char *argv[])
             }
         }
 
+        if (headless)
+            window.getPulseqLoader()->setSilentMode(true);
+
         // Open file if specified
         if (!fileToOpen.isEmpty()) {
-            // Silent mode if headless/exit-after-load
-            if (headless) window.getPulseqLoader()->setSilentMode(true);
             window.openFileFromCommandLine(fileToOpen);
             // Re-apply options that depend on loaded data (ranges)
             window.applyCommandLineOptions(parser);
@@ -368,7 +369,7 @@ int main(int argc, char *argv[])
                 window.captureSnapshotsAndExit(outDir);
                 // We do NOT return here, we let app.exec() run the singleShot timer inside captureSnapshotsAndExit
             } else if (parser.isSet("exit-after-load")) {
-                exitCode = 0;
+                exitCode = window.getPulseqLoader()->waitForBackgroundComputations() ? 0 : 5;
             }
         }
 
@@ -393,4 +394,3 @@ int main(int argc, char *argv[])
 
     return exitCode;
 }
-

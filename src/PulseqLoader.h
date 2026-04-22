@@ -149,6 +149,7 @@ public:
     QVector<double> getKxKyZeroTimes() const; // Returns times when kx=ky=0 (in axis units)
 
     void ensureTrajectoryPrepared();
+    bool waitForBackgroundComputations(int timeoutMs = 60000);
     const QVector<double>& getTrajectoryKx() const { return m_kTrajectoryX; }
     const QVector<double>& getTrajectoryKy() const { return m_kTrajectoryY; }
     const QVector<double>& getTrajectoryKz() const { return m_kTrajectoryZ; }
