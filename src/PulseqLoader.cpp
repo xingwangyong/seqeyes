@@ -16,6 +16,9 @@
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QPointer>
+#include <QCoreApplication>
+#include <QEventLoop>
+#include <QElapsedTimer>
 #include <iostream>
 #include <sstream>
 #include <complex>
@@ -145,6 +148,7 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
 {
     ++m_trajectorySequenceGeneration;
     m_activeTrajectoryRequestId = 0;
+    m_activePnsRequestId = 0;
 
     if (withUi && m_mainWindow)
     {
@@ -188,6 +192,8 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     m_kTrajectoryZAdc.clear();
     m_kTimeAdcSec.clear();
     m_pnsResult = PnsCalculator::Result{};
+    m_pnsState = PnsState::NotStarted;
+    m_pnsDirty = true;
     m_pnsAscPath.clear();
     m_pnsStatusMessage.clear();
     m_usedExtensions.clear();
@@ -206,11 +212,12 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
         m_spPulseqSeq->reset();
         // m_spPulseqSeq will be recreated based on file version
         const bool handOffBlocksToAsync =
-            (m_trajectoryState == TrajectoryState::Calculating) &&
-            static_cast<bool>(m_activeTrajectoryBlockLifetime);
+            ((m_trajectoryState == TrajectoryState::Calculating) ||
+             (m_pnsState == PnsState::Calculating)) &&
+            static_cast<bool>(m_activeAsyncBlockLifetime);
         if (handOffBlocksToAsync)
         {
-            m_activeTrajectoryBlockLifetime->ownsBlocks.store(true);
+            m_activeAsyncBlockLifetime->ownsBlocks.store(true);
         }
         for (size_t ushBlockIndex = 0; ushBlockIndex < m_vecDecodeSeqBlocks.size(); ushBlockIndex++)
         {
@@ -220,10 +227,11 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
             }
         }
         m_vecDecodeSeqBlocks.clear();
-        m_activeTrajectoryBlockLifetime.reset();
+        m_activeAsyncBlockLifetime.reset();
         std::cout << m_sPulseqFilePath.toStdString() << " Closed\n";
     }
     setTrajectoryState(TrajectoryState::NotStarted);
+    emit pnsStateChanged();
     if (m_mainWindow) { m_mainWindow->setWindowFilePath(""); }
     emit pnsDataUpdated();
 }
@@ -674,13 +682,10 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     trManager->updateTrControls();
     trManager->refreshShowTeOverlay();
 
-    // If PNS was already enabled before this sequence finished loading (for example
-    // via automation or a restored UI state), compute it now. Otherwise the drawer
-    // can show the PNS axis with no data until the checkbox is toggled again.
-    if (trManager && trManager->isShowPnsChecked())
-    {
-        recomputePnsFromSettings();
-    }
+    // PNS is always queued automatically after load. It is lower priority than
+    // trajectory computation, so startPnsComputationIfEnabled() will defer while
+    // trajectory is still calculating.
+    startPnsComputationIfEnabled();
 
     // Keep UI updates only; drawing was already triggered via synchronizeXAxes
     if (m_mainWindow && m_mainWindow->isTrajectoryVisible())
@@ -1147,6 +1152,34 @@ void PulseqLoader::setTrajectoryState(TrajectoryState state)
     emit trajectoryStateChanged();
 }
 
+void PulseqLoader::setPnsState(PnsState state)
+{
+    if (m_pnsState == state)
+        return;
+    m_pnsState = state;
+    emit pnsStateChanged();
+}
+
+void PulseqLoader::markPnsDirty()
+{
+    m_pnsDirty = true;
+}
+
+bool PulseqLoader::shouldRecomputePns() const
+{
+    const QString ascPath = Settings::getInstance().getPnsAscPath().trimmed();
+    const double gammaHzPerT = Settings::getInstance().getGamma();
+    if (m_pnsDirty)
+        return true;
+    if (m_lastPnsComputedSequenceGeneration != m_trajectorySequenceGeneration)
+        return true;
+    if (m_lastPnsComputedAscPath != ascPath)
+        return true;
+    if (!qFuzzyCompare(m_lastPnsComputedGammaHzPerT + 1.0, gammaHzPerT + 1.0))
+        return true;
+    return false;
+}
+
 KSpaceTrajectory::Input PulseqLoader::buildKSpaceTrajectoryInput() const
 {
     double gradRasterUs = -1.0;
@@ -1260,13 +1293,13 @@ void PulseqLoader::startTrajectoryComputationAsync()
     const std::uint64_t sequenceGeneration = m_trajectorySequenceGeneration;
     const std::uint64_t requestId = ++m_trajectoryRequestSerial;
     m_activeTrajectoryRequestId = requestId;
-    m_activeTrajectoryBlockLifetime = std::make_shared<AsyncTrajectoryBlockLifetime>();
-    m_activeTrajectoryBlockLifetime->blocks = m_vecDecodeSeqBlocks;
+    m_activeAsyncBlockLifetime = std::make_shared<AsyncTrajectoryBlockLifetime>();
+    m_activeAsyncBlockLifetime->blocks = m_vecDecodeSeqBlocks;
     m_kTrajectoryReady = false;
     setTrajectoryState(TrajectoryState::Calculating);
 
     QPointer<PulseqLoader> self(this);
-    const auto blockLifetime = m_activeTrajectoryBlockLifetime;
+    const auto blockLifetime = m_activeAsyncBlockLifetime;
     std::thread([self, input, sequenceGeneration, requestId, blockLifetime]() mutable {
         KSpaceTrajectory::Result result;
         bool ok = true;
@@ -1291,14 +1324,16 @@ void PulseqLoader::startTrajectoryComputationAsync()
             {
                 self->m_kTrajectoryReady = false;
                 self->setTrajectoryState(TrajectoryState::Failed);
+                self->startPnsComputationIfEnabled();
                 if (self->m_activeTrajectoryRequestId == requestId)
-                    self->m_activeTrajectoryBlockLifetime.reset();
+                    self->m_activeAsyncBlockLifetime.reset();
                 return;
             }
 
             self->applyTrajectoryResult(result);
+            self->startPnsComputationIfEnabled();
             if (self->m_activeTrajectoryRequestId == requestId)
-                self->m_activeTrajectoryBlockLifetime.reset();
+                self->m_activeAsyncBlockLifetime.reset();
         }, Qt::QueuedConnection);
     }).detach();
 }
@@ -1310,6 +1345,221 @@ void PulseqLoader::startTrajectoryComputationIfEnabled()
     if (m_trajectoryState == TrajectoryState::Calculating || m_trajectoryState == TrajectoryState::Ready)
         return;
     startTrajectoryComputationAsync();
+}
+
+void PulseqLoader::computePnsSynchronously()
+{
+    m_pnsResult = PnsCalculator::Result{};
+    m_pnsStatusMessage.clear();
+    m_pnsAscPath = Settings::getInstance().getPnsAscPath().trimmed();
+
+    if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2 || !m_spPulseqSeq)
+    {
+        m_pnsStatusMessage = QStringLiteral("Load a sequence to compute PNS.");
+        setPnsState(PnsState::Failed);
+        emit pnsDataUpdated();
+        return;
+    }
+
+    if (m_pnsAscPath.isEmpty())
+    {
+        m_pnsStatusMessage = QStringLiteral("PNS is not configured. Select a valid ASC profile in Settings > Safety.");
+        setPnsState(PnsState::Failed);
+        emit pnsDataUpdated();
+        return;
+    }
+
+    if (!QFileInfo::exists(m_pnsAscPath))
+    {
+        m_pnsStatusMessage = QStringLiteral("PNS ASC file not found: %1").arg(m_pnsAscPath);
+        setPnsState(PnsState::Failed);
+        emit pnsDataUpdated();
+        return;
+    }
+
+    PnsCalculator::Hardware hw;
+    QString parseError;
+    if (!PnsCalculator::parseAscFile(m_pnsAscPath, hw, &parseError))
+    {
+        m_pnsStatusMessage = parseError;
+        setPnsState(PnsState::Failed);
+        emit pnsDataUpdated();
+        return;
+    }
+
+    std::vector<double> def = m_spPulseqSeq->GetDefinition("GradientRasterTime");
+    if (def.empty() || !std::isfinite(def[0]) || def[0] <= 0.0)
+    {
+        m_pnsStatusMessage = QStringLiteral("GradientRasterTime definition is missing.");
+        setPnsState(PnsState::Failed);
+        emit pnsDataUpdated();
+        return;
+    }
+
+    const double gradientRasterUs = def[0] * 1e6;
+    const double gammaHzPerT = Settings::getInstance().getGamma();
+    m_pnsResult = PnsCalculator::calculate(
+        m_vecDecodeSeqBlocks,
+        vecBlockEdges,
+        tFactor,
+        gradientRasterUs,
+        gammaHzPerT,
+        hw);
+
+    if (!m_pnsResult.valid)
+    {
+        m_pnsStatusMessage = m_pnsResult.error;
+        setPnsState(PnsState::Failed);
+    }
+    else
+    {
+        m_pnsStatusMessage = m_pnsResult.ok
+            ? QStringLiteral("PNS prediction OK (max < 100%).")
+            : QStringLiteral("PNS warning: predicted level reaches/exceeds 100%.");
+        setPnsState(PnsState::Ready);
+    }
+    emit pnsDataUpdated();
+}
+
+void PulseqLoader::startPnsComputationAsync()
+{
+    m_pnsResult = PnsCalculator::Result{};
+    m_pnsStatusMessage.clear();
+    m_pnsAscPath = Settings::getInstance().getPnsAscPath().trimmed();
+
+    if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2 || !m_spPulseqSeq)
+    {
+        m_pnsStatusMessage = QStringLiteral("Load a sequence to compute PNS.");
+        setPnsState(PnsState::Failed);
+        emit pnsDataUpdated();
+        return;
+    }
+
+    if (m_pnsAscPath.isEmpty())
+    {
+        m_pnsStatusMessage = QStringLiteral("PNS is not configured. Select a valid ASC profile in Settings > Safety.");
+        setPnsState(PnsState::Failed);
+        emit pnsDataUpdated();
+        return;
+    }
+
+    if (!QFileInfo::exists(m_pnsAscPath))
+    {
+        m_pnsStatusMessage = QStringLiteral("PNS ASC file not found: %1").arg(m_pnsAscPath);
+        setPnsState(PnsState::Failed);
+        emit pnsDataUpdated();
+        return;
+    }
+
+    PnsCalculator::Hardware hw;
+    QString parseError;
+    if (!PnsCalculator::parseAscFile(m_pnsAscPath, hw, &parseError))
+    {
+        m_pnsStatusMessage = parseError;
+        setPnsState(PnsState::Failed);
+        emit pnsDataUpdated();
+        return;
+    }
+
+    std::vector<double> def = m_spPulseqSeq->GetDefinition("GradientRasterTime");
+    if (def.empty() || !std::isfinite(def[0]) || def[0] <= 0.0)
+    {
+        m_pnsStatusMessage = QStringLiteral("GradientRasterTime definition is missing.");
+        setPnsState(PnsState::Failed);
+        emit pnsDataUpdated();
+        return;
+    }
+
+    const double gradientRasterUs = def[0] * 1e6;
+    const double gammaHzPerT = Settings::getInstance().getGamma();
+    const QString ascPath = m_pnsAscPath;
+    const std::uint64_t sequenceGeneration = m_trajectorySequenceGeneration;
+    const std::uint64_t requestId = ++m_pnsRequestSerial;
+    m_activePnsRequestId = requestId;
+    if (!m_activeAsyncBlockLifetime)
+    {
+        m_activeAsyncBlockLifetime = std::make_shared<AsyncTrajectoryBlockLifetime>();
+        m_activeAsyncBlockLifetime->blocks = m_vecDecodeSeqBlocks;
+    }
+    const auto blockLifetime = m_activeAsyncBlockLifetime;
+    setPnsState(PnsState::Calculating);
+    emit pnsDataUpdated();
+
+    QPointer<PulseqLoader> self(this);
+    std::thread([self, blockLifetime, hw, gradientRasterUs, gammaHzPerT, ascPath, sequenceGeneration, requestId,
+                 blocks = m_vecDecodeSeqBlocks, blockEdges = vecBlockEdges, tf = tFactor]() mutable {
+        PnsCalculator::Result result;
+        bool ok = true;
+        try {
+            result = PnsCalculator::calculate(
+                blocks,
+                blockEdges,
+                tf,
+                gradientRasterUs,
+                gammaHzPerT,
+                hw);
+        } catch (...) {
+            ok = false;
+        }
+
+        if (!self)
+            return;
+
+        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, ascPath, sequenceGeneration, requestId, gammaHzPerT]() mutable {
+            if (!self)
+                return;
+            if (self->m_trajectorySequenceGeneration != sequenceGeneration)
+                return;
+            if (self->m_activePnsRequestId != requestId)
+                return;
+
+            self->m_pnsAscPath = ascPath;
+            if (!ok)
+            {
+                self->m_pnsResult = PnsCalculator::Result{};
+                self->m_pnsStatusMessage = QStringLiteral("PNS calculation failed.");
+                self->setPnsState(PnsState::Failed);
+                if (self->m_activePnsRequestId == requestId && self->m_trajectoryState != TrajectoryState::Calculating)
+                    self->m_activeAsyncBlockLifetime.reset();
+                emit self->pnsDataUpdated();
+                return;
+            }
+
+            self->m_pnsResult = result;
+            if (!self->m_pnsResult.valid)
+            {
+                self->m_pnsStatusMessage = self->m_pnsResult.error;
+                self->setPnsState(PnsState::Failed);
+            }
+            else
+            {
+                self->m_pnsStatusMessage = self->m_pnsResult.ok
+                    ? QStringLiteral("PNS prediction OK (max < 100%).")
+                    : QStringLiteral("PNS warning: predicted level reaches/exceeds 100%.");
+                self->setPnsState(PnsState::Ready);
+                self->m_pnsDirty = false;
+                self->m_lastPnsComputedSequenceGeneration = sequenceGeneration;
+                self->m_lastPnsComputedAscPath = ascPath;
+                self->m_lastPnsComputedGammaHzPerT = gammaHzPerT;
+            }
+            if (self->m_activePnsRequestId == requestId && self->m_trajectoryState != TrajectoryState::Calculating)
+                self->m_activeAsyncBlockLifetime.reset();
+            emit self->pnsDataUpdated();
+        }, Qt::QueuedConnection);
+    }).detach();
+}
+
+void PulseqLoader::startPnsComputationIfEnabled()
+{
+    if (!m_autoStartPnsAfterLoad)
+        return;
+    if (m_trajectoryState == TrajectoryState::Calculating)
+        return;
+    if (m_pnsState == PnsState::Calculating)
+        return;
+    if (!shouldRecomputePns())
+        return;
+    startPnsComputationAsync();
 }
 
 void PulseqLoader::ensureTrajectoryPrepared()
@@ -1324,6 +1574,22 @@ void PulseqLoader::ensureTrajectoryPrepared()
     m_kTrajectoryReady = false;
     setTrajectoryState(TrajectoryState::Calculating);
     computeKSpaceTrajectory();
+}
+
+bool PulseqLoader::waitForBackgroundComputations(int timeoutMs)
+{
+    if (timeoutMs < 0)
+        timeoutMs = 0;
+
+    QElapsedTimer timer;
+    timer.start();
+    while (isTrajectoryCalculating() || isPnsCalculating())
+    {
+        if (timer.elapsed() >= timeoutMs)
+            return false;
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    }
+    return true;
 }
 
 QVector<double> PulseqLoader::getKxKyZeroTimes() const
@@ -1781,68 +2047,10 @@ void PulseqLoader::rescaleTimeUnit()
 
 void PulseqLoader::recomputePnsFromSettings()
 {
-    m_pnsResult = PnsCalculator::Result{};
-    m_pnsStatusMessage.clear();
-    m_pnsAscPath = Settings::getInstance().getPnsAscPath().trimmed();
-
-    if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2 || !m_spPulseqSeq)
-    {
-        m_pnsStatusMessage = QStringLiteral("Load a sequence to compute PNS.");
-        emit pnsDataUpdated();
+    markPnsDirty();
+    if (m_pnsState == PnsState::Calculating)
         return;
-    }
-
-    if (m_pnsAscPath.isEmpty())
-    {
-        m_pnsStatusMessage = QStringLiteral("PNS is not configured. Select a valid ASC profile in Settings > Safety.");
-        emit pnsDataUpdated();
-        return;
-    }
-
-    if (!QFileInfo::exists(m_pnsAscPath))
-    {
-        m_pnsStatusMessage = QStringLiteral("PNS ASC file not found: %1").arg(m_pnsAscPath);
-        emit pnsDataUpdated();
-        return;
-    }
-
-    PnsCalculator::Hardware hw;
-    QString parseError;
-    if (!PnsCalculator::parseAscFile(m_pnsAscPath, hw, &parseError))
-    {
-        m_pnsStatusMessage = parseError;
-        emit pnsDataUpdated();
-        return;
-    }
-
-    std::vector<double> def = m_spPulseqSeq->GetDefinition("GradientRasterTime");
-    if (def.empty() || !std::isfinite(def[0]) || def[0] <= 0.0)
-    {
-        m_pnsStatusMessage = QStringLiteral("GradientRasterTime definition is missing.");
-        emit pnsDataUpdated();
-        return;
-    }
-    const double gradientRasterUs = def[0] * 1e6;
-    const double gammaHzPerT = Settings::getInstance().getGamma();
-    m_pnsResult = PnsCalculator::calculate(
-        m_vecDecodeSeqBlocks,
-        vecBlockEdges,
-        tFactor,
-        gradientRasterUs,
-        gammaHzPerT,
-        hw);
-
-    if (!m_pnsResult.valid)
-    {
-        m_pnsStatusMessage = m_pnsResult.error;
-    }
-    else
-    {
-        m_pnsStatusMessage = m_pnsResult.ok
-            ? QStringLiteral("PNS prediction OK (max < 100%).")
-            : QStringLiteral("PNS warning: predicted level reaches/exceeds 100%.");
-    }
-    emit pnsDataUpdated();
+    startPnsComputationIfEnabled();
 }
 
 void PulseqLoader::saveLastOpenDirectory()

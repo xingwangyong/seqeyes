@@ -444,9 +444,15 @@ QString MainWindow::getPnsStatusText() const
         return QString();
     }
 
-    if (!m_pulseqLoader || !m_pulseqLoader->hasPnsData())
+    if (!m_pulseqLoader)
     {
-        return QString();
+        return QString("PNSxyzn=not ready");
+    }
+
+    if (m_pulseqLoader->getPnsState() != PulseqLoader::PnsState::Ready ||
+        !m_pulseqLoader->hasPnsData())
+    {
+        return QString("PNSxyzn=not ready");
     }
 
     auto maxOf = [](const QVector<double>& v) {

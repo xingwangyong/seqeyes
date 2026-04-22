@@ -33,6 +33,12 @@ public:
         Ready,
         Failed
     };
+    enum class PnsState {
+        NotStarted,
+        Calculating,
+        Ready,
+        Failed
+    };
 
     explicit PulseqLoader(MainWindow* mainWindow);
     ~PulseqLoader();
@@ -143,6 +149,7 @@ public:
     QVector<double> getKxKyZeroTimes() const; // Returns times when kx=ky=0 (in axis units)
 
     void ensureTrajectoryPrepared();
+    bool waitForBackgroundComputations(int timeoutMs = 60000);
     const QVector<double>& getTrajectoryKx() const { return m_kTrajectoryX; }
     const QVector<double>& getTrajectoryKy() const { return m_kTrajectoryY; }
     const QVector<double>& getTrajectoryKz() const { return m_kTrajectoryZ; }
@@ -167,6 +174,10 @@ public:
     }
     // PNS
     bool hasPnsData() const { return m_pnsResult.valid; }
+    PnsState getPnsState() const { return m_pnsState; }
+    bool isPnsCalculating() const { return m_pnsState == PnsState::Calculating; }
+    bool shouldAutoStartPnsAfterLoad() const { return m_autoStartPnsAfterLoad; }
+    void setAutoStartPnsAfterLoad(bool enabled) { m_autoStartPnsAfterLoad = enabled; }
     bool isPnsOk() const { return m_pnsResult.ok; }
     QString getPnsAscPath() const { return m_pnsAscPath; }
     QString getPnsStatusMessage() const { return m_pnsStatusMessage; }
@@ -187,6 +198,7 @@ public slots:
 
 signals:
     void pnsDataUpdated();
+    void pnsStateChanged();
     void trajectoryStateChanged();
     void trajectoryDataUpdated();
 
@@ -210,6 +222,12 @@ private:
     void setTrajectoryState(TrajectoryState state);
     void startTrajectoryComputationAsync();
     void startTrajectoryComputationIfEnabled();
+    void setPnsState(PnsState state);
+    void computePnsSynchronously();
+    void startPnsComputationAsync();
+    void startPnsComputationIfEnabled();
+    void markPnsDirty();
+    bool shouldRecomputePns() const;
     void updateTimeUnitFromSettings();
 
     // Settings management
@@ -308,6 +326,14 @@ private:
     QVector<double> m_kTimeAdcSec;
     QVector<char>   m_rfUsePerBlock;
     PnsCalculator::Result m_pnsResult;
+    PnsState m_pnsState {PnsState::NotStarted};
+    bool m_autoStartPnsAfterLoad {true};
+    bool m_pnsDirty {true};
+    std::uint64_t m_pnsRequestSerial {0};
+    std::uint64_t m_activePnsRequestId {0};
+    std::uint64_t m_lastPnsComputedSequenceGeneration {0};
+    QString m_lastPnsComputedAscPath;
+    double m_lastPnsComputedGammaHzPerT {0.0};
     QString m_pnsAscPath;
     QString m_pnsStatusMessage;
 
@@ -388,7 +414,7 @@ private:
             }
         }
     };
-    std::shared_ptr<AsyncTrajectoryBlockLifetime> m_activeTrajectoryBlockLifetime;
+    std::shared_ptr<AsyncTrajectoryBlockLifetime> m_activeAsyncBlockLifetime;
 };
 
 #endif // PULSEQLOADER_H
