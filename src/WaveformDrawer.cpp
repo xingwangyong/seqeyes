@@ -408,7 +408,7 @@ void WaveformDrawer::InitSequenceFigure()
         // MATLAB safe_plot style: k--
         QPen pen(Qt::black);
         pen.setWidthF(1.6);
-        pen.setStyle(Qt::DashLine);
+        pen.setStyle(Qt::SolidLine);
         m_graphPnsNorm->setPen(pen);
         m_graphPnsNorm->setLineStyle(QCPGraph::lsLine);
         m_graphPnsNorm->setScatterStyle(QCPScatterStyle::ssNone);
