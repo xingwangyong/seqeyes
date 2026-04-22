@@ -119,6 +119,8 @@ private:
     void updateTrajectoryExportState();
     void refreshTrajectoryCursor();
     void updateTrajectoryAxisLabels();
+    void updateWaveformGuideLine(int xPixel, bool visible);
+    void clearWaveformGuideLine();
     bool sampleTrajectoryPosition(double timeSec,
                                   double& kxOut,
                                   double& kyOut,
@@ -215,6 +217,7 @@ private:
     QLabel* m_pTrajectoryCrosshairLabel {nullptr};
     QWidget* m_pTrajectoryCursorMarker {nullptr};
     QWidget* m_pTrajectoryCrosshairOverlay {nullptr};
+    QWidget* m_pWaveformGuideOverlay {nullptr};
     bool m_showTrajectory {false};
     bool m_pendingTrajectoryAspectUpdate {false};
     QCPRange m_trajectoryBaseXRange {0.0, 1.0};
@@ -236,5 +239,4 @@ private:
 };
 
 #endif // MAINWINDOW_H
-
 

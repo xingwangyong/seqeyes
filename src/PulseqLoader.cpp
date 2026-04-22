@@ -318,6 +318,16 @@ std::pair<int, int> PulseqLoader::ReadFileVersion(const std::string& filename)
 bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
 {
     m_mainWindow->setEnabled(false);
+
+    // Opening a different sequence must invalidate all cached waveform/trajectory
+    // state from the previous file before the new load begins. ReOpenPulseqFile
+    // already clears explicitly, but normal Open/CLI paths also come through here.
+    if (!m_vecDecodeSeqBlocks.empty() || m_spPulseqSeq || m_kTrajectoryReady ||
+        m_trajectoryState == TrajectoryState::Calculating)
+    {
+        ClearPulseqCache();
+    }
+
     // Keep the canonical loaded path for all loading entry points
     // (file dialog, drag/drop, command line, reopen).
     m_sPulseqFilePath = sPulseqFilePath;

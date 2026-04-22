@@ -113,6 +113,65 @@ private:
     QPoint m_pos;
 };
 
+class WaveformGuideOverlay : public QWidget
+{
+public:
+    explicit WaveformGuideOverlay(MainWindow* owner, QWidget* parent = nullptr)
+        : QWidget(parent)
+        , m_owner(owner)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        setAttribute(Qt::WA_NoSystemBackground, true);
+        setAttribute(Qt::WA_TranslucentBackground, true);
+        setVisible(false);
+    }
+
+    void setGuideX(int x)
+    {
+        m_x = x;
+        m_visible = true;
+        setVisible(true);
+        update();
+    }
+
+    void clearGuide()
+    {
+        m_visible = false;
+        update();
+        setVisible(false);
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        if (!m_visible || !m_owner || !m_owner->getWaveformDrawer())
+            return;
+
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, false);
+        QPen pen(Qt::red);
+        pen.setStyle(Qt::DashLine);
+        pen.setWidth(1);
+        p.setPen(pen);
+
+        const auto& rects = m_owner->getWaveformDrawer()->getRects();
+        for (QCPAxisRect* rect : rects)
+        {
+            if (!rect || !rect->visible())
+                continue;
+            const QRect r = rect->rect();
+            if (m_x < r.left() || m_x > r.right())
+                continue;
+            p.drawLine(m_x, r.top(), m_x, r.bottom());
+        }
+    }
+
+private:
+    MainWindow* m_owner;
+    int m_x {0};
+    bool m_visible {false};
+};
+
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
       ui(new Ui::MainWindow),
@@ -281,6 +340,11 @@ MainWindow::MainWindow(QWidget* parent)
     });
     connect(m_pulseqLoader, &PulseqLoader::trajectoryStateChanged, this, [this]() {
         updateTrajectoryExportState();
+        if (!m_pulseqLoader || m_pulseqLoader->getTrajectoryState() != PulseqLoader::TrajectoryState::Ready)
+        {
+            refreshTrajectoryPlotData();
+            refreshTrajectoryCursor();
+        }
     });
 
     // 7. Install event filters
@@ -653,6 +717,8 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
 void MainWindow::resizeEvent(QResizeEvent* event)
 {
     QMainWindow::resizeEvent(event);
+    if (m_pWaveformGuideOverlay && ui && ui->customPlot)
+        m_pWaveformGuideOverlay->setGeometry(ui->customPlot->rect());
     scheduleTrajectoryAspectUpdate();
     refreshTrajectoryCursor();
 }
@@ -892,6 +958,10 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
 
     mainLayout->addWidget(m_plotSplitter, 1);
     connect(m_plotSplitter, &QSplitter::splitterMoved, this, &MainWindow::onPlotSplitterMoved);
+
+    m_pWaveformGuideOverlay = new WaveformGuideOverlay(this, ui->customPlot);
+    m_pWaveformGuideOverlay->setGeometry(ui->customPlot->rect());
+    m_pWaveformGuideOverlay->hide();
 
     QList<int> sizes;
     sizes << 1 << 0;
@@ -1832,6 +1902,28 @@ void MainWindow::refreshTrajectoryCursor()
     m_pTrajectoryCursorMarker->move(markerX, markerY);
     m_pTrajectoryCursorMarker->setVisible(true);
     m_pTrajectoryCursorMarker->raise();
+}
+
+void MainWindow::updateWaveformGuideLine(int xPixel, bool visible)
+{
+    if (!m_pWaveformGuideOverlay)
+        return;
+    if (!visible)
+    {
+        clearWaveformGuideLine();
+        return;
+    }
+    if (m_pWaveformGuideOverlay->geometry() != ui->customPlot->rect())
+        m_pWaveformGuideOverlay->setGeometry(ui->customPlot->rect());
+    static_cast<WaveformGuideOverlay*>(m_pWaveformGuideOverlay)->setGuideX(xPixel);
+    m_pWaveformGuideOverlay->raise();
+}
+
+void MainWindow::clearWaveformGuideLine()
+{
+    if (!m_pWaveformGuideOverlay)
+        return;
+    static_cast<WaveformGuideOverlay*>(m_pWaveformGuideOverlay)->clearGuide();
 }
 
 bool MainWindow::sampleTrajectoryAtInternalTime(double internalTime,

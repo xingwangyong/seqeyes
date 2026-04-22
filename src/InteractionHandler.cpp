@@ -232,6 +232,7 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
             {
                 if (vline) vline->setVisible(false);
             }
+            m_mainWindow->clearWaveformGuideLine();
 
             // Status text is appended in the normal hover path for consistency.
 
@@ -285,17 +286,7 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
 		}
 
 		// Update red guide lines first so cursor feels immediate even when data is dense.
-		for (int i = 0; i < drawerForSearch->getVerticalLines().count(); i++)
-		{
-			QCPItemStraightLine* vline = drawerForSearch->getVerticalLines()[i];
-			if (!vline) continue;
-			if (i < 0 || i >= drawerForSearch->getRects().size() || !drawerForSearch->getRects()[i]) continue;
-			const auto* rect = drawerForSearch->getRects()[i];
-			const QCPRange yRange = rect->axis(QCPAxis::atLeft)->range();
-			vline->point1->setCoords(guideX, yRange.lower);
-			vline->point2->setCoords(guideX, yRange.upper);
-			vline->setVisible(!m_measureMode);
-		}
+        m_mainWindow->updateWaveformGuideLine(event->pos().x(), !m_measureMode);
 
 		// Build fixed-width, monospaced segments for status bar
         auto fixed = [](const QString& s, int width){ return s.leftJustified(width, ' ', true); };
@@ -426,7 +417,7 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
             const bool needCursorValue =
                 m_mainWindow->isTrajectoryVisible() ||
                 (m_mainWindow->getTRManager() && m_mainWindow->getTRManager()->isShowPnsChecked());
-            if (allowHeavyHoverWork && needCursorValue)
+            if (needCursorValue)
             {
                 static QElapsedTimer s_cursorUpdateTimer;
                 static bool s_cursorUpdateStarted = false;
@@ -435,7 +426,7 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
                     s_cursorUpdateTimer.start();
                     s_cursorUpdateStarted = true;
                 }
-                if (s_cursorUpdateTimer.elapsed() >= 50)
+                if (s_cursorUpdateTimer.elapsed() >= 16)
                 {
                     m_mainWindow->updateTrajectoryCursorTime(guideX);
                     s_cursorUpdateTimer.restart();
@@ -478,19 +469,6 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
                 coordText, Qt::ElideRight, availWidth);
             coordLabel->setText(elided);
             coordLabel->setToolTip(coordText);
-        }
-        // Throttle to ~60 FPS to keep PNS-on hover responsive.
-        static QElapsedTimer s_mouseReplotTimer;
-        static bool s_mouseReplotStarted = false;
-        if (!s_mouseReplotStarted)
-        {
-            s_mouseReplotTimer.start();
-            s_mouseReplotStarted = true;
-        }
-        if (s_mouseReplotTimer.elapsed() >= 16)
-        {
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
-            s_mouseReplotTimer.restart();
         }
 	}
 
@@ -1156,6 +1134,10 @@ bool InteractionHandler::eventFilter(QObject* obj, QEvent* event)
     // Axis drag begin/end (use label area to start) -> only when interacting with the main plot.
     if (obj == m_mainWindow->ui->customPlot)
     {
+        if (event->type() == QEvent::Leave)
+        {
+            m_mainWindow->clearWaveformGuideLine();
+        }
         if (event->type() == QEvent::MouseButtonPress)
         {
             QMouseEvent* me = static_cast<QMouseEvent*>(event);
@@ -1773,7 +1755,4 @@ void InteractionHandler::handleTimeInputWheelEvent(QWheelEvent* event, QLineEdit
         trManager->onTimeEndInputChanged();
     }
 }
-
-
-
 
