@@ -354,12 +354,43 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
         // Gradients Gx,Gy,Gz (2 decimals) in selected unit
         auto fmt2 = [](double v){ return QString::number(v, 'f', 2); };
         QString gx = "--.--", gy = "--.--", gz = "--.--";
+        static bool s_gradCacheValid = false;
+        static double s_cachedGx = 0.0;
+        static double s_cachedGy = 0.0;
+        static double s_cachedGz = 0.0;
         if (allowHeavyHoverWork && blockIdx >= 0)
         {
             double val = 0.0;
-            if (loader->sampleGradAtTime(0, guideX, blockIdx, val)) { if (toUnit != "Hz/m") val = s.convertGradient(val, "Hz/m", toUnit); gx = fmt2(val); }
-            if (loader->sampleGradAtTime(1, guideX, blockIdx, val)) { if (toUnit != "Hz/m") val = s.convertGradient(val, "Hz/m", toUnit); gy = fmt2(val); }
-            if (loader->sampleGradAtTime(2, guideX, blockIdx, val)) { if (toUnit != "Hz/m") val = s.convertGradient(val, "Hz/m", toUnit); gz = fmt2(val); }
+            bool haveAnyGradValue = false;
+            if (loader->sampleGradAtTime(0, guideX, blockIdx, val))
+            {
+                if (toUnit != "Hz/m")
+                    val = s.convertGradient(val, "Hz/m", toUnit);
+                s_cachedGx = val;
+                haveAnyGradValue = true;
+            }
+            if (loader->sampleGradAtTime(1, guideX, blockIdx, val))
+            {
+                if (toUnit != "Hz/m")
+                    val = s.convertGradient(val, "Hz/m", toUnit);
+                s_cachedGy = val;
+                haveAnyGradValue = true;
+            }
+            if (loader->sampleGradAtTime(2, guideX, blockIdx, val))
+            {
+                if (toUnit != "Hz/m")
+                    val = s.convertGradient(val, "Hz/m", toUnit);
+                s_cachedGz = val;
+                haveAnyGradValue = true;
+            }
+            if (haveAnyGradValue)
+                s_gradCacheValid = true;
+        }
+        if (s_gradCacheValid)
+        {
+            gx = fmt2(s_cachedGx);
+            gy = fmt2(s_cachedGy);
+            gz = fmt2(s_cachedGz);
         }
         QString segGrad = fixed(QString("Gxyz=%1,%2,%3 %4").arg(gx, gy, gz, toUnit), W_GRAD);
         QString segKSpace;
@@ -1755,4 +1786,3 @@ void InteractionHandler::handleTimeInputWheelEvent(QWheelEvent* event, QLineEdit
         trManager->onTimeEndInputChanged();
     }
 }
-
