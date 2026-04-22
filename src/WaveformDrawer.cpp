@@ -242,7 +242,7 @@ void WaveformDrawer::InitSequenceFigure()
         // React to settings changes (thresholds and points)
         connect(&Settings::getInstance(), &Settings::settingsChanged, this, [this]() {
             // Recompute Y-axis ranges with the (potentially new) gradient unit conversion,
-            // then redraw. Without this, changing e.g. mT/m â†?Hz/m would keep old Y-ranges.
+            // then redraw. Without this, changing e.g. mT/m -> Hz/m would keep old Y-ranges.
             computeAndLockYAxisRanges();
             DrawRFWaveform();
             DrawADCWaveform();
@@ -308,7 +308,7 @@ void WaveformDrawer::InitSequenceFigure()
     // ADC Phase (same rect as RF Phase: m_pRfADCPhaseRect)
     // PERF NOTE: Must use lsLine (not scatter ssDisc). QCustomPlot renders scatter dots
     // individually (per-point QPainter::drawEllipse), while line segments are batched into
-    // a single QPainterPath â€?the difference is ~10x. Scatter caused severe UI lag on
+    // a single QPainterPath - the difference is ~10x. Scatter caused severe UI lag on
     // mouse move because every replot() had to re-render thousands of individual circles.
     // NaN breaks in the data (inserted by getAdcPhaseViewport) prevent lines from connecting
     // separate ADC blocks. MATLAB SeqPlot.m uses 'b.' MarkerSize=1 but that is acceptable
@@ -2243,7 +2243,7 @@ void WaveformDrawer::ensureRenderedForCurrentViewport()
 void WaveformDrawer::updateAxisLabels()
 {
     // Update Y-axis labels using each rect's fixed identity (matching InitSequenceFigure).
-    // Do NOT use m_axesOrder indices â€?m_axesOrder is the visual order which differs
+    // Do NOT use m_axesOrder indices - m_axesOrder is the visual order which differs
     // from m_vecRects order when the user has reordered subplots.
     Settings& settings = Settings::getInstance();
     QString gradientUnit = settings.getGradientUnitString();
