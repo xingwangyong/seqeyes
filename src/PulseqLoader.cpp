@@ -1502,7 +1502,7 @@ void PulseqLoader::startPnsComputationAsync()
         if (!self)
             return;
 
-        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, ascPath, sequenceGeneration, requestId]() mutable {
+        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, ascPath, sequenceGeneration, requestId, gammaHzPerT]() mutable {
             if (!self)
                 return;
             if (self->m_trajectorySequenceGeneration != sequenceGeneration)
