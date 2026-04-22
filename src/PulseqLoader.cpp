@@ -14,6 +14,8 @@
 #include <QSettings>
 #include <QDir>
 #include <QFileInfo>
+#include <QMetaObject>
+#include <QPointer>
 #include <iostream>
 #include <sstream>
 #include <complex>
@@ -22,6 +24,7 @@
 #include <algorithm>
 #include <utility>
 #include <QSet>
+#include <thread>
 
 #define SAFE_DELETE(p) { if(p) { delete p; p = nullptr; } }
 
@@ -140,6 +143,9 @@ bool PulseqLoader::ClosePulseqFile()
 
 void PulseqLoader::ClearPulseqCache(bool withUi)
 {
+    ++m_trajectorySequenceGeneration;
+    m_activeTrajectoryRequestId = 0;
+
     if (withUi && m_mainWindow)
     {
         m_mainWindow->clearLoadedFileTitle();
@@ -199,13 +205,25 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     {
         m_spPulseqSeq->reset();
         // m_spPulseqSeq will be recreated based on file version
+        const bool handOffBlocksToAsync =
+            (m_trajectoryState == TrajectoryState::Calculating) &&
+            static_cast<bool>(m_activeTrajectoryBlockLifetime);
+        if (handOffBlocksToAsync)
+        {
+            m_activeTrajectoryBlockLifetime->ownsBlocks.store(true);
+        }
         for (size_t ushBlockIndex = 0; ushBlockIndex < m_vecDecodeSeqBlocks.size(); ushBlockIndex++)
         {
-            SAFE_DELETE(m_vecDecodeSeqBlocks[ushBlockIndex]);
+            if (!handOffBlocksToAsync)
+            {
+                SAFE_DELETE(m_vecDecodeSeqBlocks[ushBlockIndex]);
+            }
         }
         m_vecDecodeSeqBlocks.clear();
+        m_activeTrajectoryBlockLifetime.reset();
         std::cout << m_sPulseqFilePath.toStdString() << " Closed\n";
     }
+    setTrajectoryState(TrajectoryState::NotStarted);
     if (m_mainWindow) { m_mainWindow->setWindowFilePath(""); }
     emit pnsDataUpdated();
 }
@@ -675,6 +693,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
         }
     }
     addRecentFile(sPulseqFilePath);
+    startTrajectoryComputationIfEnabled();
     m_mainWindow->setEnabled(true);
     return true;
 }
@@ -1107,19 +1126,25 @@ void PulseqLoader::updateEchoAndExcitationMetadata(int versionMajor, int version
 
     if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2)
         return;
-
-    computeKSpaceTrajectory();
 }
 
 
-void PulseqLoader::computeKSpaceTrajectory()
+void PulseqLoader::setTrajectoryState(TrajectoryState state)
+{
+    if (m_trajectoryState == state)
+        return;
+    m_trajectoryState = state;
+    emit trajectoryStateChanged();
+}
+
+KSpaceTrajectory::Input PulseqLoader::buildKSpaceTrajectoryInput() const
 {
     double gradRasterUs = -1.0;
     double rfRasterUs = -1.0;
     if (m_spPulseqSeq) {
         std::vector<double> def = m_spPulseqSeq->GetDefinition("GradientRasterTime");
         if (!def.empty() && std::isfinite(def[0]) && def[0] > 0.0) {
-            gradRasterUs = def[0] * 1e6; // seconds -> microseconds
+            gradRasterUs = def[0] * 1e6;
         }
         def = m_spPulseqSeq->GetDefinition("RadiofrequencyRasterTime");
         if (!def.empty() && std::isfinite(def[0]) && def[0] > 0.0) {
@@ -1147,7 +1172,7 @@ void PulseqLoader::computeKSpaceTrajectory()
             const ADCEvent& adc = blk->GetADCEvent();
             if (adc.numSamples <= 0 || adc.dwellTime <= 0)
                 continue;
-            double dwellUs = static_cast<double>(adc.dwellTime) * 1e-3; // ns -> us
+            double dwellUs = static_cast<double>(adc.dwellTime) * 1e-3;
             double dwellInternal = dwellUs * tFactor;
             double startInternal = vecBlockEdges[i] + adc.delay * tFactor + 0.5 * dwellInternal;
             for (int sample = 0; sample < adc.numSamples; ++sample) {
@@ -1156,54 +1181,139 @@ void PulseqLoader::computeKSpaceTrajectory()
         }
     }
 
-    // Read B0 from [DEFINITIONS] if available (needed to detect fat-sat RF use in v1.4.x files)
     double b0Tesla = 0.0;
     if (m_spPulseqSeq) {
         std::vector<double> defB0 = m_spPulseqSeq->GetDefinition("B0");
         if (!defB0.empty())
             b0Tesla = defB0[0];
     }
-    // If B0 is undefined, assume 3.0T (standard high field) for PPM calculations
-    // This maintains compatibility with sequences that use PPM but don't define B0,
-    // while remaining safe for legacy files (where freqPPM will be 0 anyway).
     if (b0Tesla == 0.0) {
-        b0Tesla = 3.0; // Default to 3.0T to match KSpaceTrajectory
-        // qWarning() << "B0 not defined in sequence [DEFINITIONS]. Assuming 3.0T for PPM calculations.";
+        b0Tesla = 3.0;
     }
-    m_b0Tesla = b0Tesla; // Store for phase computation
 
-    KSpaceTrajectory::Input input { m_vecDecodeSeqBlocks,
-                                    vecBlockEdges,
-                                    tFactor,
-                                    m_supportsRfUseMetadata,
-                                    rfRasterUs,
-                                    gradRasterUs,
-                                    std::move(adcEventTimes),
-                                    b0Tesla };
-    KSpaceTrajectory::Result result = KSpaceTrajectory::compute(input);
+    return KSpaceTrajectory::Input { m_vecDecodeSeqBlocks,
+                                     vecBlockEdges,
+                                     tFactor,
+                                     m_supportsRfUseMetadata,
+                                     rfRasterUs,
+                                     gradRasterUs,
+                                     std::move(adcEventTimes),
+                                     b0Tesla };
+}
 
+void PulseqLoader::applyTrajectoryResult(const KSpaceTrajectory::Result& result)
+{
     m_excitationCentersAxis = result.excitationTimesInternal;
     m_refocusingCentersAxis = result.refocusingTimesInternal;
     m_kTrajectoryX = result.kx;
     m_kTrajectoryY = result.ky;
     m_kTrajectoryZ = result.kz;
-    m_kTimeSec      = result.t;
+    m_kTimeSec = result.t;
     m_kTrajectoryXAdc = result.kx_adc;
     m_kTrajectoryYAdc = result.ky_adc;
     m_kTrajectoryZAdc = result.kz_adc;
-    m_kTimeAdcSec     = result.t_adc;
+    m_kTimeAdcSec = result.t_adc;
     m_rfUseGuessed = result.rfUseGuessed;
     m_rfGuessWarning = result.warning;
     m_rfUsePerBlock = result.rfUsePerBlock;
     m_kTrajectoryReady = true;
+    setTrajectoryState(TrajectoryState::Ready);
+    emit trajectoryDataUpdated();
+}
+
+void PulseqLoader::computeKSpaceTrajectory()
+{
+    if (!m_spPulseqSeq || m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2)
+    {
+        m_kTrajectoryReady = false;
+        setTrajectoryState(TrajectoryState::Failed);
+        return;
+    }
+
+    KSpaceTrajectory::Input input = buildKSpaceTrajectoryInput();
+    m_b0Tesla = input.b0Tesla;
+    KSpaceTrajectory::Result result = KSpaceTrajectory::compute(input);
+    applyTrajectoryResult(result);
+}
+
+void PulseqLoader::startTrajectoryComputationAsync()
+{
+    if (!m_spPulseqSeq || m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2)
+    {
+        m_kTrajectoryReady = false;
+        setTrajectoryState(TrajectoryState::NotStarted);
+        return;
+    }
+
+    const KSpaceTrajectory::Input input = buildKSpaceTrajectoryInput();
+    m_b0Tesla = input.b0Tesla;
+    const std::uint64_t sequenceGeneration = m_trajectorySequenceGeneration;
+    const std::uint64_t requestId = ++m_trajectoryRequestSerial;
+    m_activeTrajectoryRequestId = requestId;
+    m_activeTrajectoryBlockLifetime = std::make_shared<AsyncTrajectoryBlockLifetime>();
+    m_activeTrajectoryBlockLifetime->blocks = m_vecDecodeSeqBlocks;
+    m_kTrajectoryReady = false;
+    setTrajectoryState(TrajectoryState::Calculating);
+
+    QPointer<PulseqLoader> self(this);
+    const auto blockLifetime = m_activeTrajectoryBlockLifetime;
+    std::thread([self, input, sequenceGeneration, requestId, blockLifetime]() mutable {
+        KSpaceTrajectory::Result result;
+        bool ok = true;
+        try {
+            result = KSpaceTrajectory::compute(input);
+        } catch (...) {
+            ok = false;
+        }
+
+        if (!self)
+            return;
+
+        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, sequenceGeneration, requestId]() mutable {
+            if (!self)
+                return;
+            if (self->m_trajectorySequenceGeneration != sequenceGeneration)
+                return;
+            if (self->m_activeTrajectoryRequestId != requestId)
+                return;
+
+            if (!ok)
+            {
+                self->m_kTrajectoryReady = false;
+                self->setTrajectoryState(TrajectoryState::Failed);
+                if (self->m_activeTrajectoryRequestId == requestId)
+                    self->m_activeTrajectoryBlockLifetime.reset();
+                return;
+            }
+
+            self->applyTrajectoryResult(result);
+            if (self->m_activeTrajectoryRequestId == requestId)
+                self->m_activeTrajectoryBlockLifetime.reset();
+        }, Qt::QueuedConnection);
+    }).detach();
+}
+
+void PulseqLoader::startTrajectoryComputationIfEnabled()
+{
+    if (!m_autoStartTrajectoryAfterLoad)
+        return;
+    if (m_trajectoryState == TrajectoryState::Calculating || m_trajectoryState == TrajectoryState::Ready)
+        return;
+    startTrajectoryComputationAsync();
 }
 
 void PulseqLoader::ensureTrajectoryPrepared()
 {
-    if (!m_kTrajectoryReady)
-    {
-        computeKSpaceTrajectory();
-    }
+    if (m_kTrajectoryReady)
+        return;
+    if (m_trajectoryState == TrajectoryState::Calculating)
+        return;
+
+    const std::uint64_t requestId = ++m_trajectoryRequestSerial;
+    m_activeTrajectoryRequestId = requestId;
+    m_kTrajectoryReady = false;
+    setTrajectoryState(TrajectoryState::Calculating);
+    computeKSpaceTrajectory();
 }
 
 QVector<double> PulseqLoader::getKxKyZeroTimes() const

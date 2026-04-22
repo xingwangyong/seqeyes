@@ -248,6 +248,40 @@ MainWindow::MainWindow(QWidget* parent)
         }
         updatePnsStatusIndicator();
     });
+    connect(m_pulseqLoader, &PulseqLoader::trajectoryDataUpdated, this, [this]() {
+        if (m_showTrajectory && m_pulseqLoader && m_pulseqLoader->needsRfUseGuessWarning())
+        {
+            Settings& s = Settings::getInstance();
+            if (s.getShowTrajectoryApproximateDialog())
+            {
+                QMessageBox msg(this);
+                msg.setIcon(QMessageBox::Warning);
+                msg.setWindowTitle(tr("Trajectory Warning"));
+                msg.setText(m_pulseqLoader->getRfUseGuessWarning());
+                QCheckBox* cb = new QCheckBox(tr("Do not show this warning again"), &msg);
+                msg.setCheckBox(cb);
+                msg.addButton(QMessageBox::Ok);
+                msg.exec();
+                if (cb->isChecked())
+                {
+                    s.setShowTrajectoryApproximateDialog(false);
+                }
+            }
+            m_pulseqLoader->markRfUseGuessWarningShown();
+        }
+        if (m_waveformDrawer)
+        {
+            m_waveformDrawer->ensureRenderedForCurrentViewport();
+        }
+        refreshTrajectoryPlotData();
+        refreshTrajectoryCursor();
+        updateTrajectoryExportState();
+        if (ui && ui->customPlot)
+            ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+    });
+    connect(m_pulseqLoader, &PulseqLoader::trajectoryStateChanged, this, [this]() {
+        updateTrajectoryExportState();
+    });
 
     // 7. Install event filters
     m_trManager->installEventFilters();
@@ -886,30 +920,6 @@ void MainWindow::setTrajectoryVisible(bool show)
     PulseqLoader* loader = getPulseqLoader();
     if (show)
     {
-        if (loader)
-        {
-            loader->ensureTrajectoryPrepared();
-            if (loader->needsRfUseGuessWarning())
-            {
-                Settings& s = Settings::getInstance();
-                if (s.getShowTrajectoryApproximateDialog())
-                {
-                    QMessageBox msg(this);
-                    msg.setIcon(QMessageBox::Warning);
-                    msg.setWindowTitle(tr("Trajectory Warning"));
-                    msg.setText(loader->getRfUseGuessWarning());
-                    QCheckBox* cb = new QCheckBox(tr("Do not show this warning again"), &msg);
-                    msg.setCheckBox(cb);
-                    msg.addButton(QMessageBox::Ok);
-                    msg.exec();
-                    if (cb->isChecked())
-                    {
-                        s.setShowTrajectoryApproximateDialog(false);
-                    }
-                }
-                loader->markRfUseGuessWarningShown();
-            }
-        }
         refreshTrajectoryPlotData();
     }
     QList<int> sizes;
@@ -1048,7 +1058,15 @@ void MainWindow::refreshTrajectoryPlotData()
         return;
     }
 
-    loader->ensureTrajectoryPrepared();
+    if (!loader->hasTrajectoryData())
+    {
+        clearTrajectoryVisuals();
+        updateTrajectoryExportState();
+        refreshTrajectoryCursor();
+        if (m_pTrajectoryPlot)
+            m_pTrajectoryPlot->replot(QCustomPlot::rpQueuedReplot);
+        return;
+    }
     const QVector<double>& kx = loader->getTrajectoryKx();
     const QVector<double>& ky = loader->getTrajectoryKy();
     const QVector<double>& t = loader->getTrajectoryTimeSec();
@@ -1841,7 +1859,15 @@ void MainWindow::exportTrajectory()
         return;
     }
 
-    loader->ensureTrajectoryPrepared();
+    if (!loader->hasTrajectoryData())
+    {
+        const QString message = loader->isTrajectoryCalculating()
+            ? tr("Trajectory is still being calculated in the background.")
+            : tr("The current sequence has no computed k-space trajectory yet.");
+        QMessageBox::warning(this, tr("Trajectory not ready"), message);
+        updateTrajectoryExportState();
+        return;
+    }
     const QVector<double>& ktrajX = loader->getTrajectoryKx();
     const QVector<double>& ktrajY = loader->getTrajectoryKy();
     const QVector<double>& ktrajZ = loader->getTrajectoryKz();
@@ -1922,7 +1948,9 @@ void MainWindow::updateTrajectoryExportState()
     else
     {
         m_pExportTrajectoryButton->setToolTip(
-            tr("Load a sequence and compute its trajectory to export."));
+            loader && loader->isTrajectoryCalculating()
+                ? tr("Trajectory is still being calculated in the background.")
+                : tr("Load a sequence and compute its trajectory to export."));
     }
 }
 

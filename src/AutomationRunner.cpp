@@ -13,6 +13,7 @@
 #include <QJsonArray>
 #include <QElapsedTimer>
 #include <QCoreApplication>
+#include <QEventLoop>
 #include <QDebug>
 #include <QFileInfo>
 #include <QDir>
@@ -168,6 +169,13 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
             return 17;
         }
         loader->ensureTrajectoryPrepared();
+        if (!loader->hasTrajectoryData() && loader->isTrajectoryCalculating()) {
+            QElapsedTimer timer;
+            timer.start();
+            while (!loader->hasTrajectoryData() && loader->isTrajectoryCalculating() && timer.elapsed() < 60000) {
+                QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+            }
+        }
 
         const QVector<double>& kx = loader->getTrajectoryKx();
         const QVector<double>& ky = loader->getTrajectoryKy();
@@ -201,5 +209,3 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
     qWarning() << "[AUTOMATION] Unknown action type:" << type;
     return 99;
 }
-
-

@@ -380,21 +380,29 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
             double kxVal = 0.0, kyVal = 0.0, kzVal = 0.0;
             auto fmt1 = [](double v){ return QString::number(v, 'f', 1); };
             QString kxStr = "--.-", kyStr = "--.-", kzStr = "--.-";
-            if (allowHeavyHoverWork && m_mainWindow &&
-                m_mainWindow->sampleTrajectoryAtInternalTime(guideX, kxVal, kyVal, kzVal))
+            if (loader && loader->getTrajectoryState() != PulseqLoader::TrajectoryState::Ready)
             {
-                s_cachedKx = kxVal;
-                s_cachedKy = kyVal;
-                s_cachedKz = kzVal;
-                s_kspaceCacheValid = true;
+                s_kspaceCacheValid = false;
+                segKSpace = fixed(QString("kxyz=not ready"), W_KSPACE);
             }
-            if (s_kspaceCacheValid)
+            else
             {
-                kxStr = fmt1(s_cachedKx * trajScale);
-                kyStr = fmt1(s_cachedKy * trajScale);
-                kzStr = fmt1(s_cachedKz * trajScale);
+                if (allowHeavyHoverWork && m_mainWindow &&
+                    m_mainWindow->sampleTrajectoryAtInternalTime(guideX, kxVal, kyVal, kzVal))
+                {
+                    s_cachedKx = kxVal;
+                    s_cachedKy = kyVal;
+                    s_cachedKz = kzVal;
+                    s_kspaceCacheValid = true;
+                }
+                if (s_kspaceCacheValid)
+                {
+                    kxStr = fmt1(s_cachedKx * trajScale);
+                    kyStr = fmt1(s_cachedKy * trajScale);
+                    kzStr = fmt1(s_cachedKz * trajScale);
+                }
+                segKSpace = fixed(QString("kxyz=%1,%2,%3 %4").arg(kxStr, kyStr, kzStr, trajUnitLabel), W_KSPACE);
             }
-            segKSpace = fixed(QString("kxyz=%1,%2,%3 %4").arg(kxStr, kyStr, kzStr, trajUnitLabel), W_KSPACE);
         }
 
         // RF amplitude/phase (1 decimal)
@@ -1765,7 +1773,6 @@ void InteractionHandler::handleTimeInputWheelEvent(QWheelEvent* event, QLineEdit
         trManager->onTimeEndInputChanged();
     }
 }
-
 
 
 

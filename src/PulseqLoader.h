@@ -11,8 +11,11 @@
 #include <QHash>
 #include <limits>
 #include <QSet>
+#include <atomic>
+#include <cstdint>
 
 #include "ExternalSequence.h" // For ExternalSequence factory and SeqBlock
+#include "KSpaceTrajectory.h"
 #include "PnsCalculator.h"
 
 // Forward declarations
@@ -24,6 +27,13 @@ class PulseqLoader : public QObject
     Q_OBJECT
 
 public:
+    enum class TrajectoryState {
+        NotStarted,
+        Calculating,
+        Ready,
+        Failed
+    };
+
     explicit PulseqLoader(MainWindow* mainWindow);
     ~PulseqLoader();
 
@@ -142,6 +152,10 @@ public:
     const QVector<double>& getTrajectoryKzAdc() const { return m_kTrajectoryZAdc; }
     const QVector<double>& getTrajectoryTimeAdcSec() const { return m_kTimeAdcSec; }
     bool hasTrajectoryData() const { return m_kTrajectoryReady; }
+    TrajectoryState getTrajectoryState() const { return m_trajectoryState; }
+    bool isTrajectoryCalculating() const { return m_trajectoryState == TrajectoryState::Calculating; }
+    bool shouldAutoStartTrajectoryAfterLoad() const { return m_autoStartTrajectoryAfterLoad; }
+    void setAutoStartTrajectoryAfterLoad(bool enabled) { m_autoStartTrajectoryAfterLoad = enabled; }
     bool needsRfUseGuessWarning() const { return m_rfUseGuessed && !m_warnedRfUseGuess; }
     void markRfUseGuessWarningShown() { m_warnedRfUseGuess = true; }
     QString getRfUseGuessWarning() const { return m_rfGuessWarning; }
@@ -173,6 +187,8 @@ public slots:
 
 signals:
     void pnsDataUpdated();
+    void trajectoryStateChanged();
+    void trajectoryDataUpdated();
 
 private:
     struct LabelSnapshot
@@ -189,6 +205,11 @@ private:
     bool IsBlockRf(const float* fAmp, const float* fPhase, const int& iSamples);
     void updateEchoAndExcitationMetadata(int versionMajor, int versionMinor);
     void computeKSpaceTrajectory();
+    KSpaceTrajectory::Input buildKSpaceTrajectoryInput() const;
+    void applyTrajectoryResult(const KSpaceTrajectory::Result& result);
+    void setTrajectoryState(TrajectoryState state);
+    void startTrajectoryComputationAsync();
+    void startTrajectoryComputationIfEnabled();
     void updateTimeUnitFromSettings();
 
     // Settings management
@@ -272,6 +293,11 @@ private:
     QString m_rfGuessWarning;
 
     bool m_kTrajectoryReady {false};
+    TrajectoryState m_trajectoryState {TrajectoryState::NotStarted};
+    bool m_autoStartTrajectoryAfterLoad {true};
+    std::uint64_t m_trajectorySequenceGeneration {0};
+    std::uint64_t m_trajectoryRequestSerial {0};
+    std::uint64_t m_activeTrajectoryRequestId {0};
     QVector<double> m_kTrajectoryX;
     QVector<double> m_kTrajectoryY;
     QVector<double> m_kTrajectoryZ;
@@ -347,6 +373,22 @@ private:
     // External trapezoid global min/max per channel (aggregated during load)
     double m_gradExtTrapGlobalMin[3] { std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity() };
     double m_gradExtTrapGlobalMax[3] { -std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity() };
+
+    struct AsyncTrajectoryBlockLifetime {
+        std::vector<SeqBlock*> blocks;
+        std::atomic<bool> ownsBlocks {false};
+
+        ~AsyncTrajectoryBlockLifetime()
+        {
+            if (!ownsBlocks.load())
+                return;
+            for (SeqBlock* block : blocks)
+            {
+                delete block;
+            }
+        }
+    };
+    std::shared_ptr<AsyncTrajectoryBlockLifetime> m_activeTrajectoryBlockLifetime;
 };
 
 #endif // PULSEQLOADER_H
