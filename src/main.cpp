@@ -19,8 +19,6 @@
 #include "Settings.h"
 #include "ExternalSequence.h"
 #include "LogManager.h"
-#include <QMessageBox>
-#include <QCheckBox>
 #include <QCoreApplication>
 #include <cstdio>
 #ifdef _WIN32
@@ -332,26 +330,6 @@ int main(int argc, char *argv[])
 #else
                 window.show();
 #endif
-            }
-            // Known issues dialog on startup (per-user)
-            if (Settings::getInstance().getShowKnownIssuesDialog()) {
-                qWarning().noquote() << "[Known issues] RF/ADC phases are not accurate.";
-                qWarning().noquote() << "[Known issues] UI might be laggy for large sequence; try reducing slices/repetitions/diffusion directions.";
-                QMessageBox msg;
-                msg.setIcon(QMessageBox::Warning);
-                msg.setWindowTitle("Known issues");
-                msg.setText("1) RF/ADC phases are not accurate.\n"
-                            "2) On linux, sometimes the ADC channel rendered strangely, \n"
-                            "e.g. adjcent ADCs are connected, you may need to zoom in to see the ADC correctly rendered.\n"
-                            "3) UI might be laggy for large sequence.\n"
-                            "   Try to make the sequence smaller (reduce #slices, #repetitions, #diffusion directions, etc.).");
-                QCheckBox* cb = new QCheckBox("Do not show again");
-                msg.setCheckBox(cb);
-                msg.addButton(QMessageBox::Ok);
-                msg.exec();
-                if (cb->isChecked()) {
-                    Settings::getInstance().setShowKnownIssuesDialog(false);
-                }
             }
         }
 

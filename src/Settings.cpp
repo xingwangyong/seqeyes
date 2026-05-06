@@ -291,20 +291,6 @@ QString Settings::getLogLevelString() const
 
 // Old time-based LOD settings removed - replaced with complexity-based LOD system
 
-void Settings::setShowKnownIssuesDialog(bool show)
-{
-    if (m_showKnownIssuesDialog != show) {
-        m_showKnownIssuesDialog = show;
-        saveSettings();
-        emit settingsChanged();
-    }
-}
-
-bool Settings::getShowKnownIssuesDialog() const
-{
-    return m_showKnownIssuesDialog;
-}
-
 void Settings::setShowTeApproximateDialog(bool show)
 {
     if (m_showTeApproximateDialog != show) {
@@ -423,7 +409,6 @@ void Settings::saveSettings()
     obj["trajectoryColormap"] = getTrajectoryColormapString();
     obj["gamma"] = m_gamma;
     obj["logLevel"] = getLogLevelString();
-    obj["showKnownIssuesDialog"] = m_showKnownIssuesDialog;
     obj["showTeApproximateDialog"] = m_showTeApproximateDialog;
     obj["showTrajectoryApproximateDialog"] = m_showTrajectoryApproximateDialog;
     obj["showExtensionTooltip"] = m_showExtensionTooltip;
@@ -565,8 +550,6 @@ void Settings::loadSettings()
     m_panWheelEnabled = obj.value("panWheelEnabled").toBool(false);
     m_panLeftKey = obj.value("panLeftKey").toString("A").toUpper();
     m_panRightKey = obj.value("panRightKey").toString("D").toUpper();
-    // Known issues dialog (default true)
-    m_showKnownIssuesDialog = obj.value("showKnownIssuesDialog").toBool(true);
     // Approximate overlay dialogs (default true)
     m_showTeApproximateDialog = obj.value("showTeApproximateDialog").toBool(true);
     m_showTeApproximateDialog = obj.value("showTeApproximateDialog").toBool(true);
@@ -646,7 +629,6 @@ void Settings::resetToDefaults()
     m_trajectoryColormap = TrajectoryColormap::Jet;
     m_gamma = 42.576e6; // Hz/T for hydrogen
     m_logLevel = LogLevel::Warning; // Default to Warning level
-    m_showKnownIssuesDialog = true;
     m_showTeApproximateDialog = true;
     m_showTrajectoryApproximateDialog = true;
     m_showExtensionTooltip = false;

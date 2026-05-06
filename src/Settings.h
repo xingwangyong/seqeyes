@@ -116,10 +116,6 @@ public:
     LogLevel getLogLevel() const;
     QString getLogLevelString() const;
     
-    // Known issues dialog (startup)
-    void setShowKnownIssuesDialog(bool show);
-    bool getShowKnownIssuesDialog() const;
-
     // Approximate overlay warning dialogs (legacy sequence behavior)
     void setShowTeApproximateDialog(bool show);
     bool getShowTeApproximateDialog() const;
@@ -202,7 +198,6 @@ private:
     TrajectoryColormap m_trajectoryColormap;
     double m_gamma; // Hz/T
     LogLevel m_logLevel; // Log level setting
-    bool m_showKnownIssuesDialog { true }; // Show known-issues dialog on startup
     bool m_showTeApproximateDialog { true }; // Show TE approximate warning for legacy sequences
     bool m_showTrajectoryApproximateDialog { true }; // Show trajectory warning for legacy sequences
     bool m_showExtensionTooltip { false }; // Show extension tooltip on hover
