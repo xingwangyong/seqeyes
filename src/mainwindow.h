@@ -86,6 +86,7 @@ public:
     PulseqLoader* getPulseqLoader() const { return m_pulseqLoader; }
     TRManager* getTRManager() const { return m_trManager; }
     WaveformDrawer* getWaveformDrawer() const { return m_waveformDrawer; }
+    QCustomPlot* getTrajectoryPlot() const { return m_pTrajectoryPlot; }
     bool isTrajectoryVisible() const { return m_showTrajectory; }
     bool isInteractionFastMode() const { return m_interactionFastMode; }
     void setInteractionFastMode(bool enabled);
@@ -157,6 +158,7 @@ public:
     void captureSnapshotsAndExit(const QString& outDir);
     bool exportTrajectoryToDirectory(const QString& exportDir, QString* error = nullptr);
     void setTrajectoryVisible(bool show);
+    void refreshTrajectoryPlotDataForAutomation() { refreshTrajectoryPlotData(); }
     bool sampleTrajectoryAtInternalTime(double internalTime,
                                         double& kxOut,
                                         double& kyOut,
@@ -239,4 +241,3 @@ private:
 };
 
 #endif // MAINWINDOW_H
-

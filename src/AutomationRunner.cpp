@@ -16,6 +16,10 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QTextStream>
+#include <QEventLoop>
+#include <QTimer>
+#include <functional>
+#include <cmath>
 
 static bool readJsonFile(const QString& path, QJsonObject& out)
 {
@@ -49,6 +53,48 @@ static bool writeTrajectoryFile(const QString& path,
     return true;
 }
 
+static bool runAndMeasureReplot(QCustomPlot* plot,
+                                const std::function<void()>& trigger,
+                                qint64& elapsedMs,
+                                int timeoutMs = 5000)
+{
+    if (!plot)
+        return false;
+
+    QEventLoop loop;
+    QTimer timeoutTimer;
+    timeoutTimer.setSingleShot(true);
+
+    bool replotted = false;
+    QObject::connect(plot, &QCustomPlot::afterReplot, &loop, [&]() {
+        if (!replotted)
+        {
+            replotted = true;
+            loop.quit();
+        }
+    });
+    QObject::connect(&timeoutTimer, &QTimer::timeout, &loop, [&]() {
+        loop.quit();
+    });
+
+    QElapsedTimer timer;
+    timer.start();
+    trigger();
+    elapsedMs = timer.elapsed();
+
+    if (!replotted)
+    {
+        timeoutTimer.start(timeoutMs);
+        while (!replotted && timeoutTimer.isActive())
+        {
+            loop.exec(QEventLoop::AllEvents);
+        }
+        elapsedMs = timer.elapsed();
+    }
+
+    return replotted;
+}
+
 int AutomationRunner::run(MainWindow& window, const QString& scenarioJsonPath)
 {
     QJsonObject root;
@@ -78,6 +124,8 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
     if (type == "open_file") {
         QString p = params.value("path").toString();
         if (p.isEmpty()) { qWarning() << "[AUTOMATION] open_file: missing path"; return 10; }
+        QElapsedTimer t;
+        t.start();
         if (auto* loader = window.getPulseqLoader()) {
             loader->setSilentMode(true);
         }
@@ -88,6 +136,8 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
                 return 22;
             }
         }
+        qApp->processEvents();
+        QTextStream(stdout) << "LOAD_MS: " << t.elapsed() << "\n";
         return 0;
     }
 
@@ -97,6 +147,13 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
             return 0;
         }
         return 11;
+    }
+
+    if (type == "set_trajectory_visible") {
+        const bool show = params.value("show", true).toBool();
+        window.setTrajectoryVisible(show);
+        qApp->processEvents();
+        return 0;
     }
 
     if (type == "configure_pns") {
@@ -139,25 +196,82 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
     if (type == "measure_zoom_by_factor") {
         double factor = params.value("factor", 0.5).toDouble();
         if (factor <= 0.0 || factor >= 1.0) { qWarning() << "[AUTOMATION] measure_zoom_by_factor: invalid factor"; return 12; }
-        // baseline
+        // Benchmark semantics:
+        // This action is typically run immediately after reset_view, i.e. from the
+        // full-sequence overview. That makes the measured latency a worst-case /
+        // first-zoom latency, because the visible span and rendering workload are
+        // maximal here. Deeper subsequent zoom-in steps are usually cheaper.
         QCPRange r = window.ui->customPlot->xAxis->range();
         double center = 0.5 * (r.lower + r.upper);
         double width  = r.size();
         double newWidth = width * factor;
         QCPRange newRange(center - newWidth/2.0, center + newWidth/2.0);
-        // measure via interaction path
         InteractionHandler* ih = window.getInteractionHandler();
-        QElapsedTimer t; t.start();
-        if (ih) {
-            ih->synchronizeXAxes(newRange);
-        } else {
-            // fallback if handler not available
-            window.ui->customPlot->xAxis->setRange(newRange);
-            window.ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+        qint64 ms = 0;
+        const bool ok = runAndMeasureReplot(window.ui->customPlot, [&]() {
+            if (ih) {
+                ih->synchronizeXAxes(newRange);
+            } else {
+                window.ui->customPlot->xAxis->setRange(newRange);
+                window.ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            }
+        }, ms);
+        if (!ok) {
+            qWarning() << "[AUTOMATION] measure_zoom_by_factor: timed out waiting for waveform replot";
+            return 25;
+        }
+        QTextStream(stdout) << "ZOOM_WAVEFORM_MS: " << ms << "\n";
+        return 0;
+    }
+
+    if (type == "measure_pan_by_fraction") {
+        const double fraction = params.value("fraction", 0.1).toDouble();
+        if (!std::isfinite(fraction) || fraction == 0.0) {
+            qWarning() << "[AUTOMATION] measure_pan_by_fraction: invalid fraction";
+            return 26;
+        }
+
+        QCPRange r = window.ui->customPlot->xAxis->range();
+        const double shift = r.size() * fraction;
+        QCPRange newRange(r.lower + shift, r.upper + shift);
+        InteractionHandler* ih = window.getInteractionHandler();
+        qint64 ms = 0;
+        const bool ok = runAndMeasureReplot(window.ui->customPlot, [&]() {
+            if (ih) {
+                ih->synchronizeXAxes(newRange);
+            } else {
+                window.ui->customPlot->xAxis->setRange(newRange);
+                window.ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            }
+        }, ms);
+        if (!ok) {
+            qWarning() << "[AUTOMATION] measure_pan_by_fraction: timed out waiting for waveform replot";
+            return 27;
+        }
+        QTextStream(stdout) << "PAN_WAVEFORM_MS: " << ms << "\n";
+        return 0;
+    }
+
+    if (type == "measure_trajectory_refresh") {
+        if (!window.isTrajectoryVisible()) {
+            window.setTrajectoryVisible(true);
             qApp->processEvents();
         }
-        qint64 ms = t.elapsed();
-        QTextStream(stdout) << "ZOOM_MS: " << ms << "\n";
+        QCustomPlot* trajPlot = window.getTrajectoryPlot();
+        if (!trajPlot) {
+            qWarning() << "[AUTOMATION] measure_trajectory_refresh: trajectory plot unavailable";
+            return 28;
+        }
+
+        qint64 ms = 0;
+        const bool ok = runAndMeasureReplot(trajPlot, [&]() {
+            window.refreshTrajectoryPlotDataForAutomation();
+        }, ms);
+        if (!ok) {
+            qWarning() << "[AUTOMATION] measure_trajectory_refresh: timed out waiting for trajectory replot";
+            return 29;
+        }
+        QTextStream(stdout) << "TRAJECTORY_REFRESH_MS: " << ms << "\n";
         return 0;
     }
 

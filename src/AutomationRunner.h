@@ -12,10 +12,13 @@ class MainWindow;
 //     { "type": "open_file", "path": "C:/path/to/file.seq" },
 //     { "type": "configure_pns", "asc_path": "C:/path/to/profile.asc", "show_pns": true, "show_x": true, "show_y": true, "show_z": true, "show_norm": true },
 //     { "type": "reset_view" },
-//     { "type": "measure_zoom_by_factor", "factor": 0.5 }
+//     { "type": "set_trajectory_visible", "show": false },
+//     { "type": "measure_zoom_by_factor", "factor": 0.5 },
+//     { "type": "measure_pan_by_fraction", "fraction": 0.1 },
+//     { "type": "measure_trajectory_refresh" }
 //   ]
 // }
-// Output: prints metrics such as "ZOOM_MS: <number>" to stdout.
+// Output: prints metrics such as "LOAD_MS: <number>" to stdout.
 class AutomationRunner
 {
 public:
@@ -27,5 +30,4 @@ private:
 };
 
 #endif // AUTOMATIONRUNNER_H
-
 
