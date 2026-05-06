@@ -19,9 +19,9 @@ public:
     {
         QString timestamp;
         QString level;
-        QString category;
+        QString source;
         QString message;
-        QString origin; // e.g. "WaveformDrawer.cpp:464"
+        QString file; // e.g. "WaveformDrawer.cpp:464"
     };
     
     // Log level methods
@@ -48,6 +48,10 @@ public:
     void appendFromQt(QtMsgType type,
                       const QMessageLogContext& context,
                       const QString& msg);
+    void appendStructured(QtMsgType type,
+                          const QString& source,
+                          const QString& message,
+                          const QString& file = QString());
 
     // Return the in‑memory log buffer (oldest first).
     QStringList getBufferedLines() const { return m_lines; }
@@ -59,9 +63,9 @@ signals:
     void logLineAppended(const QString& line);
     void logEntryAppended(const QString& timestamp,
                           const QString& level,
-                          const QString& category,
+                          const QString& source,
                           const QString& message,
-                          const QString& origin);
+                          const QString& file);
 
 private:
     explicit LogManager(QObject* parent = nullptr);
@@ -75,6 +79,10 @@ private:
     
     // Helper method to check if message should be logged
     bool shouldLog(Settings::LogLevel messageLevel) const;
+    void appendEntryInternal(QtMsgType type,
+                             const QString& source,
+                             const QString& message,
+                             const QString& file);
 
     // In‑memory rolling buffer of formatted log lines (for Log window)
     QStringList m_lines;

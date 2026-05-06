@@ -82,15 +82,15 @@ static void externalSeqLogPrinter(const std::string &str)
 
     if (isError)
     {
-        qWarning().noquote() << "[ExternalSequence]" << trimmed;
+        LogManager::getInstance().appendStructured(QtCriticalMsg, QStringLiteral("ExternalSequence"), trimmed);
     }
     else if (isWarning)
     {
-        qWarning().noquote() << "[ExternalSequence]" << trimmed;
+        LogManager::getInstance().appendStructured(QtWarningMsg, QStringLiteral("ExternalSequence"), trimmed);
     }
     else
     {
-        qInfo().noquote() << "[ExternalSequence]" << trimmed;
+        LogManager::getInstance().appendStructured(QtInfoMsg, QStringLiteral("ExternalSequence"), trimmed);
     }
 }
 

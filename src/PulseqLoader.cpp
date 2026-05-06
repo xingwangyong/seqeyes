@@ -6,6 +6,7 @@
 #include "SeriesBuilder.h"
 #include "KSpaceTrajectory.h"
 #include "InteractionHandler.h"
+#include "LogManager.h"
 #include "Settings.h"
 #include <QCryptographicHash>
 
@@ -438,8 +439,10 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
         }
     }
 
-    // Debug: Check if gradient library was loaded
-    qDebug() << "Pulseq file loaded successfully";
+    LogManager::getInstance().appendStructured(
+        QtInfoMsg,
+        QStringLiteral("PulseqLoader"),
+        QStringLiteral("Decoding blocks..."));
     qDebug() << "Total blocks:" << m_spPulseqSeq->GetNumberOfBlocks();
     
     // Debug: Check gradient library loading
@@ -510,6 +513,11 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
         {
             std::stringstream sLog;
             sLog << "Decode SeqBlock failed, block index: " << ushBlockIndex;
+            LogManager::getInstance().appendStructured(
+                QtCriticalMsg,
+                QStringLiteral("PulseqLoader"),
+                QString::fromStdString(sLog.str()),
+                QStringLiteral("%1:%2").arg(QStringLiteral("PulseqLoader.cpp")).arg(__LINE__));
             if (m_silentMode) { qWarning() << sLog.str().c_str(); }
             else { QMessageBox::critical(m_mainWindow, "File Error", sLog.str().c_str()); }
             ClearPulseqCache();
@@ -521,6 +529,10 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
         vecBlockEdges[ushBlockIndex + 1] = vecBlockEdges[ushBlockIndex] + m_vecDecodeSeqBlocks[ushBlockIndex]->GetDuration() * tFactor;
     }
     updateEchoAndExcitationMetadata(shVersionMajor, shVersionMinor);
+    LogManager::getInstance().appendStructured(
+        QtInfoMsg,
+        QStringLiteral("PulseqLoader"),
+        QStringLiteral("Decoding blocks finished"));
 
     // Prefer explicit TotalDuration from definitions if available
     // Otherwise, fall back to accumulated block edges

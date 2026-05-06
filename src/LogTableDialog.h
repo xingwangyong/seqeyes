@@ -22,6 +22,9 @@ public:
     void appendEntry(const LogManager::LogEntry& entry);
 
 private:
+    void copySelectedRowsToClipboard() const;
+    void copySelectedMessagesToClipboard() const;
+    void showContextMenu(const QPoint& pos) const;
     bool isNearBottom() const;
     void scrollToBottomIfNeeded(bool followBottom);
 
@@ -29,4 +32,3 @@ private:
     class LogTableModel* m_model {nullptr};
     QTableView* m_view {nullptr};
 };
-

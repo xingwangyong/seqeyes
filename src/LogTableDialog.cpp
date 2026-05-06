@@ -1,11 +1,19 @@
 #include "LogTableDialog.h"
 
+#include <QApplication>
 #include <QAbstractTableModel>
+#include <QClipboard>
 #include <QFontDatabase>
 #include <QHeaderView>
+#include <QItemSelectionModel>
+#include <QKeySequence>
+#include <QMenu>
 #include <QScrollBar>
+#include <QShortcut>
 #include <QTableView>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 class LogTableModel final : public QAbstractTableModel
 {
@@ -14,9 +22,9 @@ public:
     {
         Time = 0,
         Level,
-        Category,
+        Source,
         Message,
-        Origin,
+        File,
         ColCount
     };
 
@@ -43,9 +51,9 @@ public:
             {
                 case Time:     return QStringLiteral("Time");
                 case Level:    return QStringLiteral("Level");
-                case Category: return QStringLiteral("Category");
+                case Source:   return QStringLiteral("Source");
                 case Message:  return QStringLiteral("Message");
-                case Origin:   return QStringLiteral("Origin");
+                case File:     return QStringLiteral("File");
                 default:       return {};
             }
         }
@@ -67,9 +75,9 @@ public:
             {
                 case Time:     return e.timestamp;
                 case Level:    return e.level;
-                case Category: return e.category;
+                case Source:   return e.source;
                 case Message:  return e.message;
-                case Origin:   return e.origin;
+                case File:     return e.file;
                 default:       return {};
             }
         }
@@ -160,22 +168,114 @@ QScrollBar::add-page, QScrollBar::sub-page {
     m_view->setSortingEnabled(false);
     m_view->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_view->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    m_view->setContextMenuPolicy(Qt::CustomContextMenu);
 
     // User-resizable columns (Excel-like).
     QHeaderView* hdr = m_view->horizontalHeader();
     hdr->setSectionsMovable(true);
     hdr->setStretchLastSection(true);
     hdr->setSectionResizeMode(QHeaderView::Interactive);
+    hdr->setMinimumSectionSize(60);
 
     // Reasonable defaults.
     m_view->setColumnWidth(LogTableModel::Time, 180);
     m_view->setColumnWidth(LogTableModel::Level, 70);
-    m_view->setColumnWidth(LogTableModel::Category, 140);
-    m_view->setColumnWidth(LogTableModel::Origin, 140);
+    m_view->setColumnWidth(LogTableModel::Source, 140);
+    m_view->setColumnWidth(LogTableModel::Message, 600);
+    m_view->setColumnWidth(LogTableModel::File, 220);
+
+    auto* copyShortcut = new QShortcut(QKeySequence::Copy, m_view);
+    connect(copyShortcut, &QShortcut::activated, this, [this]() {
+        copySelectedRowsToClipboard();
+    });
+    connect(m_view, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        showContextMenu(pos);
+    });
 
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(2, 2, 2, 2);
     layout->addWidget(m_view);
+}
+
+void LogTableDialog::copySelectedRowsToClipboard() const
+{
+    if (!m_view || !m_view->model() || !m_view->selectionModel()) {
+        return;
+    }
+
+    QModelIndexList rows = m_view->selectionModel()->selectedRows();
+    if (rows.isEmpty()) {
+        return;
+    }
+
+    std::sort(rows.begin(), rows.end(), [](const QModelIndex& a, const QModelIndex& b) {
+        return a.row() < b.row();
+    });
+
+    QStringList lines;
+    lines.reserve(rows.size());
+    for (const QModelIndex& rowIndex : rows) {
+        QStringList cols;
+        cols.reserve(LogTableModel::ColCount);
+        for (int c = 0; c < LogTableModel::ColCount; ++c) {
+            const QModelIndex cell = m_view->model()->index(rowIndex.row(), c);
+            cols.append(m_view->model()->data(cell, Qt::DisplayRole).toString());
+        }
+        lines.append(cols.join(QLatin1Char('\t')));
+    }
+
+    if (QClipboard* clipboard = QApplication::clipboard()) {
+        clipboard->setText(lines.join(QLatin1Char('\n')));
+    }
+}
+
+void LogTableDialog::copySelectedMessagesToClipboard() const
+{
+    if (!m_view || !m_view->model() || !m_view->selectionModel()) {
+        return;
+    }
+
+    QModelIndexList rows = m_view->selectionModel()->selectedRows();
+    if (rows.isEmpty()) {
+        return;
+    }
+
+    std::sort(rows.begin(), rows.end(), [](const QModelIndex& a, const QModelIndex& b) {
+        return a.row() < b.row();
+    });
+
+    QStringList lines;
+    lines.reserve(rows.size());
+    for (const QModelIndex& rowIndex : rows) {
+        const QModelIndex cell = m_view->model()->index(rowIndex.row(), LogTableModel::Message);
+        lines.append(m_view->model()->data(cell, Qt::DisplayRole).toString());
+    }
+
+    if (QClipboard* clipboard = QApplication::clipboard()) {
+        clipboard->setText(lines.join(QLatin1Char('\n')));
+    }
+}
+
+void LogTableDialog::showContextMenu(const QPoint& pos) const
+{
+    if (!m_view) {
+        return;
+    }
+
+    QMenu menu(m_view);
+    QAction* copyRows = menu.addAction(QStringLiteral("Copy Rows"));
+    QAction* copyMessages = menu.addAction(QStringLiteral("Copy Message"));
+    if (!m_view->selectionModel() || m_view->selectionModel()->selectedRows().isEmpty()) {
+        copyRows->setEnabled(false);
+        copyMessages->setEnabled(false);
+    }
+
+    QAction* chosen = menu.exec(m_view->viewport()->mapToGlobal(pos));
+    if (chosen == copyRows) {
+        copySelectedRowsToClipboard();
+    } else if (chosen == copyMessages) {
+        copySelectedMessagesToClipboard();
+    }
 }
 
 bool LogTableDialog::isNearBottom() const
@@ -206,4 +306,3 @@ void LogTableDialog::appendEntry(const LogManager::LogEntry& entry)
     m_model->appendEntry(entry);
     scrollToBottomIfNeeded(followBottom);
 }
-

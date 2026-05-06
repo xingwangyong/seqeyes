@@ -270,18 +270,18 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&LogManager::getInstance(), &LogManager::logEntryAppended,
             this, [this](const QString& ts,
                          const QString& level,
-                         const QString& category,
+                         const QString& source,
                          const QString& message,
-                         const QString& origin) {
+                         const QString& file) {
                 // Lazy-created; only update if user has opened the log window
                 if (auto* dlg = qobject_cast<LogTableDialog*>(findChild<LogTableDialog*>("__SeqEyesLogDialog")))
                 {
                     LogManager::LogEntry e;
                     e.timestamp = ts;
                     e.level = level;
-                    e.category = category;
+                    e.source = source;
                     e.message = message;
-                    e.origin = origin;
+                    e.file = file;
                     dlg->appendEntry(e);
                 }
             });

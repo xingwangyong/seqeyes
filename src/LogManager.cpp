@@ -3,6 +3,21 @@
 #include <QDebug>
 #include <QFileInfo>
 
+namespace {
+Settings::LogLevel qtMsgTypeToLogLevel(QtMsgType type)
+{
+    switch (type)
+    {
+    case QtDebugMsg:    return Settings::LogLevel::Debug;
+    case QtInfoMsg:     return Settings::LogLevel::Info;
+    case QtWarningMsg:  return Settings::LogLevel::Warning;
+    case QtCriticalMsg: return Settings::LogLevel::Critical;
+    case QtFatalMsg:    return Settings::LogLevel::Fatal;
+    default:            return Settings::LogLevel::Info;
+    }
+}
+}
+
 LogManager& LogManager::getInstance()
 {
     static LogManager instance;
@@ -41,11 +56,15 @@ bool LogManager::shouldLog(Settings::LogLevel messageLevel) const
     return static_cast<int>(messageLevel) <= static_cast<int>(m_currentLevel);
 }
 
-void LogManager::appendFromQt(QtMsgType type,
-                              const QMessageLogContext& context,
-                              const QString& msg)
+void LogManager::appendEntryInternal(QtMsgType type,
+                                     const QString& source,
+                                     const QString& message,
+                                     const QString& file)
 {
-    // Basic, extensible formatter: [timestamp] [LEVEL] [category] message (file:line)
+    if (!shouldLog(qtMsgTypeToLogLevel(type))) {
+        return;
+    }
+
     const QString ts = QDateTime::currentDateTime().toString(
         QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
 
@@ -60,40 +79,25 @@ void LogManager::appendFromQt(QtMsgType type,
     default:            levelStr = QStringLiteral("LOG");     break;
     }
 
-    QString categoryStr;
-    if (context.category && *context.category)
-    {
-        categoryStr = QString::fromUtf8(context.category);
-        // Hide Qt's generic "default" category to keep output concise
-        if (categoryStr.compare(QStringLiteral("default"), Qt::CaseInsensitive) == 0)
-            categoryStr.clear();
-    }
-
-    QString originText;
-    QString originSuffix;
-    if (context.file && *context.file && context.line > 0)
-    {
-        const QString filePath = QString::fromUtf8(context.file);
-        const QString baseName = QFileInfo(filePath).fileName();
-        originText = QStringLiteral("%1:%2").arg(baseName).arg(context.line);
-        originSuffix = QStringLiteral(" (%1)").arg(originText);
-    }
-
     QString prefix = QStringLiteral("%1 [%2] ").arg(ts, levelStr);
-    if (!categoryStr.isEmpty())
+    if (!source.isEmpty())
     {
-        prefix += QStringLiteral("[%1] ").arg(categoryStr);
+        prefix += QStringLiteral("[%1] ").arg(source);
     }
 
-    const QString line = prefix + msg + originSuffix;
+    QString line = prefix + message;
+    if (!file.isEmpty())
+    {
+        line += QStringLiteral(" (%1)").arg(file);
+    }
 
     m_lines.append(line);
     LogEntry e;
     e.timestamp = ts;
     e.level = levelStr;
-    e.category = categoryStr;
-    e.message = msg;
-    e.origin = originText;
+    e.source = source;
+    e.message = message;
+    e.file = file;
     m_entries.append(e);
     if (m_lines.size() > m_maxLines)
     {
@@ -103,7 +107,37 @@ void LogManager::appendFromQt(QtMsgType type,
     }
 
     emit logLineAppended(line);
-    emit logEntryAppended(e.timestamp, e.level, e.category, e.message, e.origin);
+    emit logEntryAppended(e.timestamp, e.level, e.source, e.message, e.file);
+}
+
+void LogManager::appendFromQt(QtMsgType type,
+                              const QMessageLogContext& context,
+                              const QString& msg)
+{
+    QString source;
+    if (context.category && *context.category)
+    {
+        source = QString::fromUtf8(context.category);
+        if (source.compare(QStringLiteral("default"), Qt::CaseInsensitive) == 0)
+            source.clear();
+    }
+
+    QString file;
+    if (context.file && *context.file && context.line > 0)
+    {
+        const QString filePath = QString::fromUtf8(context.file);
+        const QString baseName = QFileInfo(filePath).fileName();
+        file = QStringLiteral("%1:%2").arg(baseName).arg(context.line);
+    }
+    appendEntryInternal(type, source, msg, file);
+}
+
+void LogManager::appendStructured(QtMsgType type,
+                                  const QString& source,
+                                  const QString& message,
+                                  const QString& file)
+{
+    appendEntryInternal(type, source.trimmed(), message, file.trimmed());
 }
 
 void LogManager::fatal(const QString& message)
