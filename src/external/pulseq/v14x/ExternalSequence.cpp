@@ -1069,15 +1069,21 @@ bool ExternalSequence::decodeBlock(SeqBlock *block)
 		// Decompress the shape for this channel
 		CompressedShape& shape = m_shapeLibrary[block->rf.magShape];
 		waveform.resize(shape.numUncompressedSamples);
-		if (!decompressShape(shape,&waveform[0]))
+		if (!decompressShape(shape,&waveform[0])) {
+			print_msg(ERROR_MSG, std::ostringstream().flush() << "*** ERROR: failed to decompress RF magnitude shape in block "
+				<< block->index << " (shapeId=" << block->rf.magShape << ")");
 			return false;
+		}
 
 		//MZ: original Kelvin's code follows
 		CompressedShape& shapePhase = m_shapeLibrary[block->rf.phaseShape];
 		std::vector<float> waveform_p;
 		waveform_p.resize(shapePhase.numUncompressedSamples);
-		if (!decompressShape(shapePhase,&waveform_p[0]))
+		if (!decompressShape(shapePhase,&waveform_p[0])) {
+			print_msg(ERROR_MSG, std::ostringstream().flush() << "*** ERROR: failed to decompress RF phase shape in block "
+				<< block->index << " (shapeId=" << block->rf.phaseShape << ")");
 			return false;
+		}
 		// Scale phase by 2pi
 		std::transform(waveform_p.begin(), waveform_p.end(), waveform_p.begin(), std::bind(std::multiplies<float>(),TWO_PI, _1));
 
@@ -1100,8 +1106,11 @@ bool ExternalSequence::decodeBlock(SeqBlock *block)
 			{
 				std::vector<float> waveform_t;
 				waveform_t.resize(shapeTime.numUncompressedSamples);
-				if (!decompressShape(shapeTime,&waveform_t[0]))
+				if (!decompressShape(shapeTime,&waveform_t[0])) {
+					print_msg(ERROR_MSG, std::ostringstream().flush() << "*** ERROR: failed to decompress RF time shape in block "
+						<< block->index << " (shapeId=" << block->rf.timeShape << ")");
 					return false;
+				}
 				// we resample the input on the fly 
 				// for now we just use the RF raster time
 				fDwellTime_us=m_dRadiofrequencyRasterTime_us;
@@ -1153,26 +1162,24 @@ bool ExternalSequence::decodeBlock(SeqBlock *block)
 				<< shape.samples.size() << " compressed samples" );
 
 			waveform.resize(shape.numUncompressedSamples);
-			if (!decompressShape(shape,&waveform[0]))
+			if (!decompressShape(shape,&waveform[0])) {
+				print_msg(ERROR_MSG, std::ostringstream().flush() << "*** ERROR: failed to decompress arbitrary gradient shape in block "
+					<< block->index << " channel=" << (iC-GX) << " (shapeId=" << block->grad[iC-GX].waveShape << ")");
 				return false;
+			}
 
 			print_msg(DEBUG_LOW_LEVEL, std::ostringstream().flush() << "Shape uncompressed to "
 				<< shape.numUncompressedSamples << " samples" );
-
-			if (fabs(m_dGradientRasterTime_us-10)>1e-3)
-			{
-				print_msg(DEBUG_LOW_LEVEL, std::ostringstream().flush() << "Shape is on a raster that is different from the system raster, exitting... (will try resampling in the future versions...)" );
-				// TODO: !!!
-				// PROBLEM: we need 'first' and 'last' to be able to interpolate correctly...
-				return false;
-			}
 
 			block->gradWaveforms[iC-GX] = std::vector<float>(waveform);
 		}
 	}
 
-	if (!decodeExtTrapGradInBlock(block))
+	if (!decodeExtTrapGradInBlock(block)) {
+		print_msg(ERROR_MSG, std::ostringstream().flush() << "*** ERROR: failed to decode extended trapezoid gradients in block "
+			<< block->index);
 		return false;
+	}
 
 	// Decode ADC
 	/*if (block->isADC())
@@ -1215,7 +1222,11 @@ bool ExternalSequence::decodeExtTrapGradInBlock(SeqBlock *block)
 			//	print_msg(DEBUG_LOW_LEVEL, std::ostringstream().flush() << tshape.samples[a] );
 			//}
 			waveform.resize(tshape.numUncompressedSamples);
-			if (!decompressShape(tshape,&waveform[0])) return false;
+			if (!decompressShape(tshape,&waveform[0])) {
+				print_msg(ERROR_MSG, std::ostringstream().flush() << "*** ERROR: failed to decompress ext-trap time shape in block "
+					<< block->index << " channel=" << (iC-GX) << " (shapeId=" << block->grad[iC-GX].timeShape << ")");
+				return false;
+			}
 			print_msg(DEBUG_LOW_LEVEL, std::ostringstream().flush() << "Time shape uncompressed to " << tshape.numUncompressedSamples << " samples" );
 			//block->gradExtTrapForms[iC-GX].first = std::vector<float>(waveform); 
 			block->gradExtTrapForms[iC-GX].first.resize(waveform.size());
@@ -1225,7 +1236,11 @@ bool ExternalSequence::decodeExtTrapGradInBlock(SeqBlock *block)
 			CompressedShape& wshape = m_shapeLibrary[block->grad[iC-GX].waveShape];
 			print_msg(DEBUG_LOW_LEVEL, std::ostringstream().flush() << "Loaded wave shape " << block->grad[iC-GX].waveShape << " with " << wshape.samples.size() << " compressed samples" );
 			waveform.resize(wshape.numUncompressedSamples);
-			if (!decompressShape(wshape,&waveform[0])) return false;
+			if (!decompressShape(wshape,&waveform[0])) {
+				print_msg(ERROR_MSG, std::ostringstream().flush() << "*** ERROR: failed to decompress ext-trap wave shape in block "
+					<< block->index << " channel=" << (iC-GX) << " (shapeId=" << block->grad[iC-GX].waveShape << ")");
+				return false;
+			}
 			print_msg(DEBUG_LOW_LEVEL, std::ostringstream().flush() << "Wave shape uncompressed to " << wshape.numUncompressedSamples << " samples" );
 			block->gradExtTrapForms[iC-GX].second = std::vector<float>(waveform);
 			if (block->gradExtTrapForms[iC-GX].first.size() != block->gradExtTrapForms[iC-GX].second.size()) {
@@ -1514,4 +1529,3 @@ std::string& str_trim(std::string& str)
 {
     return str_ltrim(str_rtrim(str));
 }
-
