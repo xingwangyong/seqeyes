@@ -355,42 +355,48 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
         auto fmt2 = [](double v){ return QString::number(v, 'f', 2); };
         QString gx = "--.--", gy = "--.--", gz = "--.--";
         static bool s_gradCacheValid = false;
-        static double s_cachedGx = 0.0;
-        static double s_cachedGy = 0.0;
-        static double s_cachedGz = 0.0;
-        if (allowHeavyHoverWork && blockIdx >= 0)
+        static QString s_cachedGx = "--.--";
+        static QString s_cachedGy = "--.--";
+        static QString s_cachedGz = "--.--";
+        if (blockIdx < 0)
+        {
+            s_gradCacheValid = false;
+        }
+        else if (allowHeavyHoverWork)
         {
             double val = 0.0;
-            bool haveAnyGradValue = false;
+            QString nextGx = "--.--";
+            QString nextGy = "--.--";
+            QString nextGz = "--.--";
             if (loader->sampleGradAtTime(0, guideX, blockIdx, val))
             {
                 if (toUnit != "Hz/m")
                     val = s.convertGradient(val, "Hz/m", toUnit);
-                s_cachedGx = val;
-                haveAnyGradValue = true;
+                nextGx = fmt2(val);
             }
             if (loader->sampleGradAtTime(1, guideX, blockIdx, val))
             {
                 if (toUnit != "Hz/m")
                     val = s.convertGradient(val, "Hz/m", toUnit);
-                s_cachedGy = val;
-                haveAnyGradValue = true;
+                nextGy = fmt2(val);
             }
             if (loader->sampleGradAtTime(2, guideX, blockIdx, val))
             {
                 if (toUnit != "Hz/m")
                     val = s.convertGradient(val, "Hz/m", toUnit);
-                s_cachedGz = val;
-                haveAnyGradValue = true;
+                nextGz = fmt2(val);
             }
-            if (haveAnyGradValue)
-                s_gradCacheValid = true;
+
+            s_cachedGx = nextGx;
+            s_cachedGy = nextGy;
+            s_cachedGz = nextGz;
+            s_gradCacheValid = true;
         }
         if (s_gradCacheValid)
         {
-            gx = fmt2(s_cachedGx);
-            gy = fmt2(s_cachedGy);
-            gz = fmt2(s_cachedGz);
+            gx = s_cachedGx;
+            gy = s_cachedGy;
+            gz = s_cachedGz;
         }
         QString segGrad = fixed(QString("Gxyz=%1,%2,%3 %4").arg(gx, gy, gz, toUnit), W_GRAD);
         QString segKSpace;
@@ -409,13 +415,21 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
             }
             else
             {
-                if (allowHeavyHoverWork && m_mainWindow &&
+                if (blockIdx < 0)
+                {
+                    s_kspaceCacheValid = false;
+                }
+                else if (allowHeavyHoverWork && m_mainWindow &&
                     m_mainWindow->sampleTrajectoryAtInternalTime(guideX, kxVal, kyVal, kzVal))
                 {
                     s_cachedKx = kxVal;
                     s_cachedKy = kyVal;
                     s_cachedKz = kzVal;
                     s_kspaceCacheValid = true;
+                }
+                else if (allowHeavyHoverWork)
+                {
+                    s_kspaceCacheValid = false;
                 }
                 if (s_kspaceCacheValid)
                 {
