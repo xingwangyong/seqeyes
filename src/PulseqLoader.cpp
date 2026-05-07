@@ -128,20 +128,23 @@ void PulseqLoader::ReOpenPulseqFile()
 
 void PulseqLoader::ClearPulseqCache(bool withUi)
 {
+    m_sequenceLoadState = SequenceLoadState::Blank;
     ++m_trajectorySequenceGeneration;
     m_activeTrajectoryRequestId = 0;
     m_activePnsRequestId = 0;
 
     if (withUi && m_mainWindow)
     {
+        if (auto* ih = m_mainWindow->getInteractionHandler())
+            ih->cancelPendingViewportRenders();
         m_mainWindow->clearLoadedFileTitle();
         if (auto lbl = m_mainWindow->getVersionLabel()) { lbl->setText(""); lbl->setVisible(false); }
         if (auto pb = m_mainWindow->getProgressBar()) { pb->hide(); }
+        if (auto* drawer = m_mainWindow->getWaveformDrawer())
+            drawer->clearAllWaveformData();
         if (m_mainWindow->ui && m_mainWindow->ui->customPlot)
         {
-            // Do not clear graphs here, as graphs are persistent and owned by WaveformDrawer.
-            // Just trigger a light replot; WaveformDrawer will set empty data on next draw.
-            m_mainWindow->ui->customPlot->replot();
+            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
         }
     }
 
@@ -309,6 +312,7 @@ std::pair<int, int> PulseqLoader::ReadFileVersion(const std::string& filename)
 bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
 {
     m_mainWindow->setEnabled(false);
+    m_sequenceLoadState = SequenceLoadState::Loading;
 
     // Opening a different sequence must invalidate all cached waveform/trajectory
     // state from the previous file before the new load begins. ReOpenPulseqFile
@@ -319,6 +323,8 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
         ClearPulseqCache();
     }
 
+    m_sequenceLoadState = SequenceLoadState::Loading;
+
     // Keep the canonical loaded path for all loading entry points
     // (file dialog, drag/drop, command line, reopen).
     m_sPulseqFilePath = sPulseqFilePath;
@@ -327,6 +333,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     std::pair<int, int> version = ReadFileVersion(sPulseqFilePath.toStdString());
     if (version.first == -1 || version.second == -1)
     {
+        m_sequenceLoadState = SequenceLoadState::Blank;
         m_mainWindow->setEnabled(true);
         std::stringstream sLog;
         sLog << "Failed to read version information from: " << sPulseqFilePath.toStdString();
@@ -342,6 +349,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     m_spPulseqSeq = CreateLoaderForVersion(version_major, version_minor);
     if (!m_spPulseqSeq)
     {
+        m_sequenceLoadState = SequenceLoadState::Blank;
         m_mainWindow->setEnabled(true);
         std::stringstream sLog;
         sLog << "Unsupported Pulseq file version " << version_major << "." << version_minor << " for: " << sPulseqFilePath.toStdString();
@@ -383,6 +391,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
 
     if (!m_spPulseqSeq->load(sPulseqFilePath.toStdString()))
     {
+        m_sequenceLoadState = SequenceLoadState::Blank;
         m_mainWindow->setEnabled(true);
         std::stringstream sLog;
         sLog << "Failed to load Pulseq file: " << sPulseqFilePath.toStdString() << "\n\n";
@@ -410,6 +419,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
         bool ok = !gradDef.empty() && std::isfinite(gradDef[0]) && gradDef[0] > 0.0;
         if (!ok)
         {
+            m_sequenceLoadState = SequenceLoadState::Blank;
             m_mainWindow->setEnabled(true);
             const char* msg = "Missing required definition: GradientRasterTime (seconds)\n\n"
                               "The sequence lacks GradientRasterTime in [DEFINITIONS].\n"
@@ -493,6 +503,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
         m_vecDecodeSeqBlocks[ushBlockIndex] = m_spPulseqSeq->GetBlock(ushBlockIndex);
         if (!m_spPulseqSeq->decodeBlock(m_vecDecodeSeqBlocks[ushBlockIndex]))
         {
+            m_sequenceLoadState = SequenceLoadState::Blank;
             std::stringstream sLog;
             sLog << "Decode SeqBlock failed, block index: " << ushBlockIndex;
             LogManager::getInstance().appendStructured(
@@ -569,11 +580,12 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
         drawer->DrawBlockEdges();
     }
 
+    double initialStartTime = 0.0;
+    double initialEndTime = 1.0;
     if (lSeqBlockNum > 0)
     {
         // Determine initial view range based on render mode
         TRManager* trManager = m_mainWindow->getTRManager();
-        double initialStartTime, initialEndTime;
 
         if (trManager && hasRepetitionTime() && trManager->isTrBasedMode())
         {
@@ -595,11 +607,6 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
             {
                 initialEndTime = totalDuration;
             }
-        }
-
-        // Single-point sync instead of per-rect setRange to avoid N cascaded updates
-        if (auto* ih = m_mainWindow->getInteractionHandler()) {
-            ih->synchronizeXAxes(QCPRange(initialStartTime, initialEndTime));
         }
 
         // Save initial view state for reset functionality
@@ -675,6 +682,23 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     TRManager* trManager = m_mainWindow->getTRManager();
     trManager->updateTrControls();
     trManager->refreshShowTeOverlay();
+
+    m_sequenceLoadState = SequenceLoadState::Loaded;
+
+    QCPRange finalRange(initialStartTime, initialEndTime);
+    if (m_bHasRepetitionTime && m_mainWindow && drawer &&
+        !drawer->getRects().isEmpty() && drawer->getRects()[0])
+    {
+        finalRange = drawer->getRects()[0]->axis(QCPAxis::atBottom)->range();
+    }
+    if (auto* ih = m_mainWindow->getInteractionHandler())
+    {
+        ih->synchronizeXAxes(finalRange);
+    }
+    else if (drawer)
+    {
+        drawer->ensureRenderedForCurrentViewport();
+    }
 
     // PNS is always queued automatically after load. It is lower priority than
     // trajectory computation, so startPnsComputationIfEnabled() will defer while

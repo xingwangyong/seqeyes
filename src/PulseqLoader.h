@@ -27,6 +27,11 @@ class PulseqLoader : public QObject
     Q_OBJECT
 
 public:
+    enum class SequenceLoadState {
+        Blank,
+        Loading,
+        Loaded
+    };
     enum class TrajectoryState {
         NotStarted,
         Calculating,
@@ -70,6 +75,10 @@ public:
     double getTFactor() const { return tFactor; }
     void setPulseqFilePathCache(const QString& path) { m_sPulseqFilePathCache = path; }
     std::shared_ptr<ExternalSequence> getSequence(){ return m_spPulseqSeq; }
+    SequenceLoadState getSequenceLoadState() const { return m_sequenceLoadState; }
+    bool isSequenceLoading() const { return m_sequenceLoadState == SequenceLoadState::Loading; }
+    bool hasLoadedSequence() const { return m_sequenceLoadState == SequenceLoadState::Loaded; }
+    bool canRenderSequence() const { return m_sequenceLoadState == SequenceLoadState::Loaded; }
 
     // Merged series getters (load-time built)
     const QVector<double>& getRfTimeAmp() const { return m_rfTimeAmp; }
@@ -250,6 +259,7 @@ private:
     std::vector<SeqBlock*> m_vecDecodeSeqBlocks;
     std::vector<int> m_vecTrBlockIndices;
     double m_dTotalDuration_us;
+    SequenceLoadState m_sequenceLoadState {SequenceLoadState::Blank};
 
     // TR detection and navigation
     bool m_bHasRepetitionTime;

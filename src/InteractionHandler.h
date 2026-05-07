@@ -51,6 +51,7 @@ public:
     void setPanBoundaryMode(bool enableBoundaries);
     bool getPanBoundaryMode() const;
     void showBoundaryTooltip(const QString& message);
+    void cancelPendingViewportRenders();
 
 private:
     void handleTrInputWheelEvent(QWheelEvent* event, QLineEdit* input);

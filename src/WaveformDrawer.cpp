@@ -2227,9 +2227,10 @@ void WaveformDrawer::ensureRenderedForCurrentViewport()
 {
     try {
         PulseqLoader* loader = m_mainWindow->getPulseqLoader();
-        if (!loader) {
+        if (!loader || !loader->canRenderSequence()) {
             if (DEBUG_LOD_SYSTEM) {
-                qDebug().noquote() << "[LOD] No loader available";
+                qDebug().noquote() << "[LOD] Sequence render skipped:"
+                                   << (loader ? "loader not ready" : "no loader");
             }
             return;
         }
@@ -2812,6 +2813,5 @@ void WaveformDrawer::updateKxKyZeroGuides(double visibleStart, double visibleEnd
         }
     }
 }
-
 
 

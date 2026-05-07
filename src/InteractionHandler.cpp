@@ -116,8 +116,20 @@ void InteractionHandler::dropEvent(QDropEvent* event)
             QMessageBox::critical(m_mainWindow, "File Error", sLog.str().c_str());
             return;
         }
-        m_mainWindow->getPulseqLoader()->setPulseqFilePathCache(sPulseqFilePath);
     }
+}
+
+void InteractionHandler::cancelPendingViewportRenders()
+{
+    if (m_viewportRenderTimer)
+        m_viewportRenderTimer->stop();
+    if (m_viewportFinalTimer)
+        m_viewportFinalTimer->stop();
+    m_pendingTrajectoryRefresh = false;
+    m_accumulatedWheelDelta = 0;
+    m_syncInProgress = false;
+    if (m_mainWindow)
+        m_mainWindow->setInteractionFastMode(false);
 }
 
 void InteractionHandler::wheelEvent(QWheelEvent* event)
@@ -924,12 +936,13 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
 {
     WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer();
     if (!drawer) return;
+    PulseqLoader* loader = m_mainWindow->getPulseqLoader();
 
     // Reentrancy guard
     if (m_syncInProgress) return;
     QCPRange adjustedRange = newRange;
 
-    if (m_enablePanBoundaries)
+    if (m_enablePanBoundaries && (!loader || !loader->isSequenceLoading()))
     {
         // Get the valid time range boundaries
         QCPRange validRange = getCurrentTimeRange();
@@ -1035,6 +1048,12 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
     // that can pick up a stale/non-authoritative range and desynchronize the
     // TR window and time window (e.g. changing TR index unexpectedly shifts
     // the displayed time window).
+    if (loader && loader->isSequenceLoading())
+    {
+        m_syncInProgress = false;
+        return;
+    }
+
     if (WaveformDrawer* d = m_mainWindow->getWaveformDrawer())
     {
         d->ensureRenderedForCurrentViewport();
@@ -1054,6 +1073,9 @@ void InteractionHandler::processDeferredViewportRender()
 {
     if (!m_mainWindow)
         return;
+    PulseqLoader* loader = m_mainWindow->getPulseqLoader();
+    if (loader && loader->isSequenceLoading())
+        return;
 
     if (WaveformDrawer* d = m_mainWindow->getWaveformDrawer())
     {
@@ -1065,6 +1087,13 @@ void InteractionHandler::processFinalViewportRender()
 {
     if (!m_mainWindow)
         return;
+    PulseqLoader* loader = m_mainWindow->getPulseqLoader();
+    if (loader && loader->isSequenceLoading())
+    {
+        m_pendingTrajectoryRefresh = false;
+        m_mainWindow->setInteractionFastMode(false);
+        return;
+    }
 
     // One final render at interaction end to guarantee the latest viewport is fully rendered.
     m_mainWindow->setInteractionFastMode(false);
