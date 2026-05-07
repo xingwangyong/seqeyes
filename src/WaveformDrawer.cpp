@@ -373,7 +373,7 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphPnsX->setLineStyle(QCPGraph::lsLine);
         m_graphPnsX->setScatterStyle(QCPScatterStyle::ssNone);
         m_graphPnsX->setAdaptiveSampling(true);
-        m_graphPnsX->setAntialiased(false);
+        m_graphPnsX->setAntialiased(true);
         m_graphPnsX->setVisible(m_curveVisibility.value(6, true));
     }
     m_graphPnsY = customPlot->addGraph(m_pPnsRect->axis(QCPAxis::atBottom), m_pPnsRect->axis(QCPAxis::atLeft));
@@ -386,7 +386,7 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphPnsY->setLineStyle(QCPGraph::lsLine);
         m_graphPnsY->setScatterStyle(QCPScatterStyle::ssNone);
         m_graphPnsY->setAdaptiveSampling(true);
-        m_graphPnsY->setAntialiased(false);
+        m_graphPnsY->setAntialiased(true);
         m_graphPnsY->setVisible(m_curveVisibility.value(6, true));
     }
     m_graphPnsZ = customPlot->addGraph(m_pPnsRect->axis(QCPAxis::atBottom), m_pPnsRect->axis(QCPAxis::atLeft));
@@ -399,7 +399,7 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphPnsZ->setLineStyle(QCPGraph::lsLine);
         m_graphPnsZ->setScatterStyle(QCPScatterStyle::ssNone);
         m_graphPnsZ->setAdaptiveSampling(true);
-        m_graphPnsZ->setAntialiased(false);
+        m_graphPnsZ->setAntialiased(true);
         m_graphPnsZ->setVisible(m_curveVisibility.value(6, true));
     }
     m_graphPnsNorm = customPlot->addGraph(m_pPnsRect->axis(QCPAxis::atBottom), m_pPnsRect->axis(QCPAxis::atLeft));
@@ -413,7 +413,7 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphPnsNorm->setLineStyle(QCPGraph::lsLine);
         m_graphPnsNorm->setScatterStyle(QCPScatterStyle::ssNone);
         m_graphPnsNorm->setAdaptiveSampling(true);
-        m_graphPnsNorm->setAntialiased(false);
+        m_graphPnsNorm->setAntialiased(true);
         m_graphPnsNorm->setVisible(m_curveVisibility.value(6, true));
     }
 
@@ -2813,5 +2813,4 @@ void WaveformDrawer::updateKxKyZeroGuides(double visibleStart, double visibleEnd
         }
     }
 }
-
 
