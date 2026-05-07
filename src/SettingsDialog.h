@@ -9,6 +9,7 @@
 #include <QScrollArea>
 #include <QCheckBox>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMap>
 #include "Settings.h"
 
@@ -19,6 +20,7 @@ class QLabel;
 class QLineEdit;
 class QVBoxLayout;
 class QHBoxLayout;
+class QShowEvent;
 QT_END_NAMESPACE
 
 class SettingsDialog : public QDialog
@@ -41,6 +43,12 @@ private slots:
     void onRemoveInvalidPnsAscPaths();
     void onPnsAscPathComboChanged(int index);
     void onPnsNicknameEditingFinished();
+    void onAxisOrderSelectionChanged();
+    void onMoveAxisUpClicked();
+    void onMoveAxisDownClicked();
+    void onMoveAxisTopClicked();
+    void onMoveAxisBottomClicked();
+    void onAxisOrderRowsMoved();
 
 private:
     void setupUI();
@@ -55,6 +63,11 @@ private:
     void selectPathInComboByPath(const QString& path);
     void persistCurrentPnsPathSelection();
     bool validatePnsNicknameUniqueness(const QMap<QString, QString>& nickMap, QString* duplicateNickname = nullptr, QString* firstPath = nullptr, QString* secondPath = nullptr) const;
+    void populateAxisOrderList(const QStringList& order);
+    QStringList currentAxisOrderFromList() const;
+    void moveSelectedAxisItem(int delta);
+    void updateAxisOrderButtons();
+    void showEvent(QShowEvent* event) override;
 
     // UI components - Ribbon style
     QTabWidget* m_tabWidget;
@@ -92,6 +105,13 @@ private:
     QCheckBox* m_pnsShowYCheck;
     QCheckBox* m_pnsShowZCheck;
     QCheckBox* m_pnsShowNormCheck;
+
+    // Layout tab
+    QListWidget* m_axisOrderList;
+    QPushButton* m_moveAxisTopButton;
+    QPushButton* m_moveAxisUpButton;
+    QPushButton* m_moveAxisDownButton;
+    QPushButton* m_moveAxisBottomButton;
 
     // Buttons
     QPushButton* m_applyButton;

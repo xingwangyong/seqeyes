@@ -508,6 +508,17 @@ void WaveformDrawer::setAxesOrder(const QStringList& order)
     configureXAxisLabelsAfterReorder();
 }
 
+void WaveformDrawer::applyAxesOrderAndSave(const QStringList& order)
+{
+    if (order.size() != m_vecRects.size())
+        return;
+    if (order == m_axesOrder)
+        return;
+
+    setAxesOrder(order);
+    saveUiConfig();
+}
+
 void WaveformDrawer::configureXAxisLabels()
 {
     // Configure x-axis labels based on current layout order
@@ -631,11 +642,11 @@ void WaveformDrawer::moveAxis(int fromIndex, int toIndex)
 {
     if (fromIndex < 0 || toIndex < 0 || fromIndex >= m_axesOrder.size() || toIndex >= m_axesOrder.size()) return;
     if (fromIndex == toIndex) return;
-    QString item = m_axesOrder.takeAt(fromIndex);
+    QStringList newOrder = m_axesOrder;
+    QString item = newOrder.takeAt(fromIndex);
     // Insert-before semantics: when dragging to a target row, insert at that row index
-    m_axesOrder.insert(toIndex, item);
-    setAxesOrder(m_axesOrder);
-    saveUiConfig();
+    newOrder.insert(toIndex, item);
+    applyAxesOrderAndSave(newOrder);
 }
 
 void WaveformDrawer::showDropIndicatorAt(int index)
@@ -2801,8 +2812,6 @@ void WaveformDrawer::updateKxKyZeroGuides(double visibleStart, double visibleEnd
         }
     }
 }
-
-
 
 
 

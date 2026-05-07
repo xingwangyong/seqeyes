@@ -16,6 +16,10 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QInputDialog>
+#include <QListWidgetItem>
+#include <QSignalBlocker>
+#include "mainwindow.h"
+#include "WaveformDrawer.h"
 #include "PnsCalculator.h"
 
 SettingsDialog::SettingsDialog(QWidget *parent)
@@ -38,6 +42,11 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_pnsShowYCheck(nullptr)
     , m_pnsShowZCheck(nullptr)
     , m_pnsShowNormCheck(nullptr)
+    , m_axisOrderList(nullptr)
+    , m_moveAxisTopButton(nullptr)
+    , m_moveAxisUpButton(nullptr)
+    , m_moveAxisDownButton(nullptr)
+    , m_moveAxisBottomButton(nullptr)
     , m_applyButton(nullptr)
     , m_okButton(nullptr)
     , m_cancelButton(nullptr)
@@ -232,6 +241,50 @@ void SettingsDialog::setupUI()
     m_tabWidget->addTab(interactionsTab, "Interactions");
 
     // ============================================================================
+    // Layout Tab
+    // ============================================================================
+    QWidget* layoutTab = new QWidget();
+    QVBoxLayout* layoutLayout = new QVBoxLayout(layoutTab);
+
+    QLabel* layoutHint = new QLabel(
+        "Use drag and drop or the Top/Up/Down/Bottom buttons to adjust subplot order.",
+        layoutTab);
+    layoutHint->setWordWrap(true);
+    layoutLayout->addWidget(layoutHint);
+
+    QWidget* axisOrderWidget = new QWidget(layoutTab);
+    QHBoxLayout* axisOrderLayout = new QHBoxLayout(axisOrderWidget);
+    axisOrderLayout->setContentsMargins(0, 0, 0, 0);
+
+    m_axisOrderList = new QListWidget(layoutTab);
+    m_axisOrderList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_axisOrderList->setDragDropMode(QAbstractItemView::InternalMove);
+    m_axisOrderList->setDefaultDropAction(Qt::MoveAction);
+    m_axisOrderList->setDragEnabled(true);
+    m_axisOrderList->setAcceptDrops(true);
+    m_axisOrderList->setDropIndicatorShown(true);
+    axisOrderLayout->addWidget(m_axisOrderList, 1);
+
+    QWidget* axisButtonsWidget = new QWidget(layoutTab);
+    QVBoxLayout* axisButtonsLayout = new QVBoxLayout(axisButtonsWidget);
+    axisButtonsLayout->setContentsMargins(0, 0, 0, 0);
+    m_moveAxisTopButton = new QPushButton("Top", layoutTab);
+    m_moveAxisUpButton = new QPushButton("Up", layoutTab);
+    m_moveAxisDownButton = new QPushButton("Down", layoutTab);
+    m_moveAxisBottomButton = new QPushButton("Bottom", layoutTab);
+    axisButtonsLayout->addWidget(m_moveAxisTopButton);
+    axisButtonsLayout->addWidget(m_moveAxisUpButton);
+    axisButtonsLayout->addWidget(m_moveAxisDownButton);
+    axisButtonsLayout->addWidget(m_moveAxisBottomButton);
+    axisButtonsLayout->addStretch();
+    axisOrderLayout->addWidget(axisButtonsWidget);
+
+    layoutLayout->addWidget(axisOrderWidget);
+    layoutLayout->addStretch();
+
+    m_tabWidget->addTab(layoutTab, "Layout");
+
+    // ============================================================================
     // Extensions Tab (Pulseq labels)
     // ============================================================================
     QWidget* extensionsTab = new QWidget();
@@ -360,11 +413,26 @@ void SettingsDialog::setupUI()
             this, &SettingsDialog::onPnsAscPathComboChanged);
     connect(m_pnsNicknameEdit, &QLineEdit::editingFinished,
             this, &SettingsDialog::onPnsNicknameEditingFinished);
+    connect(m_axisOrderList, &QListWidget::itemSelectionChanged,
+            this, &SettingsDialog::onAxisOrderSelectionChanged);
+    connect(m_axisOrderList->model(), &QAbstractItemModel::rowsMoved,
+            this, [this]() { onAxisOrderRowsMoved(); });
+    connect(m_moveAxisTopButton, &QPushButton::clicked,
+            this, &SettingsDialog::onMoveAxisTopClicked);
+    connect(m_moveAxisUpButton, &QPushButton::clicked,
+            this, &SettingsDialog::onMoveAxisUpClicked);
+    connect(m_moveAxisDownButton, &QPushButton::clicked,
+            this, &SettingsDialog::onMoveAxisDownClicked);
+    connect(m_moveAxisBottomButton, &QPushButton::clicked,
+            this, &SettingsDialog::onMoveAxisBottomClicked);
 }
 
 void SettingsDialog::loadCurrentSettings()
 {
     Settings& settings = Settings::getInstance();
+    WaveformDrawer* waveformDrawer = nullptr;
+    if (MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget()))
+        waveformDrawer = mainWindow->getWaveformDrawer();
     
     // Store original settings
     m_originalGradientUnit = settings.getGradientUnit();
@@ -417,6 +485,11 @@ void SettingsDialog::loadCurrentSettings()
     }
     // Settings path
     m_settingsPathValue->setText(Settings::getInstance().getSettingsFilePath());
+
+    if (waveformDrawer)
+        populateAxisOrderList(waveformDrawer->getAxesOrder());
+    else
+        populateAxisOrderList(QStringList() << "RF mag" << "PNS" << "GZ" << "GY" << "GX" << "RF/ADC ph" << "ADC/labels");
 
     // Extensions: sync checkboxes from settings
     if (m_showExtensionTooltipCheck)
@@ -501,6 +574,9 @@ void SettingsDialog::loadCurrentSettings()
 bool SettingsDialog::applySettings()
 {
     Settings& settings = Settings::getInstance();
+    WaveformDrawer* waveformDrawer = nullptr;
+    if (MainWindow* mainWindow = qobject_cast<MainWindow*>(parentWidget()))
+        waveformDrawer = mainWindow->getWaveformDrawer();
     
     // Apply gradient unit
     Settings::GradientUnit gradientUnit = static_cast<Settings::GradientUnit>(m_gradientUnitCombo->currentIndex());
@@ -641,6 +717,8 @@ bool SettingsDialog::applySettings()
     if (m_pnsShowYCheck) settings.setPnsChannelVisibleY(m_pnsShowYCheck->isChecked());
     if (m_pnsShowZCheck) settings.setPnsChannelVisibleZ(m_pnsShowZCheck->isChecked());
     if (m_pnsShowNormCheck) settings.setPnsChannelVisibleNorm(m_pnsShowNormCheck->isChecked());
+    if (waveformDrawer)
+        waveformDrawer->applyAxesOrderAndSave(currentAxisOrderFromList());
 
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
     
@@ -723,6 +801,12 @@ void SettingsDialog::onResetClicked()
         QMessageBox::information(this, "Settings Reset", 
                                "All settings have been reset to default values and saved to settings.json");
     }
+}
+
+void SettingsDialog::showEvent(QShowEvent* event)
+{
+    QDialog::showEvent(event);
+    loadCurrentSettings();
 }
 
 void SettingsDialog::onGammaComboChanged(int index)
@@ -869,6 +953,135 @@ void SettingsDialog::showCustomGammaDialog()
     
     // Show dialog
     dialog.exec();
+}
+
+void SettingsDialog::populateAxisOrderList(const QStringList& order)
+{
+    if (!m_axisOrderList)
+        return;
+
+    const QSignalBlocker blocker(m_axisOrderList);
+    const QString selectedText = m_axisOrderList->currentItem() ? m_axisOrderList->currentItem()->text() : QString();
+
+    m_axisOrderList->clear();
+    for (const QString& axisName : order)
+        m_axisOrderList->addItem(axisName);
+
+    int selectedRow = -1;
+    if (!selectedText.isEmpty())
+    {
+        for (int row = 0; row < m_axisOrderList->count(); ++row)
+        {
+            if (m_axisOrderList->item(row)->text() == selectedText)
+            {
+                selectedRow = row;
+                break;
+            }
+        }
+    }
+    if (selectedRow < 0 && m_axisOrderList->count() > 0)
+        selectedRow = 0;
+
+    if (selectedRow >= 0)
+        m_axisOrderList->setCurrentRow(selectedRow);
+
+    updateAxisOrderButtons();
+}
+
+QStringList SettingsDialog::currentAxisOrderFromList() const
+{
+    QStringList order;
+    if (!m_axisOrderList)
+        return order;
+
+    for (int row = 0; row < m_axisOrderList->count(); ++row)
+        order.append(m_axisOrderList->item(row)->text());
+    return order;
+}
+
+void SettingsDialog::moveSelectedAxisItem(int delta)
+{
+    if (!m_axisOrderList || delta == 0)
+        return;
+
+    const int currentRow = m_axisOrderList->currentRow();
+    if (currentRow < 0)
+        return;
+
+    const int targetRow = currentRow + delta;
+    if (targetRow < 0 || targetRow >= m_axisOrderList->count())
+        return;
+
+    QListWidgetItem* item = m_axisOrderList->takeItem(currentRow);
+    m_axisOrderList->insertItem(targetRow, item);
+    m_axisOrderList->setCurrentRow(targetRow);
+    updateAxisOrderButtons();
+}
+
+void SettingsDialog::updateAxisOrderButtons()
+{
+    if (!m_axisOrderList || !m_moveAxisTopButton || !m_moveAxisUpButton ||
+        !m_moveAxisDownButton || !m_moveAxisBottomButton)
+        return;
+
+    const int currentRow = m_axisOrderList->currentRow();
+    const int lastRow = m_axisOrderList->count() - 1;
+    const bool hasSelection = currentRow >= 0;
+    m_moveAxisTopButton->setEnabled(hasSelection && currentRow > 0);
+    m_moveAxisUpButton->setEnabled(hasSelection && currentRow > 0);
+    m_moveAxisDownButton->setEnabled(hasSelection && currentRow >= 0 && currentRow < lastRow);
+    m_moveAxisBottomButton->setEnabled(hasSelection && currentRow >= 0 && currentRow < lastRow);
+}
+
+void SettingsDialog::onAxisOrderSelectionChanged()
+{
+    updateAxisOrderButtons();
+}
+
+void SettingsDialog::onAxisOrderRowsMoved()
+{
+    updateAxisOrderButtons();
+}
+
+void SettingsDialog::onMoveAxisTopClicked()
+{
+    if (!m_axisOrderList)
+        return;
+
+    const int currentRow = m_axisOrderList->currentRow();
+    if (currentRow <= 0)
+        return;
+
+    QListWidgetItem* item = m_axisOrderList->takeItem(currentRow);
+    m_axisOrderList->insertItem(0, item);
+    m_axisOrderList->setCurrentRow(0);
+    updateAxisOrderButtons();
+}
+
+void SettingsDialog::onMoveAxisUpClicked()
+{
+    moveSelectedAxisItem(-1);
+}
+
+void SettingsDialog::onMoveAxisDownClicked()
+{
+    moveSelectedAxisItem(1);
+}
+
+void SettingsDialog::onMoveAxisBottomClicked()
+{
+    if (!m_axisOrderList)
+        return;
+
+    const int currentRow = m_axisOrderList->currentRow();
+    const int lastRow = m_axisOrderList->count() - 1;
+    if (currentRow < 0 || currentRow >= lastRow)
+        return;
+
+    QListWidgetItem* item = m_axisOrderList->takeItem(currentRow);
+    m_axisOrderList->insertItem(lastRow, item);
+    m_axisOrderList->setCurrentRow(lastRow);
+    updateAxisOrderButtons();
 }
 
 void SettingsDialog::onZoomModeChanged(int index)

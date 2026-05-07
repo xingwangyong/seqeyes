@@ -65,6 +65,7 @@ public:
     // Axis reordering API
     const QStringList& getAxesOrder() const { return m_axesOrder; }
     void setAxesOrder(const QStringList& order); // reorders UI accordingly
+    void applyAxesOrderAndSave(const QStringList& order);
     int axisIndexAtPositionY(int yInPlot) const; // hit-test by Y to nearest axis rect
     int axisCenterY(int index) const; // center Y of rect in widget coords
     void swapAxes(int i, int j); // swap two axes (visual order)
@@ -295,5 +296,4 @@ public:
 };
 
 #endif // WAVEFORMDRAWER_H
-
 
