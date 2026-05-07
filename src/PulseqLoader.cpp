@@ -111,9 +111,9 @@ void PulseqLoader::OpenPulseqFile()
         if (!LoadPulseqFile(m_sPulseqFilePath))
         {
             m_sPulseqFilePath.clear();
+            m_sPulseqFilePathCache.clear();
             std::cout << "LoadPulseqFile failed!\n";
         }
-        m_sPulseqFilePathCache = m_sPulseqFilePath;
     }
 }
 
@@ -124,25 +124,6 @@ void PulseqLoader::ReOpenPulseqFile()
         ClearPulseqCache();
         LoadPulseqFile(m_sPulseqFilePathCache);
     }
-}
-
-bool PulseqLoader::ClosePulseqFile()
-{
-#ifdef Q_OS_MAC
-    qCritical() << "[MENU TRACE] PulseqLoader::ClosePulseqFile enter";
-#endif
-    ClearPulseqCache();
-    if (m_mainWindow && m_mainWindow->getWaveformDrawer())
-        m_mainWindow->getWaveformDrawer()->clearAllWaveformData();
-    if (m_mainWindow && m_mainWindow->isTrajectoryVisible())
-    {
-        m_mainWindow->refreshTrajectoryPlotData();
-    }
-    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-    {
-        m_mainWindow->ui->customPlot->replot();
-    }
-    return true;
 }
 
 void PulseqLoader::ClearPulseqCache(bool withUi)
@@ -165,6 +146,7 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     }
 
     m_dTotalDuration_us = 0.;
+    m_sPulseqFilePath.clear();
     m_bHasRepetitionTime = false;
     m_dRepetitionTime_us = 0.0;
     m_nTrCount = 0;
@@ -719,6 +701,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
                 << "coordMinW=" << coord->minimumWidth();
         }
     }
+    m_sPulseqFilePathCache = sPulseqFilePath;
     addRecentFile(sPulseqFilePath);
     startTrajectoryComputationIfEnabled();
     m_mainWindow->setEnabled(true);
@@ -807,11 +790,13 @@ void PulseqLoader::updateRecentFilesMenu()
                 if (selectedPath.isEmpty())
                     return;
                 m_sPulseqFilePath = selectedPath;
-                m_sPulseqFilePathCache = selectedPath;
                 QFileInfo fi(selectedPath);
                 m_sLastOpenDirectory = fi.absolutePath();
                 saveLastOpenDirectory();
-                LoadPulseqFile(selectedPath);
+                if (!LoadPulseqFile(selectedPath))
+                {
+                    m_sPulseqFilePathCache.clear();
+                }
             });
         }
     }

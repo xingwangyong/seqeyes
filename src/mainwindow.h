@@ -129,11 +129,11 @@ private:
                              const QVector<double>& kx,
                              const QVector<double>& ky,
                              const QVector<double>& kz);
+    void updateFileActionState();
 
 private slots:
     void onActionOpenTriggered();
     void onActionReopenTriggered();
-    void onActionCloseFileTriggered();
     void openSettings();
     void openLogWindow();
     void showAbout();
@@ -239,4 +239,3 @@ private:
 };
 
 #endif // MAINWINDOW_H
-

@@ -50,8 +50,6 @@
     <addaction name="actionReopen"/>
     <addaction name="menuRecent_Files"/>
     <addaction name="separator"/>
-    <addaction name="actionCloseFile"/>
-    <addaction name="separator"/>
     <addaction name="actionExit"/>
    </widget>
    <widget class="QMenu" name="menuView">
@@ -100,7 +98,6 @@
    </attribute>
    <addaction name="actionOpen"/>
    <addaction name="actionReopen"/>
-   <addaction name="actionCloseFile"/>
    <addaction name="actionResetView"/>
    <addaction name="actionMeasureDt"/>
   </widget>
@@ -133,11 +130,6 @@
   <action name="actionClear_Menu">
    <property name="text">
     <string>Clear Menu</string>
-   </property>
-  </action>
-  <action name="actionCloseFile">
-   <property name="text">
-    <string>Close File</string>
    </property>
   </action>
   <action name="actionColorSettings">

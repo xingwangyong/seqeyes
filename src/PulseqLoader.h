@@ -192,7 +192,6 @@ public slots:
     // Slots for UI connections
     void OpenPulseqFile();
     void ReOpenPulseqFile();
-    bool ClosePulseqFile();
     // Lightweight time-unit rescaling (avoids full file reload)
     void rescaleTimeUnit();
 

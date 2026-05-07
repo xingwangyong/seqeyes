@@ -386,9 +386,11 @@ void MainWindow::setLoadedFileTitle(const QString& filePath)
     if (name.isEmpty())
     {
         setWindowTitle(base);
+        updateFileActionState();
         return;
     }
     setWindowTitle(QString("%1 - %2").arg(base, name));
+    updateFileActionState();
 }
 
 void MainWindow::clearLoadedFileTitle()
@@ -402,6 +404,15 @@ void MainWindow::clearLoadedFileTitle()
     else
     {
         setWindowTitle("SeqEyes");
+    }
+    updateFileActionState();
+}
+
+void MainWindow::updateFileActionState()
+{
+    if (ui && ui->actionReopen)
+    {
+        ui->actionReopen->setEnabled(!m_loadedSeqFilePath.isEmpty());
     }
 }
 
@@ -540,8 +551,6 @@ void MainWindow::setupIcons()
         ui->actionContact->setIcon(QIcon::fromTheme(QStringLiteral("mail-forward"), fallbackEmpty));
     if (ui->actionReopen)
         ui->actionReopen->setIcon(QIcon::fromTheme(QStringLiteral("document-open-recent"), fallbackEmpty));
-    if (ui->actionCloseFile)
-        ui->actionCloseFile->setIcon(QIcon::fromTheme(QStringLiteral("edit-clear"), fallbackEmpty));
     if (ui->actionAbout)
         ui->actionAbout->setIcon(QIcon::fromTheme(QStringLiteral("help-about"), fallbackEmpty));
     if (ui->actionUsage)
@@ -564,14 +573,7 @@ void MainWindow::InitSlots()
     if (ui->actionReopen)
     {
         ui->actionReopen->setMenuRole(QAction::NoRole);
-        ui->actionReopen->setEnabled(true);
-    }
-    if (ui->actionCloseFile)
-    {
-        ui->actionCloseFile->setMenuRole(QAction::NoRole);
-        ui->actionCloseFile->setShortcut(QKeySequence::Close);
-        ui->actionCloseFile->setText(tr("Close File"));
-        ui->actionCloseFile->setEnabled(true);
+        ui->actionReopen->setEnabled(false);
     }
     if (ui->actionExit)
     {
@@ -593,7 +595,6 @@ void MainWindow::InitSlots()
     // File Menu
     connect(ui->actionOpen, &QAction::triggered, this, &MainWindow::onActionOpenTriggered);
     connect(ui->actionReopen, &QAction::triggered, this, &MainWindow::onActionReopenTriggered);
-    connect(ui->actionCloseFile, &QAction::triggered, this, &MainWindow::onActionCloseFileTriggered);
 
     // View Menu
     connect(ui->actionResetView, &QAction::triggered, m_waveformDrawer, &WaveformDrawer::ResetView);
@@ -656,20 +657,9 @@ void MainWindow::onActionOpenTriggered()
 
 void MainWindow::onActionReopenTriggered()
 {
-    if (m_pulseqLoader)
+    if (m_pulseqLoader && !m_loadedSeqFilePath.isEmpty())
     {
         m_pulseqLoader->ReOpenPulseqFile();
-    }
-}
-
-void MainWindow::onActionCloseFileTriggered()
-{
-#ifdef Q_OS_MAC
-    qCritical() << "[MENU TRACE] MainWindow::onActionCloseFileTriggered";
-#endif
-    if (m_pulseqLoader)
-    {
-        m_pulseqLoader->ClosePulseqFile();
     }
 }
 
@@ -2252,8 +2242,6 @@ void MainWindow::openFileFromCommandLine(const QString& filePath)
     // Use PulseqLoader to open the file
     if (m_pulseqLoader) {
         qDebug() << "Opening file from command line:" << filePath;
-        // Set the file path cache and load the file
-        m_pulseqLoader->setPulseqFilePathCache(filePath);
         if (!m_pulseqLoader->LoadPulseqFile(filePath)) {
             qWarning() << "Failed to load file:" << filePath;
             QMessageBox::critical(this, "File Error", 
