@@ -585,20 +585,12 @@ void MainWindow::InitSlots()
         ui->actionAbout->setMenuRole(QAction::AboutRole);
     }
 
-    if (ui->actionColorSettings)
-    {
-        ui->actionColorSettings->setMenuRole(QAction::NoRole);
-        ui->actionColorSettings->setText(tr("Color Settings"));
-        ui->actionColorSettings->setEnabled(true);
-    }
-
     // File Menu
     connect(ui->actionOpen, &QAction::triggered, this, &MainWindow::onActionOpenTriggered);
     connect(ui->actionReopen, &QAction::triggered, this, &MainWindow::onActionReopenTriggered);
 
     // View Menu
     connect(ui->actionResetView, &QAction::triggered, m_waveformDrawer, &WaveformDrawer::ResetView);
-    // Keep Color Settings label/placement unchanged; behavior will be handled later.
     // Rename and repurpose to a single entry: "Undersample curves" (checked = downsampling ON)
     ui->actionShowFullDetail->setText("Undersample curves");
     ui->actionShowFullDetail->setToolTip("Downsample curves for performance");

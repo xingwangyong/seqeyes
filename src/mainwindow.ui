@@ -56,7 +56,6 @@
     <property name="title">
      <string>View</string>
     </property>
-    <addaction name="actionColorSettings"/>
     <addaction name="actionResetView"/>
     <addaction name="actionShowFullDetail"/>
    </widget>
@@ -130,11 +129,6 @@
   <action name="actionClear_Menu">
    <property name="text">
     <string>Clear Menu</string>
-   </property>
-  </action>
-  <action name="actionColorSettings">
-   <property name="text">
-    <string>Color Settings</string>
    </property>
   </action>
   <action name="actionAbout">
