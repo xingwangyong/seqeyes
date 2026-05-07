@@ -322,7 +322,7 @@ void SettingsDialog::setupUI()
     QWidget* safetyTab = new QWidget();
     QVBoxLayout* safetyLayout = new QVBoxLayout(safetyTab);
 
-    QGroupBox* pnsGroup = new QGroupBox("PNS hardware profile (.asc)", safetyTab);
+    QGroupBox* pnsGroup = new QGroupBox("Select Siemens ASC profile for PNS prediction (.asc)", safetyTab);
     QFormLayout* pnsForm = new QFormLayout(pnsGroup);
 
     QWidget* pnsPathRow = new QWidget(safetyTab);
@@ -362,13 +362,7 @@ void SettingsDialog::setupUI()
     pnsChannelsLayout->addStretch();
     pnsForm->addRow("Display:", pnsChannelsRow);
 
-    QLabel* pnsHint = new QLabel(
-        "Select Siemens ASC profile used for PNS prediction. "
-        "The selected path and recent paths are saved in settings.",
-        safetyTab);
-    pnsHint->setWordWrap(true);
     safetyLayout->addWidget(pnsGroup);
-    safetyLayout->addWidget(pnsHint);
     safetyLayout->addStretch();
 
     m_tabWidget->addTab(safetyTab, "Safety");
