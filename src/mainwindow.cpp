@@ -41,6 +41,45 @@
 #include <QPainter>
 #include <cmath>
 
+namespace
+{
+const QVector<double>& selectTrajectoryAxis(MainWindow::TrajectoryProjection projection,
+                                            bool forXAxis,
+                                            const QVector<double>& kx,
+                                            const QVector<double>& ky,
+                                            const QVector<double>& kz)
+{
+    if (projection == MainWindow::TrajectoryProjection::KyKz)
+        return forXAxis ? ky : kz;
+    return forXAxis ? kx : ky;
+}
+
+QString trajectoryAxisName(MainWindow::TrajectoryProjection projection, bool forXAxis)
+{
+    if (projection == MainWindow::TrajectoryProjection::KyKz)
+        return forXAxis ? QStringLiteral("ky") : QStringLiteral("kz");
+    return forXAxis ? QStringLiteral("kx") : QStringLiteral("ky");
+}
+
+QString trajectoryAxisLabel(MainWindow::TrajectoryProjection projection, bool forXAxis)
+{
+    if (projection == MainWindow::TrajectoryProjection::KyKz)
+        return forXAxis ? QStringLiteral("k_y") : QStringLiteral("k_z");
+    return forXAxis ? QStringLiteral("k_x") : QStringLiteral("k_y");
+}
+
+double selectTrajectoryCoord(MainWindow::TrajectoryProjection projection,
+                             bool forXAxis,
+                             double kx,
+                             double ky,
+                             double kz)
+{
+    if (projection == MainWindow::TrajectoryProjection::KyKz)
+        return forXAxis ? ky : kz;
+    return forXAxis ? kx : ky;
+}
+}
+
 // Lightweight overlay widget for drawing trajectory crosshair without forcing full plot replots
 class TrajectoryCrosshairOverlay : public QWidget
 {
@@ -832,6 +871,13 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     m_pTrajectoryRangeCombo->addItem(tr("Current window + color"));
     m_pTrajectoryRangeCombo->setCurrentIndex(0);
     controlLayout->addWidget(m_pTrajectoryRangeCombo);
+    m_pTrajectoryProjectionCombo = new QComboBox(m_pTrajectoryPanel);
+    m_pTrajectoryProjectionCombo->addItem(QStringLiteral("kx,ky"),
+                                          static_cast<int>(TrajectoryProjection::KxKy));
+    m_pTrajectoryProjectionCombo->addItem(QStringLiteral("ky,kz"),
+                                          static_cast<int>(TrajectoryProjection::KyKz));
+    m_pTrajectoryProjectionCombo->setCurrentIndex(static_cast<int>(m_trajectoryProjection));
+    controlLayout->addWidget(m_pTrajectoryProjectionCombo);
     m_pShowKtrajCheckBox = new QCheckBox(tr("ktraj"), m_pTrajectoryPanel);
     m_pShowKtrajCheckBox->setChecked(false);
     controlLayout->addWidget(m_pShowKtrajCheckBox);
@@ -917,6 +963,8 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
             this, &MainWindow::onTrajectoryCrosshairToggled);
     connect(m_pTrajectoryRangeCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &MainWindow::onTrajectoryRangeModeChanged);
+    connect(m_pTrajectoryProjectionCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onTrajectoryProjectionChanged);
     connect(m_pShowKtrajCheckBox, &QCheckBox::toggled,
             this, &MainWindow::onTrajectorySeriesToggled);
     connect(m_pShowKtrajAdcCheckBox, &QCheckBox::toggled,
@@ -1127,13 +1175,20 @@ void MainWindow::refreshTrajectoryPlotData()
     }
     const QVector<double>& kx = loader->getTrajectoryKx();
     const QVector<double>& ky = loader->getTrajectoryKy();
+    const QVector<double>& kz = loader->getTrajectoryKz();
     const QVector<double>& t = loader->getTrajectoryTimeSec();
 
     const QVector<double>& kxAdc = loader->getTrajectoryKxAdc();
     const QVector<double>& kyAdc = loader->getTrajectoryKyAdc();
+    const QVector<double>& kzAdc = loader->getTrajectoryKzAdc();
     const QVector<double>& tAdc = loader->getTrajectoryTimeAdcSec();
 
-    const int sampleCount = std::min(kx.size(), ky.size());
+    const QVector<double>& plotX = selectTrajectoryAxis(m_trajectoryProjection, true, kx, ky, kz);
+    const QVector<double>& plotY = selectTrajectoryAxis(m_trajectoryProjection, false, kx, ky, kz);
+    const QVector<double>& plotXAdc = selectTrajectoryAxis(m_trajectoryProjection, true, kxAdc, kyAdc, kzAdc);
+    const QVector<double>& plotYAdc = selectTrajectoryAxis(m_trajectoryProjection, false, kxAdc, kyAdc, kzAdc);
+
+    const int sampleCount = std::min(plotX.size(), plotY.size());
     if (sampleCount <= 0)
     {
         clearTrajectoryVisuals();
@@ -1278,38 +1333,38 @@ void MainWindow::refreshTrajectoryPlotData()
 
     const bool canFilterCurve = limitToView && !t.isEmpty();
     QVector<double> curveParam;
-    QVector<double> kxSubset;   // always in base units 1/m
-    QVector<double> kySubset;   // always in base units 1/m
-    filterCurve(t, kx, ky, canFilterCurve, curveParam, kxSubset, kySubset);
+    QVector<double> plotXSubset;   // always in base units 1/m
+    QVector<double> plotYSubset;   // always in base units 1/m
+    filterCurve(t, plotX, plotY, canFilterCurve, curveParam, plotXSubset, plotYSubset);
 
-    if (curveParam.isEmpty() && kxSubset.isEmpty() && !canFilterCurve)
+    if (curveParam.isEmpty() && plotXSubset.isEmpty() && !canFilterCurve)
     {
         // fallback to complete dataset when filtering disabled but lambda removed everything (shouldn't happen)
         curveParam.resize(sampleCount);
-        kxSubset = kx.mid(0, sampleCount);
-        kySubset = ky.mid(0, sampleCount);
+        plotXSubset = plotX.mid(0, sampleCount);
+        plotYSubset = plotY.mid(0, sampleCount);
         for (int i = 0; i < sampleCount; ++i)
             curveParam[i] = !t.isEmpty() ? t[i] : static_cast<double>(i);
     }
-    // Apply trajectory scaling only for plotting; kxSubset/kySubset remain in base units.
+    // Apply trajectory scaling only for plotting; plotXSubset/plotYSubset remain in base units.
     if (trajScale != 1.0)
     {
         double scaleAbs = std::abs(trajScale);
-        QVector<double> kxScaled = kxSubset;
-        QVector<double> kyScaled = kySubset;
-        for (auto& v : kxScaled) v *= scaleAbs;
-        for (auto& v : kyScaled) v *= scaleAbs;
-        m_pTrajectoryCurve->setData(curveParam, kxScaled, kyScaled, true);
+        QVector<double> plotXScaled = plotXSubset;
+        QVector<double> plotYScaled = plotYSubset;
+        for (auto& v : plotXScaled) v *= scaleAbs;
+        for (auto& v : plotYScaled) v *= scaleAbs;
+        m_pTrajectoryCurve->setData(curveParam, plotXScaled, plotYScaled, true);
     }
     else
     {
-        m_pTrajectoryCurve->setData(curveParam, kxSubset, kySubset, true);
+        m_pTrajectoryCurve->setData(curveParam, plotXSubset, plotYSubset, true);
     }
     m_pTrajectoryCurve->setVisible(m_showKtraj);
 
-    QVector<double> kxAdcSubset;  // always in base units 1/m
-    QVector<double> kyAdcSubset;  // always in base units 1/m
-    filterScatter(tAdc, kxAdc, kyAdc, limitToView && !tAdc.isEmpty(), kxAdcSubset, kyAdcSubset);
+    QVector<double> plotXAdcSubset;  // always in base units 1/m
+    QVector<double> plotYAdcSubset;  // always in base units 1/m
+    filterScatter(tAdc, plotXAdc, plotYAdc, limitToView && !tAdc.isEmpty(), plotXAdcSubset, plotYAdcSubset);
 
     // Store scatter data for the QImage rasterizer (renderTrajectoryScatter).
     // No downsampling needed -> scanLine pixel writes are fast enough for any point count.
@@ -1327,6 +1382,8 @@ void MainWindow::refreshTrajectoryPlotData()
         double tAdcMin = std::numeric_limits<double>::infinity();
         double tAdcMax = -std::numeric_limits<double>::infinity();
         int limit = std::min({ tAdc.size(), kxAdc.size(), kyAdc.size() });
+        limit = std::min(limit, static_cast<int>(plotXAdc.size()));
+        limit = std::min(limit, static_cast<int>(plotYAdc.size()));
         for (int i = 0; i < limit; ++i) {
             double tt = tAdc[i];
             if (tt < filterStartSec || tt > filterEndSec) continue;
@@ -1346,8 +1403,8 @@ void MainWindow::refreshTrajectoryPlotData()
             for (int i = 0; i < limit; ++i) {
                 double tt = tAdc[i];
                 if (tt < filterStartSec || tt > filterEndSec) continue;
-                m_trajScatterKx.append(kxAdc[i]);
-                m_trajScatterKy.append(kyAdc[i]);
+                m_trajScatterKx.append(plotXAdc[i]);
+                m_trajScatterKy.append(plotYAdc[i]);
                 double norm = (tt - tAdcMin) / denom;
                 QColor c = sampleTrajectoryColormap(cmap, norm);
                 m_trajScatterColors.append(c.rgba());
@@ -1356,8 +1413,8 @@ void MainWindow::refreshTrajectoryPlotData()
             scaleVec(m_trajScatterKy);
         } else {
             // Fallback to uniform red
-            m_trajScatterKx = kxAdcSubset;
-            m_trajScatterKy = kyAdcSubset;
+            m_trajScatterKx = plotXAdcSubset;
+            m_trajScatterKy = plotYAdcSubset;
             scaleVec(m_trajScatterKx);
             scaleVec(m_trajScatterKy);
         }
@@ -1365,8 +1422,8 @@ void MainWindow::refreshTrajectoryPlotData()
     else
     {
         // Non-colored mode: uniform red (m_trajScatterColors stays empty)
-        m_trajScatterKx = kxAdcSubset;
-        m_trajScatterKy = kyAdcSubset;
+        m_trajScatterKx = plotXAdcSubset;
+        m_trajScatterKy = plotYAdcSubset;
         scaleVec(m_trajScatterKx);
         scaleVec(m_trajScatterKy);
     }
@@ -1399,14 +1456,14 @@ void MainWindow::refreshTrajectoryPlotData()
     // using base 1/m values and then scaling the final range by trajScale:
     // a_base = max(abs(kx_adc), abs(ky_adc)) across all samples; ranges = [-a_base, a_base] in 1/m,
     // then multiplied by |trajScale| for display units.
-    if (!kxAdc.isEmpty() && !kyAdc.isEmpty())
+    if (!plotXAdc.isEmpty() && !plotYAdc.isEmpty())
     {
         double aBase = 0.0; // in 1/m
-        int n = std::min(kxAdc.size(), kyAdc.size());
+        int n = std::min(plotXAdc.size(), plotYAdc.size());
         for (int i = 0; i < n; ++i)
         {
-            double ax = std::abs(kxAdc[i]);
-            double ay = std::abs(kyAdc[i]);
+            double ax = std::abs(plotXAdc[i]);
+            double ay = std::abs(plotYAdc[i]);
             if (std::isfinite(ax)) aBase = std::max(aBase, ax);
             if (std::isfinite(ay)) aBase = std::max(aBase, ay);
         }
@@ -1425,8 +1482,8 @@ void MainWindow::refreshTrajectoryPlotData()
     }
 
     // Use base 1/m data for bounds; only the final ranges are scaled by trajScale.
-    const QVector<double>& boundsX = !kxSubset.isEmpty() ? kxSubset : kxAdcSubset;
-    const QVector<double>& boundsY = !kySubset.isEmpty() ? kySubset : kyAdcSubset;
+    const QVector<double>& boundsX = !plotXSubset.isEmpty() ? plotXSubset : plotXAdcSubset;
+    const QVector<double>& boundsY = !plotYSubset.isEmpty() ? plotYSubset : plotYAdcSubset;
     const int boundCount = std::min(boundsX.size(), boundsY.size());
     if (boundCount < 2)
     {
@@ -1638,8 +1695,8 @@ void MainWindow::onTrajectoryMouseMove(QMouseEvent* event)
 
     m_pTrajectoryPlot->setCursor(Qt::CrossCursor);
 
-    double kxDisplay = m_pTrajectoryPlot->xAxis->pixelToCoord(pos.x());
-    double kyDisplay = m_pTrajectoryPlot->yAxis->pixelToCoord(pos.y());
+    double xDisplay = m_pTrajectoryPlot->xAxis->pixelToCoord(pos.x());
+    double yDisplay = m_pTrajectoryPlot->yAxis->pixelToCoord(pos.y());
 
     // Update overlay-local crosshair position (within axis rect)
     QPoint topLeft = rect->rect().topLeft();
@@ -1652,9 +1709,11 @@ void MainWindow::onTrajectoryMouseMove(QMouseEvent* event)
     if (m_pTrajectoryCrosshairLabel)
     {
         m_pTrajectoryCrosshairLabel->setText(
-            QStringLiteral("kx = %1, ky = %2 %3")
-                .arg(kxDisplay, 0, 'g', 5)
-                .arg(kyDisplay, 0, 'g', 5)
+            QStringLiteral("%1 = %2, %3 = %4 %5")
+                .arg(trajectoryAxisName(m_trajectoryProjection, true))
+                .arg(xDisplay, 0, 'g', 5)
+                .arg(trajectoryAxisName(m_trajectoryProjection, false))
+                .arg(yDisplay, 0, 'g', 5)
                 .arg(unit));
     }
 }
@@ -1871,11 +1930,11 @@ void MainWindow::refreshTrajectoryCursor()
     double scaleAbs = std::abs(scale);
     if (scaleAbs <= 0.0) scaleAbs = 1.0;
 
-    const double kxDisplay = kx * scaleAbs;
-    const double kyDisplay = ky * scaleAbs;
+    const double xDisplay = selectTrajectoryCoord(m_trajectoryProjection, true, kx, ky, kz) * scaleAbs;
+    const double yDisplay = selectTrajectoryCoord(m_trajectoryProjection, false, kx, ky, kz) * scaleAbs;
 
-    const double px = m_pTrajectoryPlot->xAxis->coordToPixel(kxDisplay);
-    const double py = m_pTrajectoryPlot->yAxis->coordToPixel(kyDisplay);
+    const double px = m_pTrajectoryPlot->xAxis->coordToPixel(xDisplay);
+    const double py = m_pTrajectoryPlot->yAxis->coordToPixel(yDisplay);
     const QRect plotRect = m_pTrajectoryPlot->rect();
     if (!plotRect.contains(QPoint(static_cast<int>(std::round(px)),
                                   static_cast<int>(std::round(py)))))
@@ -2040,8 +2099,20 @@ void MainWindow::updateTrajectoryAxisLabels()
         return;
     Settings& settings = Settings::getInstance();
     const QString unit = settings.getTrajectoryUnitString();
-    m_pTrajectoryPlot->xAxis->setLabel(QStringLiteral("k_x (%1)").arg(unit));
-    m_pTrajectoryPlot->yAxis->setLabel(QStringLiteral("k_y (%1)").arg(unit));
+    m_pTrajectoryPlot->xAxis->setLabel(QStringLiteral("%1 (%2)")
+                                           .arg(trajectoryAxisLabel(m_trajectoryProjection, true), unit));
+    m_pTrajectoryPlot->yAxis->setLabel(QStringLiteral("%1 (%2)")
+                                           .arg(trajectoryAxisLabel(m_trajectoryProjection, false), unit));
+}
+
+void MainWindow::updateTrajectoryProjectionUI()
+{
+    updateTrajectoryAxisLabels();
+    if (m_pTrajectoryProjectionCombo &&
+        m_pTrajectoryProjectionCombo->currentIndex() != static_cast<int>(m_trajectoryProjection))
+    {
+        m_pTrajectoryProjectionCombo->setCurrentIndex(static_cast<int>(m_trajectoryProjection));
+    }
 }
 
 void MainWindow::onSettingsChanged()
@@ -2055,7 +2126,7 @@ void MainWindow::onSettingsChanged()
         m_trajectoryRangeInitialized = false;
     }
 
-    updateTrajectoryAxisLabels();
+    updateTrajectoryProjectionUI();
     if (m_pulseqLoader)
     {
         m_pulseqLoader->recomputePnsFromSettings();
@@ -2145,6 +2216,21 @@ void MainWindow::onTrajectoryRangeModeChanged(int index)
     m_colorCurrentWindow = colorWin;
     if (!changed) return;
     refreshTrajectoryPlotData();
+}
+
+void MainWindow::onTrajectoryProjectionChanged(int index)
+{
+    TrajectoryProjection newProjection = (index == static_cast<int>(TrajectoryProjection::KyKz))
+        ? TrajectoryProjection::KyKz
+        : TrajectoryProjection::KxKy;
+    if (m_trajectoryProjection == newProjection)
+        return;
+
+    m_trajectoryProjection = newProjection;
+    m_trajectoryRangeInitialized = false;
+    updateTrajectoryProjectionUI();
+    refreshTrajectoryPlotData();
+    refreshTrajectoryCursor();
 }
 
 void MainWindow::onTrajectorySeriesToggled()
