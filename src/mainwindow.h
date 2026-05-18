@@ -78,6 +78,12 @@ class MainWindow : public QMainWindow
     friend class WaveformDrawer;
 
 public:
+    enum class TrajectoryProjection
+    {
+        KxKy = 0,
+        KyKz = 1
+    };
+
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
@@ -119,6 +125,7 @@ private:
     void updateTrajectoryExportState();
     void refreshTrajectoryCursor();
     void updateTrajectoryAxisLabels();
+    void updateTrajectoryProjectionUI();
     void updateWaveformGuideLine(int xPixel, bool visible);
     void clearWaveformGuideLine();
     bool sampleTrajectoryPosition(double timeSec,
@@ -145,6 +152,7 @@ private slots:
     void onTrajectoryWheel(QWheelEvent* event);
     void onShowTrajectoryCursorToggled(bool checked);
     void onTrajectoryRangeModeChanged(int index);
+    void onTrajectoryProjectionChanged(int index);
     void onTrajectorySeriesToggled();
     void onResetTrajectoryRange();
     void onTrajectoryMouseMove(QMouseEvent* event);
@@ -211,6 +219,7 @@ private:
     QPushButton* m_pResetTrajectoryButton {nullptr};
     QCheckBox* m_pShowTrajectoryCursorCheckBox {nullptr};
     QComboBox* m_pTrajectoryRangeCombo {nullptr};
+    QComboBox* m_pTrajectoryProjectionCombo {nullptr};
     QCheckBox* m_pShowKtrajCheckBox {nullptr};
     QCheckBox* m_pShowKtrajAdcCheckBox {nullptr};
     QCheckBox* m_pTrajectoryCrosshairCheckBox {nullptr};
@@ -229,6 +238,7 @@ private:
     bool m_showKtraj {false};
     bool m_showKtrajAdc {true};
     bool m_showTrajectoryCrosshair {false};
+    TrajectoryProjection m_trajectoryProjection {TrajectoryProjection::KxKy};
     double m_currentTrajectoryTimeInternal {0.0};
     bool m_hasTrajectoryCursorTime {false};
     bool m_trajectoryRangeInitialized {false};
