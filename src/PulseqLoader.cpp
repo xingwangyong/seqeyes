@@ -2706,8 +2706,18 @@ void PulseqLoader::getRfViewportDecimated(double visibleStart, double visibleEnd
         const RFAmpEntry& entryA = ensureRfAmpCached(rfList, RFLength, rf.magShape, rf.timeShape);
         // Build amplitude block data (prefer LTTB over min-max)
         QVector<double> tAmpBlk, vAmpBlk;
+        const double ampTol = 1e-6;
+        const bool isFlatAmp = (entryA.length > 0) && (std::abs(entryA.ampMax - entryA.ampMin) <= ampTol);
+        const double flatAmp = double(rf.amplitude) * (entryA.length > 0 ? double(entryA.ampNorm[0]) : 0.0);
         double ppp = (pxForBlock > 0) ? double(RFLength) / double(pxForBlock) : double(RFLength);
-        if (!allowDecimateRF || RFLength <= 64 || ppp <= 1.2) {
+        if (isFlatAmp) {
+            const double tEnd = tStart + duration;
+            tAmpBlk.reserve(4); vAmpBlk.reserve(4);
+            tAmpBlk.append(tStart); vAmpBlk.append(0.0);
+            tAmpBlk.append(tStart); vAmpBlk.append(flatAmp);
+            tAmpBlk.append(tEnd);   vAmpBlk.append(flatAmp);
+            tAmpBlk.append(tEnd);   vAmpBlk.append(0.0);
+        } else if (!allowDecimateRF || RFLength <= 64 || ppp <= 1.2) {
             tAmpBlk.reserve(RFLength); vAmpBlk.reserve(RFLength);
             for (int ii=0;ii<RFLength;++ii){ tAmpBlk.append(tStart + ii*dt); vAmpBlk.append(double(entryA.ampNorm[ii]) * double(rf.amplitude)); }
         } else {
@@ -2753,7 +2763,7 @@ void PulseqLoader::getRfViewportDecimated(double visibleStart, double visibleEnd
         appendWithBreakAmp(tAmpBlk, vAmpBlk);
         // Keep block separation with NaN break; duplicate last x to preserve sorted order
         if (!tAmp.isEmpty()) {
-            double tEnd = tStart + std::max(0, RFLength-1) * dt;
+            double tEnd = isFlatAmp ? (tStart + duration) : (tStart + std::max(0, RFLength-1) * dt);
             double tBreak = std::nextafter(tEnd, std::numeric_limits<double>::infinity());
             tAmp.append(tBreak);
             vAmp.append(std::numeric_limits<double>::quiet_NaN());

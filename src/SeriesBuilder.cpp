@@ -73,27 +73,49 @@ void buildRFSeries(
             }
         }
 
+        const double ampTol = 1e-6;
+        bool isFlatAmp = true;
+        for (int j = 1; j < RFLength; ++j) {
+            if (std::abs(static_cast<double>(rfList[j]) - static_cast<double>(rfList[0])) > ampTol) {
+                isFlatAmp = false;
+                break;
+            }
+        }
+
         // Append samples for this block; preserve true continuity across blocks
-        rfTimeAmp.reserve(rfTimeAmp.size() + RFLength);
-        rfAmp.reserve(rfAmp.size() + RFLength);
+        rfTimeAmp.reserve(rfTimeAmp.size() + (isFlatAmp ? 4 : RFLength));
         rfTimePh.reserve(rfTimePh.size() + RFLength);
         rfPh.reserve(rfPh.size() + RFLength);
 
+        if (isFlatAmp) {
+            const double tEnd = tStart + RFLength * dwell * tFactor;
+            const double amp = static_cast<double>(rfList[0]) * static_cast<double>(rf.amplitude);
+            rfTimeAmp.append(tStart); rfAmp.append(0.0);
+            rfTimeAmp.append(tStart); rfAmp.append(amp);
+            rfTimeAmp.append(tEnd);   rfAmp.append(amp);
+            rfTimeAmp.append(tEnd);   rfAmp.append(0.0);
+            lastTimeAmp = tEnd;
+            lastValAmp = 0.0;
+            hasAnyPointAmp = true;
+        } else {
+            rfAmp.reserve(rfAmp.size() + RFLength);
+            for (int j = 0; j < RFLength; ++j) {
+                const double t = tStart + j * dwell * tFactor;
+                // Use magnitude-only RF envelope for amplitude series; do NOT fabricate zeros between blocks
+                const double amp = static_cast<double>(rfList[j]) * static_cast<double>(rf.amplitude);
+                rfTimeAmp.append(t);
+                rfAmp.append(amp);
+                lastTimeAmp = t; lastValAmp = amp;
+                hasAnyPointAmp = true;
+            }
+        }
+
         for (int j = 0; j < RFLength; ++j) {
             const double t = tStart + j * dwell * tFactor;
-            // Use magnitude-only RF envelope for amplitude series; do NOT fabricate zeros between blocks
-            const double amp = static_cast<double>(rfList[j]) * static_cast<double>(rf.amplitude);
-            // Use phase data for phase series
             const double phase = static_cast<double>(phaseList[j]);
-
-            rfTimeAmp.append(t);
-            rfAmp.append(amp);
             rfTimePh.append(t);
             rfPh.append(phase);
-
-            lastTimeAmp = t; lastValAmp = amp;
             lastTimePh = t; lastValPh = phase;
-            hasAnyPointAmp = true;
             hasAnyPointPh = true;
         }
     }
@@ -347,5 +369,4 @@ void buildADCSeries(
 }
 
 } // namespace SeriesBuilder
-
 
