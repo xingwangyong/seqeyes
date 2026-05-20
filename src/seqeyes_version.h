@@ -2,7 +2,7 @@
 
 // Manual application semantic version. Update as needed for releases.
 // Keep both a plain and a display form.
-#define SEQEYES_APP_VERSION_PLAIN "0.0.7"
+#define SEQEYES_APP_VERSION_PLAIN "0.0.8"
 #define SEQEYES_APP_VERSION "v" SEQEYES_APP_VERSION_PLAIN
 
 
