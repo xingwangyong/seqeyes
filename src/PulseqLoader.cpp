@@ -1328,9 +1328,9 @@ void PulseqLoader::updateEchoAndExcitationMetadata(int versionMajor, int version
     if (!m_spPulseqSeq)
         return;
 
-    std::vector<double> teDef = m_spPulseqSeq->GetDefinition("TE");
+    std::vector<double> teDef = m_spPulseqSeq->GetDefinition("EchoTime");
     if (teDef.empty())
-        teDef = m_spPulseqSeq->GetDefinition("EchoTime");
+        teDef = m_spPulseqSeq->GetDefinition("TE");
     if (!teDef.empty())
     {
         m_hasEchoTimeDefinition = true;
