@@ -65,6 +65,28 @@ target_link_libraries(${TEST_NAME} PRIVATE
 add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 
 
+# TridReopenStateTest: unknown/custom label IDs must be scoped to one parser instance.
+set(TRID_REOPEN_TEST_NAME TridReopenStateTest)
+add_executable(${TRID_REOPEN_TEST_NAME}
+    ${PROJECT_SOURCE_DIR}/test/TridReopenStateTest.cpp
+    ${EXTERNAL_PULSEQ_DIR}/v151/ExternalSequence.cpp
+    ${EXTERNAL_PULSEQ_DIR}/v151/md5.cpp
+)
+
+target_include_directories(${TRID_REOPEN_TEST_NAME} PRIVATE
+    ${EXTERNAL_PULSEQ_DIR}
+)
+
+target_link_libraries(${TRID_REOPEN_TEST_NAME} PRIVATE
+    Qt6::Core
+)
+
+add_test(
+    NAME ${TRID_REOPEN_TEST_NAME}
+    COMMAND ${TRID_REOPEN_TEST_NAME} ${PROJECT_SOURCE_DIR}/test/seq_files/trid_unknown_label_v151.seq
+)
+
+
 # PerfZoomTest: headless timing of programmatic zoom-in
 set(PERF_TEST_NAME PerfZoomTest)
 add_executable(${PERF_TEST_NAME}

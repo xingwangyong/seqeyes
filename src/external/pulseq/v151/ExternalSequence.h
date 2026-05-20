@@ -1130,6 +1130,7 @@ class ExternalSequence
 	std::map<int, SoftDelayEvent>  m_softDelayLibrary; /**< @brief Library of soft delay events */
     std::map<int, RfShimmingEvent> m_rfShimLibrary;    /**< @brief Library of RF shimming events */
     LabelMap                       m_labelMap;         /**< @brief labelMap is useful for loading labels or damping/visualising values */
+    std::map<std::string, int>     m_unknownLabelIds;  /**< @brief Per-sequence IDs for custom labels such as TRID */
     
     // List of basic shapes (referenced by events)
 	std::map<int,CompressedShape> m_shapeLibrary;    /**< @brief Library of compressed shapes */
