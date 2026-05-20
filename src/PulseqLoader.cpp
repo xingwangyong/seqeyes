@@ -975,7 +975,7 @@ void PulseqLoader::parseTridIdNamesDefinition()
     if (!m_spPulseqSeq)
         return;
 
-    const std::string raw = m_spPulseqSeq->GetDefinitionStr("tridIdName");
+    const std::string raw = m_spPulseqSeq->GetDefinitionStr("TridIdName");
     if (raw.empty())
         return;
 
