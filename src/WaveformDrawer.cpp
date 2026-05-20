@@ -1547,16 +1547,7 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
         {
             int maxExt = 0;
             Settings& st = Settings::getInstance();
-
-            struct ExtSpec { QString name; bool isFlag; int id; };
-            const QVector<ExtSpec> specs = {
-                {"SLC", false, SLC}, {"SEG", false, SEG}, {"REP", false, REP}, {"AVG", false, AVG},
-                {"SET", false, SET}, {"ECO", false, ECO}, {"PHS", false, PHS}, {"LIN", false, LIN},
-                {"PAR", false, PAR}, {"ACQ", false, ACQ}, {"ONCE", false, ONCE},
-                {"NAV", true, NAV}, {"REV", true, REV}, {"SMS", true, SMS}, {"REF", true, REF},
-                {"IMA", true, IMA}, {"OFF", true, OFF}, {"NOISE", true, NOISE},
-                {"PMC", true, PMC}, {"NOROT", true, NOROT}, {"NOPOS", true, NOPOS}, {"NOSCL", true, NOSCL},
-            };
+            const QStringList labels = loader->getAvailableExtensionLabels();
 
             // Find block indices intersecting the viewport
             const auto& edges = loader->getBlockEdges();
@@ -1569,22 +1560,15 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
                                   std::max(b0, int(std::distance(edges.begin(), itU)) - 1));
                 for (int b = b0; b <= b1; ++b)
                 {
-                    for (const auto& s : specs)
+                    for (const QString& label : labels)
                     {
-                        if (!st.isExtensionLabelEnabled(s.name))
+                        if (!st.isExtensionLabelEnabled(label))
                             continue;
-                        if (s.isFlag)
-                        {
-                            bool v = false;
-                            if (loader->getFlagValueAfterBlock(b, s.id, v))
-                                maxExt = std::max(maxExt, v ? 1 : 0);
-                        }
-                        else
-                        {
-                            int v = 0;
-                            if (loader->getCounterValueAfterBlock(b, s.id, v))
-                                maxExt = std::max(maxExt, v);
-                        }
+                        int value = 0;
+                        bool isFlag = false;
+                        if (!loader->getExtensionValueAfterBlock(b, label, value, isFlag))
+                            continue;
+                        maxExt = std::max(maxExt, value);
                     }
                 }
             }
@@ -2813,4 +2797,3 @@ void WaveformDrawer::updateKxKyZeroGuides(double visibleStart, double visibleEnd
         }
     }
 }
-

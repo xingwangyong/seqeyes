@@ -56,6 +56,8 @@ public:
     // Extension label snapshots (current values after a block).
     bool getCounterValueAfterBlock(int blockIdx, int counterId, int& outVal) const;
     bool getFlagValueAfterBlock(int blockIdx, int flagId, bool& outVal) const;
+    bool getExtensionValueAfterBlock(int blockIdx, const QString& name, int& outVal, bool& isFlag) const;
+    QStringList getAvailableExtensionLabels() const;
     QSet<QString> getUsedExtensions() const { return m_usedExtensions; }
     // Get all active labels (counters/flags) with their current values for a block
     QList<QPair<QString, int>> getActiveLabels(int blockIdx) const;
@@ -215,6 +217,7 @@ private:
     {
         QVector<int>  counters; // size NUM_LABELS (known counters only)
         QVector<bool> flags;    // size NUM_FLAGS (known flags only)
+        QHash<QString, int> customCounters; // unknown/custom counters keyed by upper-case name
     };
 
     void buildLabelSnapshotCache();

@@ -5,13 +5,8 @@
 #include "ExtensionStyleMap.h"
 
 #include "external/qcustomplot/qcustomplot.h"
-#include "external/pulseq/v151/ExternalSequence.h"
 
 #include <algorithm>
-#include <limits>
-
-using LabelsEnum = Labels;
-using FlagsEnum = Flags;
 
 static QCPScatterStyle::ScatterShape toQcpScatter(MarkerKind k)
 {
@@ -76,89 +71,17 @@ void ExtensionPlotter::setHostVisible(bool visible)
     }
 }
 
-QVector<ExtensionPlotter::Spec> ExtensionPlotter::supportedSpecs()
+QStringList ExtensionPlotter::availableLabels(PulseqLoader* loader) const
 {
-    // Map Settings label strings to pulseq v151 enums; unsupported strings are skipped.
-    QVector<Spec> out;
-
-    auto addCounter = [&](const QString& name, LabelsEnum id) {
-        Spec s;
-        s.name = name;
-        s.isFlag = false;
-        s.id = static_cast<int>(id);
-        out.push_back(s);
-    };
-    auto addFlag = [&](const QString& name, FlagsEnum id) {
-        Spec s;
-        s.name = name;
-        s.isFlag = true;
-        s.id = static_cast<int>(id);
-        out.push_back(s);
-    };
-
-    // Counters (NUM_LABELS)
-    addCounter("SLC", LabelsEnum::SLC);
-    addCounter("SEG", LabelsEnum::SEG);
-    addCounter("ECO", LabelsEnum::ECO);
-    addCounter("PHS", LabelsEnum::PHS);
-    addCounter("SET", LabelsEnum::SET);
-    addCounter("ACQ", LabelsEnum::ACQ);
-    addCounter("LIN", LabelsEnum::LIN);
-    addCounter("PAR", LabelsEnum::PAR);
-    addCounter("AVG", LabelsEnum::AVG);
-    addCounter("REP", LabelsEnum::REP);
-    addCounter("ONCE", LabelsEnum::ONCE);
-
-    // Flags (NUM_FLAGS)
-    addFlag("NAV", FlagsEnum::NAV);
-    addFlag("REV", FlagsEnum::REV);
-    addFlag("SMS", FlagsEnum::SMS);
-    addFlag("REF", FlagsEnum::REF);
-    addFlag("IMA", FlagsEnum::IMA);
-    addFlag("OFF", FlagsEnum::OFF);
-    addFlag("NOISE", FlagsEnum::NOISE);
-    addFlag("PMC", FlagsEnum::PMC);
-    addFlag("NOPOS", FlagsEnum::NOPOS);
-    addFlag("NOROT", FlagsEnum::NOROT);
-    addFlag("NOSCL", FlagsEnum::NOSCL);
-
-    return out;
+    if (!loader)
+        return {};
+    return loader->getAvailableExtensionLabels();
 }
 
 void ExtensionPlotter::ensureGraphs()
 {
     if (!m_plot || !m_targetRect)
         return;
-
-    const auto specs = supportedSpecs();
-    for (const Spec& s : specs)
-    {
-        if (m_graphByName.contains(s.name))
-            continue;
-
-        auto* g = m_plot->addGraph(m_targetRect->axis(QCPAxis::atBottom),
-                                   m_targetRect->axis(QCPAxis::atLeft));
-        if (!g)
-            continue;
-
-        const ExtensionVisualStyle vs = extensionStyleForName(s.name);
-        QPen pen(vs.color);
-        pen.setWidthF(1.2);
-        pen.setStyle(Qt::SolidLine);
-        g->setPen(pen);
-        // Match SeqPlot.m semantics: plot label values only at ADC events (points), not as a continuous step line across delay blocks.
-        g->setLineStyle(QCPGraph::lsNone);
-        const QCPScatterStyle::ScatterShape shape = toQcpScatter(vs.marker);
-        const double size = (s.isFlag ? 3.0 : 6.0);
-        g->setScatterStyle(QCPScatterStyle(shape, size));
-        g->setBrush(QBrush(vs.color));
-        g->setAdaptiveSampling(false);
-        g->setAntialiased(false);
-        g->setVisible(false);
-
-        m_graphByName.insert(s.name, g);
-        m_cacheByName.insert(s.name, SeriesCache{});
-    }
 }
 
 void ExtensionPlotter::reset()
@@ -167,8 +90,6 @@ void ExtensionPlotter::reset()
     m_cacheByName.clear();
     m_lastSeqPtr = nullptr;
     m_lastBlockCount = 0;
-    
-    ensureGraphs();
 }
 
 void ExtensionPlotter::sliceStepSeries(const QVector<double>& tIn,
@@ -205,17 +126,48 @@ void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader)
     if (!loader)
         return;
     auto seqSp = loader->getSequence();
-    ExternalSequence* seq = seqSp.get();
-    if (!seq)
+    if (!seqSp)
         return;
 
-    void* seqPtr = static_cast<void*>(seq);
+    void* seqPtr = static_cast<void*>(seqSp.get());
     const int blockCount = static_cast<int>(loader->getDecodedSeqBlocks().size());
     if (seqPtr == m_lastSeqPtr && blockCount == m_lastBlockCount)
         return;
 
     m_lastSeqPtr = seqPtr;
     m_lastBlockCount = blockCount;
+
+    const QStringList labels = availableLabels(loader);
+    for (const QString& name : labels)
+    {
+        if (m_graphByName.contains(name))
+            continue;
+
+        auto* g = m_plot->addGraph(m_targetRect->axis(QCPAxis::atBottom),
+                                   m_targetRect->axis(QCPAxis::atLeft));
+        if (!g)
+            continue;
+
+        int dummyValue = 0;
+        bool isFlag = false;
+        loader->getExtensionValueAfterBlock(0, name, dummyValue, isFlag);
+
+        const ExtensionVisualStyle vs = extensionStyleForName(name);
+        QPen pen(vs.color);
+        pen.setWidthF(1.2);
+        pen.setStyle(Qt::SolidLine);
+        g->setPen(pen);
+        g->setLineStyle(QCPGraph::lsNone);
+        const QCPScatterStyle::ScatterShape shape = toQcpScatter(vs.marker);
+        g->setScatterStyle(QCPScatterStyle(shape, isFlag ? 3.0 : 6.0));
+        g->setBrush(QBrush(vs.color));
+        g->setAdaptiveSampling(false);
+        g->setAntialiased(false);
+        g->setVisible(false);
+
+        m_graphByName.insert(name, g);
+        m_cacheByName.insert(name, SeriesCache{});
+    }
 
     // Clear caches
     for (auto it = m_cacheByName.begin(); it != m_cacheByName.end(); ++it)
@@ -230,24 +182,17 @@ void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader)
     if (edges.size() < 2)
         return;
 
-    // Track current label state (known IDs only; ignore unknown IDs >= NUM_LABELS/NUM_FLAGS).
-    QVector<int> counterVal(NUM_LABELS, 0);
-    QVector<bool> flagVal(NUM_FLAGS, false);
-
-    auto specs = supportedSpecs();
-    // Initialize series with a starting point at time 0
-    for (const Spec& s : specs)
+    for (const QString& name : labels)
     {
-        SeriesCache& sc = m_cacheByName[s.name];
+        SeriesCache& sc = m_cacheByName[name];
         sc.valid = true;
-        sc.used = false;
+        sc.used = loader->getUsedExtensions().contains(name.toUpper());
     }
 
-    auto appendPoint = [&](const Spec& s, double t, double newVal) {
-        SeriesCache& sc = m_cacheByName[s.name];
+    auto appendPoint = [&](const QString& name, double t, double newVal) {
+        SeriesCache& sc = m_cacheByName[name];
         if (!sc.valid)
             return;
-        // Avoid duplicate timestamps
         if (!sc.t.isEmpty() && sc.t.last() == t)
         {
             sc.v.last() = newVal;
@@ -257,11 +202,6 @@ void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader)
         sc.v.push_back(newVal);
     };
 
-    // Track whether each label ever appeared; only plot after it appeared at least once (SeqPlot.m's label_defined semantics).
-    QVector<bool> usedCounters(NUM_LABELS, false);
-    QVector<bool> usedFlags(NUM_FLAGS, false);
-
-    // Walk blocks, apply label events, and record values ONLY at ADC events (SeqPlot.m behavior).
     const auto& blocks = loader->getDecodedSeqBlocks();
     const int nBlocks = std::min(static_cast<int>(blocks.size()), static_cast<int>(edges.size() - 1));
     for (int i = 0; i < nBlocks; ++i)
@@ -270,80 +210,27 @@ void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader)
         if (!blk)
             continue;
 
-        // Apply labelset then labelinc (SeqPlot.m behavior)
-        if (blk->isLabel())
-        {
-            const auto& sets = blk->GetLabelSetEvents();
-            for (const auto& e : sets)
-            {
-                const int lblId = e.numVal.first;
-                const int val = e.numVal.second;
-                const int flagId = e.flagVal.first;
-                const bool fval = e.flagVal.second;
-
-                if (lblId >= 0 && lblId < NUM_LABELS && lblId != LABEL_UNKNOWN)
-                {
-                    counterVal[lblId] = val;
-                    usedCounters[lblId] = true;
-                }
-                if (flagId >= 0 && flagId < NUM_FLAGS && flagId != FLAG_UNKNOWN)
-                {
-                    flagVal[flagId] = fval;
-                    usedFlags[flagId] = true;
-                }
-            }
-            const auto& incs = blk->GetLabelIncEvents();
-            for (const auto& e : incs)
-            {
-                const int lblId = e.numVal.first;
-                const int val = e.numVal.second;
-                if (lblId >= 0 && lblId < NUM_LABELS && lblId != LABEL_UNKNOWN)
-                {
-                    counterVal[lblId] += val;
-                    usedCounters[lblId] = true;
-                }
-            }
-        }
-
         if (blk->isADC())
         {
-            // ADC center time: blockStart + adc.delay + (numSamples-1)/2*dwell
             const ADCEvent& adc = blk->GetADCEvent();
             const double tStart = edges[i];
-            const double tDelay = adc.delay * loader->getTFactor(); // us -> internal
-            const double dwellUs = adc.dwellTime / 1000.0;          // ns -> us
+            const double tDelay = adc.delay * loader->getTFactor();
+            const double dwellUs = adc.dwellTime / 1000.0;
             const double dt = dwellUs * loader->getTFactor();
             const double mid = (adc.numSamples > 0 ? (adc.numSamples - 1) * 0.5 * dt : 0.0);
             const double tAdc = tStart + tDelay + mid;
 
-            for (const Spec& s : specs)
+            for (const QString& name : labels)
             {
-                // Only plot labels/flags that have appeared at least once.
-                if (s.isFlag)
-                {
-                    if (s.id >= 0 && s.id < usedFlags.size() && !usedFlags[s.id])
-                        continue;
-                    m_cacheByName[s.name].used = true;
-                }
-                else
-                {
-                    if (s.id >= 0 && s.id < usedCounters.size() && !usedCounters[s.id])
-                        continue;
-                    m_cacheByName[s.name].used = true;
-                }
+                if (!m_cacheByName.value(name).used)
+                    continue;
 
-                double v = 0.0;
-                if (s.isFlag)
-                {
-                    if (s.id >= 0 && s.id < NUM_FLAGS)
-                        v = flagVal[s.id] ? 1.0 : 0.0;
-                }
-                else
-                {
-                    if (s.id >= 0 && s.id < NUM_LABELS)
-                        v = static_cast<double>(counterVal[s.id]);
-                }
-                appendPoint(s, tAdc, v);
+                int value = 0;
+                bool isFlag = false;
+                if (!loader->getExtensionValueAfterBlock(i, name, value, isFlag))
+                    continue;
+
+                appendPoint(name, tAdc, static_cast<double>(value));
             }
         }
     }
@@ -354,19 +241,16 @@ void ExtensionPlotter::updateForViewport(PulseqLoader* loader, double visibleSta
     if (!m_plot || !m_targetRect || !loader)
         return;
 
-    ensureGraphs();
     rebuildCacheIfNeeded(loader);
 
-    const auto specs = supportedSpecs();
-
-    for (const Spec& s : specs)
+    for (const QString& name : availableLabels(loader))
     {
-        QCPGraph* g = m_graphByName.value(s.name, nullptr);
-        const auto it = m_cacheByName.constFind(s.name);
+        QCPGraph* g = m_graphByName.value(name, nullptr);
+        const auto it = m_cacheByName.constFind(name);
         if (!g || it == m_cacheByName.constEnd() || !it.value().valid)
             continue;
 
-        const bool enabled = Settings::getInstance().isExtensionLabelEnabled(s.name);
+        const bool enabled = Settings::getInstance().isExtensionLabelEnabled(name);
         const bool show = m_hostVisible && enabled && it.value().used;
         if (!show)
         {
@@ -380,4 +264,3 @@ void ExtensionPlotter::updateForViewport(PulseqLoader* loader, double visibleSta
         g->setVisible(!tSlice.isEmpty());
     }
 }
-

@@ -46,16 +46,9 @@ private:
         bool used {false}; // whether this label/flag ever appeared in the sequence
     };
 
-    struct Spec
-    {
-        QString name;
-        bool isFlag {false};
-        int id {-1}; // Labels/Flags enum id
-    };
-
     void ensureGraphs();
     void rebuildCacheIfNeeded(PulseqLoader* loader);
-    static QVector<Spec> supportedSpecs();
+    QStringList availableLabels(PulseqLoader* loader) const;
 
     static void sliceStepSeries(const QVector<double>& tIn,
                                 const QVector<double>& vIn,
@@ -78,4 +71,3 @@ private:
     // Full-series cache (per label name)
     QHash<QString, SeriesCache> m_cacheByName;
 };
-

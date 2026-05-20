@@ -32,6 +32,39 @@
 
 #define SAFE_DELETE(p) { if(p) { delete p; p = nullptr; } }
 
+namespace
+{
+struct KnownExtensionSpec
+{
+    const char* name;
+    bool isFlag;
+    int id;
+};
+
+const QVector<KnownExtensionSpec>& knownExtensionSpecs()
+{
+    static const QVector<KnownExtensionSpec> specs = {
+        {"SLC", false, SLC}, {"SEG", false, SEG}, {"REP", false, REP}, {"AVG", false, AVG},
+        {"SET", false, SET}, {"ECO", false, ECO}, {"PHS", false, PHS}, {"LIN", false, LIN},
+        {"PAR", false, PAR}, {"ACQ", false, ACQ}, {"ONCE", false, ONCE},
+        {"NAV", true, NAV}, {"REV", true, REV}, {"SMS", true, SMS}, {"REF", true, REF},
+        {"IMA", true, IMA}, {"OFF", true, OFF}, {"NOISE", true, NOISE},
+        {"PMC", true, PMC}, {"NOROT", true, NOROT}, {"NOPOS", true, NOPOS}, {"NOSCL", true, NOSCL},
+    };
+    return specs;
+}
+
+QString normalizedExtensionName(const std::string& name)
+{
+    return QString::fromStdString(name).trimmed().toUpper();
+}
+
+QString fallbackExtensionName(const QString& prefix, int id)
+{
+    return QString("%1[%2]").arg(prefix).arg(id).toUpper();
+}
+}
+
 PulseqLoader::PulseqLoader(MainWindow* mainWindow)
     : QObject(mainWindow),
       m_mainWindow(mainWindow),
@@ -845,6 +878,7 @@ void PulseqLoader::buildLabelSnapshotCache()
     // it can crash on unknown label IDs (>=1000) for LABELINC events. We apply events ourselves with bounds checks.
     QVector<int>  counterVal(NUM_LABELS, 0);
     QVector<bool> flagVal(NUM_FLAGS, false);
+    QHash<QString, int> customCounterVal;
 
     m_labelSnapshots.resize(nBlocks);
     for (int i = 0; i < nBlocks; ++i)
@@ -856,16 +890,22 @@ void PulseqLoader::buildLabelSnapshotCache()
             auto markCounterUsed = [&](int id) {
                 if (!seq) return;
                 const std::string s = seq->getCounterIdAsString(id);
-                if (!s.empty()) { m_usedExtensions.insert(QString::fromStdString(s).toUpper()); return; }
+                if (!s.empty()) { m_usedExtensions.insert(normalizedExtensionName(s)); return; }
                 const std::string u = seq->GetUnknownLabelName(id);
-                if (!u.empty()) { m_usedExtensions.insert(QString::fromStdString(u).toUpper()); return; }
-                m_usedExtensions.insert(QString("LABEL[%1]").arg(id).toUpper());
+                if (!u.empty()) { m_usedExtensions.insert(normalizedExtensionName(u)); return; }
+                m_usedExtensions.insert(fallbackExtensionName("LABEL", id));
             };
             auto markFlagUsed = [&](int id) {
                 if (!seq) return;
                 const std::string s = seq->getFlagIdAsString(id);
-                if (!s.empty()) { m_usedExtensions.insert(QString::fromStdString(s).toUpper()); return; }
-                m_usedExtensions.insert(QString("FLAG[%1]").arg(id).toUpper());
+                if (!s.empty()) { m_usedExtensions.insert(normalizedExtensionName(s)); return; }
+                m_usedExtensions.insert(fallbackExtensionName("FLAG", id));
+            };
+            auto customCounterName = [&](int id) -> QString {
+                if (!seq) return fallbackExtensionName("LABEL", id);
+                const std::string u = seq->GetUnknownLabelName(id);
+                if (!u.empty()) return normalizedExtensionName(u);
+                return fallbackExtensionName("LABEL", id);
             };
 
             // Apply LABELSET first, then LABELINC (same semantics as SeqPlot.m and pulseq runtime).
@@ -881,6 +921,12 @@ void PulseqLoader::buildLabelSnapshotCache()
                 {
                     counterVal[lblId] = val;
                     markCounterUsed(lblId);
+                }
+                else if (lblId != LABEL_UNKNOWN)
+                {
+                    const QString name = customCounterName(lblId);
+                    customCounterVal.insert(name, val);
+                    m_usedExtensions.insert(name);
                 }
                 if (flagId >= 0 && flagId < NUM_FLAGS && flagId != FLAG_UNKNOWN)
                 {
@@ -898,17 +944,26 @@ void PulseqLoader::buildLabelSnapshotCache()
                     counterVal[lblId] += val;
                     markCounterUsed(lblId);
                 }
+                else if (lblId != LABEL_UNKNOWN)
+                {
+                    const QString name = customCounterName(lblId);
+                    customCounterVal[name] = customCounterVal.value(name, 0) + val;
+                    m_usedExtensions.insert(name);
+                }
             }
         }
 
         LabelSnapshot snap;
         snap.counters = counterVal;
         snap.flags = flagVal;
+        snap.customCounters = customCounterVal;
         m_labelSnapshots[i] = snap;
 
         // Track max accumulated counter value across all blocks (used for ADC Y-range)
         for (int c : counterVal)
             m_maxAccumulatedCounter = std::max(m_maxAccumulatedCounter, std::abs(c));
+        for (auto it = customCounterVal.constBegin(); it != customCounterVal.constEnd(); ++it)
+            m_maxAccumulatedCounter = std::max(m_maxAccumulatedCounter, std::abs(it.value()));
     }
 }
 
@@ -937,6 +992,56 @@ bool PulseqLoader::getFlagValueAfterBlock(int blockIdx, int flagId, bool& outVal
     if (flagId < 0 || flagId >= s->flags.size()) return false;
     outVal = s->flags[flagId];
     return true;
+}
+
+bool PulseqLoader::getExtensionValueAfterBlock(int blockIdx, const QString& name, int& outVal, bool& isFlag) const
+{
+    outVal = 0;
+    isFlag = false;
+
+    const LabelSnapshot* snap = labelSnapshotAfterBlock(blockIdx);
+    if (!snap)
+        return false;
+
+    const QString normalized = name.trimmed().toUpper();
+    for (const auto& spec : knownExtensionSpecs())
+    {
+        if (normalized != QLatin1String(spec.name))
+            continue;
+
+        isFlag = spec.isFlag;
+        if (spec.isFlag)
+        {
+            if (spec.id < 0 || spec.id >= snap->flags.size())
+                return false;
+            outVal = snap->flags[spec.id] ? 1 : 0;
+            return true;
+        }
+
+        if (spec.id < 0 || spec.id >= snap->counters.size())
+            return false;
+        outVal = snap->counters[spec.id];
+        return true;
+    }
+
+    const auto it = snap->customCounters.constFind(normalized);
+    if (it == snap->customCounters.constEnd())
+        return false;
+
+    outVal = it.value();
+    return true;
+}
+
+QStringList PulseqLoader::getAvailableExtensionLabels() const
+{
+    QStringList labels = Settings::getSupportedExtensionLabels();
+    for (const QString& used : m_usedExtensions)
+    {
+        if (!labels.contains(used, Qt::CaseInsensitive))
+            labels.append(used);
+    }
+    labels.sort(Qt::CaseInsensitive);
+    return labels;
 }
 
 void PulseqLoader::setBlockInfoContent(EventBlockInfoDialog* dialog, int currentBlock)
@@ -3057,43 +3162,30 @@ void PulseqLoader::buildShapeScaleAggregates()
 QList<QPair<QString, int>> PulseqLoader::getActiveLabels(int blockIdx) const
 {
     QList<QPair<QString, int>> result;
-    const LabelSnapshot* snap = labelSnapshotAfterBlock(blockIdx);
-    if (!snap) return result;
+    if (!labelSnapshotAfterBlock(blockIdx))
+        return result;
 
-    struct Spec { QString name; bool isFlag; int id; };
-    static const QVector<Spec> specs = {
-        // Counters
-        {"SLC", false, SLC}, {"SEG", false, SEG}, {"REP", false, REP}, {"AVG", false, AVG},
-        {"SET", false, SET}, {"ECO", false, ECO}, {"PHS", false, PHS}, {"LIN", false, LIN},
-        {"PAR", false, PAR}, {"ACQ", false, ACQ}, {"ONCE", false, ONCE},
-        // Flags
-        {"NAV", true, NAV}, {"REV", true, REV}, {"SMS", true, SMS}, {"REF", true, REF},
-        {"IMA", true, IMA}, {"OFF", true, OFF}, {"NOISE", true, NOISE},
-        {"PMC", true, PMC}, {"NOROT", true, NOROT}, {"NOPOS", true, NOPOS}, {"NOSCL", true, NOSCL},
-    };
-
-    for (const auto& s : specs)
+    const QStringList labels = getAvailableExtensionLabels();
+    for (const QString& label : labels)
     {
-        if (!Settings::getInstance().isExtensionLabelEnabled(s.name))
+        if (!Settings::getInstance().isExtensionLabelEnabled(label))
+            continue;
+        if (!m_usedExtensions.contains(label.toUpper()))
             continue;
 
-        // SKIP if this label was never used in the sequence (avoid ghost labels like PHS=0)
-        if (!m_usedExtensions.contains(s.name))
+        int value = 0;
+        bool isFlag = false;
+        if (!getExtensionValueAfterBlock(blockIdx, label, value, isFlag))
             continue;
 
-        if (s.isFlag)
+        if (isFlag)
         {
-            if (s.id < 0 || s.id >= snap->flags.size()) continue;
-            if (snap->flags[s.id]) {
-                result.append({s.name, 1});
-            }
+            if (value != 0)
+                result.append({label.toUpper(), 1});
         }
         else
         {
-            if (s.id < 0 || s.id >= snap->counters.size()) continue;
-            int v = snap->counters[s.id];
-            // Show all counters, even if 0, to match user expectation of "current state"
-            result.append({s.name, v});
+            result.append({label.toUpper(), value});
         }
     }
     // Sort alphabetically by name
