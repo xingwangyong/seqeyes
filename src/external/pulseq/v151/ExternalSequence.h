@@ -1127,6 +1127,7 @@ class ExternalSequence
 	std::map<int, RotationEvent>   m_rotationLibrary;  /**< @brief Library of rotation events */
 	std::map<int, LabelEvent>      m_labelsetLibrary;  /**< @brief Library of labelset events */
 	std::map<int, LabelEvent>      m_labelincLibrary;  /**< @brief Library of labelinc events */
+	std::map<std::string, int>     m_unknownLabelIds;  /**< @brief Per-sequence IDs assigned to custom label names */
 	std::map<int, SoftDelayEvent>  m_softDelayLibrary; /**< @brief Library of soft delay events */
     std::map<int, RfShimmingEvent> m_rfShimLibrary;    /**< @brief Library of RF shimming events */
     LabelMap                       m_labelMap;         /**< @brief labelMap is useful for loading labels or damping/visualising values */

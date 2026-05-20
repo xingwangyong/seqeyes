@@ -14,6 +14,7 @@ class ExtensionPlotter;
 
 // Forward declarations
 class MainWindow;
+class PulseqLabelAnalyzer;
 class QCPAxisRect;
 class QCPItemTracer;
 class QCPItemStraightLine;
@@ -244,6 +245,7 @@ private:
 
     // Extension labels overlay (SLC/REP/AVG...)
     std::unique_ptr<ExtensionPlotter> m_extensionPlotter;
+    std::unique_ptr<PulseqLabelAnalyzer> m_labelAnalyzer;
 
     // Fixed Y-axis ranges per rect (0..5). When locked, draw functions won't adjust Y ranges dynamically.
     bool m_lockYAxisRanges {false};
@@ -296,4 +298,3 @@ public:
 };
 
 #endif // WAVEFORMDRAWER_H
-

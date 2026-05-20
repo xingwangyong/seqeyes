@@ -81,6 +81,7 @@ void ExternalSequence::reset()
 	m_gradLibrary.clear();
 	m_labelincLibrary.clear();
 	m_labelsetLibrary.clear();
+	m_unknownLabelIds.clear();
 	m_rfLibrary.clear();
 	m_rotationLibrary.clear();
 	m_shapeLibrary.clear();
@@ -1706,21 +1707,20 @@ int ExternalSequence::decodeLabel(ExtType exttype, int& nVal, char* szLabelID, L
 	LabelMap::tM::const_iterator it = m_labelMap.mapStrToLabel.find(szLabelID);
 	if (it==m_labelMap.mapStrToLabel.end())
 	{
-		// For unknown labels (like TRID), use a fixed ID for the same label type
-		// All TRID labels should use the same ID to appear as one line
-		static std::map<std::string, int> unknownLabelIds;
+		// For unknown labels (like TRID), use a fixed ID within this sequence instance.
+		// All TRID labels should use the same ID to appear as one line.
 		int customLabelId;
 		
-		if (unknownLabelIds.find(szLabelID) == unknownLabelIds.end()) {
+		if (m_unknownLabelIds.find(szLabelID) == m_unknownLabelIds.end()) {
 			// First time seeing this unknown label, assign a new ID
-			customLabelId = 1000 + unknownLabelIds.size();
-			unknownLabelIds[szLabelID] = customLabelId;
+			customLabelId = 1000 + m_unknownLabelIds.size();
+			m_unknownLabelIds[szLabelID] = customLabelId;
 			
 			// Store the label name in the existing label map system
 			m_labelMap.mapLabelIdToStr[customLabelId] = szLabelID;
 		} else {
 			// Use existing ID for this label type
-			customLabelId = unknownLabelIds[szLabelID];
+			customLabelId = m_unknownLabelIds[szLabelID];
 		}
 		
 		// Store the original label name and value

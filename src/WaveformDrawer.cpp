@@ -921,10 +921,6 @@ void WaveformDrawer::ResetView()
 
 void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
 {
-    static int callCount = 0;
-    callCount++;
-    // Debug logging removed
-    
     PulseqLoader* loader = m_mainWindow->getPulseqLoader();
     if (loader->getDecodedSeqBlocks().empty()) return;
 
@@ -1379,6 +1375,7 @@ void WaveformDrawer::clearAllWaveformData()
 
     if (m_extensionPlotter)
         m_extensionPlotter->reset();
+    m_labelAnalyzer.reset();
 
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
         m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
@@ -1390,11 +1387,10 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
     if (loader->getDecodedSeqBlocks().empty()) return;
     
     // Use PulseqLabelAnalyzer to determine label state accurately.
-    static PulseqLabelAnalyzer* labelAnalyzer = nullptr;
-    if (!labelAnalyzer) {
+    if (!m_labelAnalyzer) {
         auto seq = loader->getSequence();
         if (seq) {
-            labelAnalyzer = new PulseqLabelAnalyzer(*seq);
+            m_labelAnalyzer = std::make_unique<PulseqLabelAnalyzer>(*seq);
             if (DEBUG_LABEL_EVENTS) {
                 qDebug().noquote() << "PulseqLabelAnalyzer initialized with" << seq->GetNumberOfBlocks() << "blocks";
             }

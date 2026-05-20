@@ -117,6 +117,14 @@ private:
 
     // Synchronization guard to avoid re-entrant/duplicate heavy work
     bool m_syncInProgress {false};
+    bool m_gradCacheValid {false};
+    QString m_cachedGx {"--.--"};
+    QString m_cachedGy {"--.--"};
+    QString m_cachedGz {"--.--"};
+    bool m_kspaceCacheValid {false};
+    double m_cachedKx {0.0};
+    double m_cachedKy {0.0};
+    double m_cachedKz {0.0};
     // Coalesce expensive viewport re-render work during continuous zoom/pan.
     QTimer* m_viewportRenderTimer {nullptr};
     QTimer* m_viewportFinalTimer {nullptr};

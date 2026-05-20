@@ -128,6 +128,8 @@ void InteractionHandler::cancelPendingViewportRenders()
     m_pendingTrajectoryRefresh = false;
     m_accumulatedWheelDelta = 0;
     m_syncInProgress = false;
+    m_gradCacheValid = false;
+    m_kspaceCacheValid = false;
     if (m_mainWindow)
         m_mainWindow->setInteractionFastMode(false);
 }
@@ -366,13 +368,9 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
         // Gradients Gx,Gy,Gz (2 decimals) in selected unit
         auto fmt2 = [](double v){ return QString::number(v, 'f', 2); };
         QString gx = "--.--", gy = "--.--", gz = "--.--";
-        static bool s_gradCacheValid = false;
-        static QString s_cachedGx = "--.--";
-        static QString s_cachedGy = "--.--";
-        static QString s_cachedGz = "--.--";
         if (blockIdx < 0)
         {
-            s_gradCacheValid = false;
+            m_gradCacheValid = false;
         }
         else if (allowHeavyHoverWork)
         {
@@ -399,55 +397,51 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
                 nextGz = fmt2(val);
             }
 
-            s_cachedGx = nextGx;
-            s_cachedGy = nextGy;
-            s_cachedGz = nextGz;
-            s_gradCacheValid = true;
+            m_cachedGx = nextGx;
+            m_cachedGy = nextGy;
+            m_cachedGz = nextGz;
+            m_gradCacheValid = true;
         }
-        if (s_gradCacheValid)
+        if (m_gradCacheValid)
         {
-            gx = s_cachedGx;
-            gy = s_cachedGy;
-            gz = s_cachedGz;
+            gx = m_cachedGx;
+            gy = m_cachedGy;
+            gz = m_cachedGz;
         }
         QString segGrad = fixed(QString("Gxyz=%1,%2,%3 %4").arg(gx, gy, gz, toUnit), W_GRAD);
         QString segKSpace;
         {
-            static bool s_kspaceCacheValid = false;
-            static double s_cachedKx = 0.0;
-            static double s_cachedKy = 0.0;
-            static double s_cachedKz = 0.0;
             double kxVal = 0.0, kyVal = 0.0, kzVal = 0.0;
             auto fmt1 = [](double v){ return QString::number(v, 'f', 1); };
             QString kxStr = "--.-", kyStr = "--.-", kzStr = "--.-";
             if (loader && loader->getTrajectoryState() != PulseqLoader::TrajectoryState::Ready)
             {
-                s_kspaceCacheValid = false;
+                m_kspaceCacheValid = false;
                 segKSpace = fixed(QString("kxyz=not ready"), W_KSPACE);
             }
             else
             {
                 if (blockIdx < 0)
                 {
-                    s_kspaceCacheValid = false;
+                    m_kspaceCacheValid = false;
                 }
                 else if (allowHeavyHoverWork && m_mainWindow &&
                     m_mainWindow->sampleTrajectoryAtInternalTime(guideX, kxVal, kyVal, kzVal))
                 {
-                    s_cachedKx = kxVal;
-                    s_cachedKy = kyVal;
-                    s_cachedKz = kzVal;
-                    s_kspaceCacheValid = true;
+                    m_cachedKx = kxVal;
+                    m_cachedKy = kyVal;
+                    m_cachedKz = kzVal;
+                    m_kspaceCacheValid = true;
                 }
                 else if (allowHeavyHoverWork)
                 {
-                    s_kspaceCacheValid = false;
+                    m_kspaceCacheValid = false;
                 }
-                if (s_kspaceCacheValid)
+                if (m_kspaceCacheValid)
                 {
-                    kxStr = fmt1(s_cachedKx * trajScale);
-                    kyStr = fmt1(s_cachedKy * trajScale);
-                    kzStr = fmt1(s_cachedKz * trajScale);
+                    kxStr = fmt1(m_cachedKx * trajScale);
+                    kyStr = fmt1(m_cachedKy * trajScale);
+                    kzStr = fmt1(m_cachedKz * trajScale);
                 }
                 segKSpace = fixed(QString("kxyz=%1,%2,%3 %4").arg(kxStr, kyStr, kzStr, trajUnitLabel), W_KSPACE);
             }
