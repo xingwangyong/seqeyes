@@ -8,6 +8,14 @@
 
 #include <algorithm>
 
+namespace
+{
+bool isTridLabel(const QString& name)
+{
+    return name.compare(QStringLiteral("TRID"), Qt::CaseInsensitive) == 0;
+}
+}
+
 static QCPScatterStyle::ScatterShape toQcpScatter(MarkerKind k)
 {
     switch (k)
@@ -157,10 +165,19 @@ void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader)
         pen.setWidthF(1.2);
         pen.setStyle(Qt::SolidLine);
         g->setPen(pen);
-        g->setLineStyle(QCPGraph::lsNone);
-        const QCPScatterStyle::ScatterShape shape = toQcpScatter(vs.marker);
-        g->setScatterStyle(QCPScatterStyle(shape, isFlag ? 3.0 : 6.0));
-        g->setBrush(QBrush(vs.color));
+        if (isTridLabel(name))
+        {
+            g->setLineStyle(QCPGraph::lsStepLeft);
+            g->setScatterStyle(QCPScatterStyle::ssNone);
+            g->setBrush(Qt::NoBrush);
+        }
+        else
+        {
+            g->setLineStyle(QCPGraph::lsNone);
+            const QCPScatterStyle::ScatterShape shape = toQcpScatter(vs.marker);
+            g->setScatterStyle(QCPScatterStyle(shape, isFlag ? 3.0 : 6.0));
+            g->setBrush(QBrush(vs.color));
+        }
         g->setAdaptiveSampling(false);
         g->setAntialiased(false);
         g->setVisible(false);
@@ -204,11 +221,25 @@ void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader)
 
     const auto& blocks = loader->getDecodedSeqBlocks();
     const int nBlocks = std::min(static_cast<int>(blocks.size()), static_cast<int>(edges.size() - 1));
+    bool tridHasAnyValue = false;
+    int tridLastValue = 0;
     for (int i = 0; i < nBlocks; ++i)
     {
         SeqBlock* blk = blocks[i];
         if (!blk)
             continue;
+
+        if (m_cacheByName.value(QStringLiteral("TRID")).used)
+        {
+            int tridValue = 0;
+            bool tridIsFlag = false;
+            if (loader->getExtensionValueAfterBlock(i, QStringLiteral("TRID"), tridValue, tridIsFlag) && !tridIsFlag)
+            {
+                appendPoint(QStringLiteral("TRID"), edges[i], static_cast<double>(tridValue));
+                tridHasAnyValue = true;
+                tridLastValue = tridValue;
+            }
+        }
 
         if (blk->isADC())
         {
@@ -222,6 +253,8 @@ void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader)
 
             for (const QString& name : labels)
             {
+                if (isTridLabel(name))
+                    continue;
                 if (!m_cacheByName.value(name).used)
                     continue;
 
@@ -234,6 +267,9 @@ void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader)
             }
         }
     }
+
+    if (tridHasAnyValue)
+        appendPoint(QStringLiteral("TRID"), edges[nBlocks], static_cast<double>(tridLastValue));
 }
 
 void ExtensionPlotter::updateForViewport(PulseqLoader* loader, double visibleStart, double visibleEnd)
@@ -259,7 +295,34 @@ void ExtensionPlotter::updateForViewport(PulseqLoader* loader, double visibleSta
         }
 
         QVector<double> tSlice, vSlice;
-        sliceStepSeries(it.value().t, it.value().v, visibleStart, visibleEnd, tSlice, vSlice);
+        if (isTridLabel(name))
+        {
+            const QVector<double>& tIn = it.value().t;
+            const QVector<double>& vIn = it.value().v;
+            if (!tIn.isEmpty() && tIn.size() == vIn.size() && visibleEnd > visibleStart)
+            {
+                auto itL = std::lower_bound(tIn.begin(), tIn.end(), visibleStart);
+                auto itU = std::upper_bound(tIn.begin(), tIn.end(), visibleEnd);
+                const int i0 = static_cast<int>(std::distance(tIn.begin(), itL));
+                const int i1 = static_cast<int>(std::distance(tIn.begin(), itU));
+                const int start = std::max(0, i0 - 1);
+                const int end = std::min(static_cast<int>(tIn.size()), std::max(i1, i0 + 1) + 1);
+                if (start < end)
+                {
+                    tSlice.reserve(end - start);
+                    vSlice.reserve(end - start);
+                    for (int i = start; i < end; ++i)
+                    {
+                        tSlice.push_back(tIn[i]);
+                        vSlice.push_back(vIn[i]);
+                    }
+                }
+            }
+        }
+        else
+        {
+            sliceStepSeries(it.value().t, it.value().v, visibleStart, visibleEnd, tSlice, vSlice);
+        }
         g->setData(tSlice, vSlice);
         g->setVisible(!tSlice.isEmpty());
     }
