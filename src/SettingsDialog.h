@@ -40,7 +40,7 @@ private slots:
     void onZoomModeChanged(int index);
     void onPanWheelToggled(bool checked);
     void onBrowsePnsAscPath();
-    void onRemoveInvalidPnsAscPaths();
+    void onRemovePnsAscPath();
     void onPnsAscPathComboChanged(int index);
     void onPnsNicknameEditingFinished();
     void onAxisOrderSelectionChanged();
@@ -99,7 +99,7 @@ private:
     // Safety/PNS tab
     QComboBox* m_pnsAscPathCombo;
     QPushButton* m_pnsBrowseButton;
-    QPushButton* m_pnsRemoveInvalidButton;
+    QPushButton* m_pnsRemoveButton;
     QLineEdit* m_pnsNicknameEdit;
     QCheckBox* m_pnsShowXCheck;
     QCheckBox* m_pnsShowYCheck;

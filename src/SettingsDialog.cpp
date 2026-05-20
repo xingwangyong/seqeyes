@@ -37,7 +37,7 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_pnsAscPathCombo(nullptr)
     , m_pnsNicknameEdit(nullptr)
     , m_pnsBrowseButton(nullptr)
-    , m_pnsRemoveInvalidButton(nullptr)
+    , m_pnsRemoveButton(nullptr)
     , m_pnsShowXCheck(nullptr)
     , m_pnsShowYCheck(nullptr)
     , m_pnsShowZCheck(nullptr)
@@ -334,11 +334,11 @@ void SettingsDialog::setupUI()
     m_pnsAscPathCombo->setEditable(false);
     m_pnsAscPathCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_pnsBrowseButton = new QPushButton("Browse...", safetyTab);
-    m_pnsRemoveInvalidButton = new QPushButton("Remove Invalid", safetyTab);
+    m_pnsRemoveButton = new QPushButton("Remove", safetyTab);
 
     pnsPathLayout->addWidget(m_pnsAscPathCombo, 1);
     pnsPathLayout->addWidget(m_pnsBrowseButton);
-    pnsPathLayout->addWidget(m_pnsRemoveInvalidButton);
+    pnsPathLayout->addWidget(m_pnsRemoveButton);
 
     pnsForm->addRow("ASC Path:", pnsPathRow);
 
@@ -401,8 +401,8 @@ void SettingsDialog::setupUI()
             this, &SettingsDialog::onPanWheelToggled);
     connect(m_pnsBrowseButton, &QPushButton::clicked,
             this, &SettingsDialog::onBrowsePnsAscPath);
-    connect(m_pnsRemoveInvalidButton, &QPushButton::clicked,
-            this, &SettingsDialog::onRemoveInvalidPnsAscPaths);
+    connect(m_pnsRemoveButton, &QPushButton::clicked,
+            this, &SettingsDialog::onRemovePnsAscPath);
     connect(m_pnsAscPathCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SettingsDialog::onPnsAscPathComboChanged);
     connect(m_pnsNicknameEdit, &QLineEdit::editingFinished,
@@ -1299,15 +1299,18 @@ void SettingsDialog::onBrowsePnsAscPath()
     }
 }
 
-void SettingsDialog::onRemoveInvalidPnsAscPaths()
+void SettingsDialog::onRemovePnsAscPath()
 {
+    if (!m_pnsAscPathCombo)
+        return;
+
+    const QString path = resolveCurrentPnsAscPath();
+    if (path.isEmpty())
+        return;
+
     Settings& settings = Settings::getInstance();
-    const int removed = settings.removeInvalidPnsAscHistoryPaths();
+    settings.removePnsAscHistoryPath(path);
     loadCurrentSettings();
-    QMessageBox::information(
-        this,
-        tr("PNS ASC history"),
-        tr("Removed %1 invalid path(s).").arg(removed));
 }
 
 void SettingsDialog::onPnsAscPathComboChanged(int index)

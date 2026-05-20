@@ -451,7 +451,7 @@ void Settings::saveSettings()
     }
     
     // Add metadata for better readability
-    obj["_comment"] = "Settings file for SeqEye";
+    obj["_comment"] = "Settings file for SeqEyes";
     obj["_version"] = "1.0";
     obj["_lastModified"] = QDateTime::currentDateTime().toString(Qt::ISODate);
     
@@ -875,6 +875,34 @@ void Settings::setPnsAscNickname(const QString& path, const QString& nickname)
     }
     saveSettings();
     emit settingsChanged();
+}
+
+bool Settings::removePnsAscHistoryPath(const QString& path)
+{
+    const QString normalized = path.trimmed();
+    if (normalized.isEmpty()) {
+        return false;
+    }
+
+    QStringList nextHistory = m_pnsAscHistory;
+    const int removed = nextHistory.removeAll(normalized);
+    const bool removedNickname = m_pnsAscNicknames.remove(normalized) > 0;
+
+    QString nextCurrent = m_pnsAscPath;
+    if (nextCurrent == normalized) {
+        nextCurrent = nextHistory.isEmpty() ? QString() : nextHistory.first();
+    }
+
+    const bool changed = (removed > 0) || removedNickname || (nextCurrent != m_pnsAscPath);
+    if (!changed) {
+        return false;
+    }
+
+    m_pnsAscHistory = nextHistory;
+    m_pnsAscPath = nextCurrent;
+    saveSettings();
+    emit settingsChanged();
+    return true;
 }
 
 int Settings::removeInvalidPnsAscHistoryPaths()

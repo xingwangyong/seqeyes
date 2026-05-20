@@ -161,6 +161,7 @@ public:
     void setPnsAscPath(const QString& path);
     void setPnsAscHistory(const QStringList& history);
     void setPnsAscNickname(const QString& path, const QString& nickname);
+    bool removePnsAscHistoryPath(const QString& path);
     int removeInvalidPnsAscHistoryPaths();
     void setPnsChannelVisibleX(bool visible);
     void setPnsChannelVisibleY(bool visible);
