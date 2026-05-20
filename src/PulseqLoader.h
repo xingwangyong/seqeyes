@@ -61,6 +61,7 @@ public:
     QSet<QString> getUsedExtensions() const { return m_usedExtensions; }
     // Get all active labels (counters/flags) with their current values for a block
     QList<QPair<QString, int>> getActiveLabels(int blockIdx) const;
+    QStringList getActiveLabelLines(int blockIdx) const;
 
     // Getters for data needed by other handlers
     const QVector<double>& getBlockEdges() const { return vecBlockEdges; }
@@ -221,7 +222,9 @@ private:
     };
 
     void buildLabelSnapshotCache();
+    void parseTridIdNamesDefinition();
     const LabelSnapshot* labelSnapshotAfterBlock(int blockIdx) const;
+    QString formatExtensionLabelLine(const QString& label, int value, bool isFlag) const;
 
     void buildShapeScaleAggregates();
     void ClearPulseqCache(bool withUi = true);
@@ -298,6 +301,7 @@ private:
     // Cached extension label values after each block (for Information window)
     QVector<LabelSnapshot> m_labelSnapshots;
     QSet<QString> m_usedExtensions;
+    QStringList m_tridIdNames;
     // Precomputed maximum accumulated counter value across all blocks.
     // Computed once in buildLabelSnapshotCache; avoids per-frame scanning loops.
     int m_maxAccumulatedCounter {0};

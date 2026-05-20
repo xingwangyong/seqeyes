@@ -555,11 +555,10 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
 
         if (overAdc)
         {
-            // Use new helper to get all active labels for this block (even if not changing)
-            auto activeLabels = m_mainWindow->getPulseqLoader()->getActiveLabels(blockIdx);
-            for (const auto& pair : activeLabels) {
+            const QStringList activeLabelLines = m_mainWindow->getPulseqLoader()->getActiveLabelLines(blockIdx);
+            for (const QString& line : activeLabelLines) {
                 if (!tip.isEmpty()) tip += "\n";
-                tip += QString("%1=%2").arg(pair.first).arg(pair.second);
+                tip += line;
             }
         }
     }

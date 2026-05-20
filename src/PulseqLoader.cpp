@@ -216,6 +216,7 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     m_pnsAscPath.clear();
     m_pnsStatusMessage.clear();
     m_usedExtensions.clear();
+    m_tridIdNames.clear();
     m_adcPhaseCache.valid = false;
 
     if (m_mainWindow && m_mainWindow->getTRManager())
@@ -590,6 +591,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
 
     // Cache label/flag values after each block for fast UI queries (Information window).
     buildLabelSnapshotCache();
+    parseTridIdNamesDefinition();
 
     nBlockRangeStart = 0;
     nBlockRangeEnd = std::min(int(lSeqBlockNum - 1), 10);
@@ -967,6 +969,26 @@ void PulseqLoader::buildLabelSnapshotCache()
     }
 }
 
+void PulseqLoader::parseTridIdNamesDefinition()
+{
+    m_tridIdNames.clear();
+    if (!m_spPulseqSeq)
+        return;
+
+    const std::string raw = m_spPulseqSeq->GetDefinitionStr("tridIdName");
+    if (raw.empty())
+        return;
+
+    const QStringList parts = QString::fromStdString(raw)
+                                  .split(',', Qt::KeepEmptyParts);
+    for (QString part : parts)
+    {
+        part = part.trimmed();
+        if (!part.isEmpty())
+            m_tridIdNames.append(part);
+    }
+}
+
 const PulseqLoader::LabelSnapshot* PulseqLoader::labelSnapshotAfterBlock(int blockIdx) const
 {
     if (blockIdx < 0 || blockIdx >= m_labelSnapshots.size())
@@ -1032,6 +1054,21 @@ bool PulseqLoader::getExtensionValueAfterBlock(int blockIdx, const QString& name
     return true;
 }
 
+QString PulseqLoader::formatExtensionLabelLine(const QString& label, int value, bool isFlag) const
+{
+    const QString normalized = label.trimmed().toUpper();
+    QString line = QString("%1=%2").arg(normalized).arg(value);
+
+    if (!isFlag && normalized == QStringLiteral("TRID") && value >= 1 && value <= m_tridIdNames.size())
+    {
+        const QString tridName = m_tridIdNames[value - 1].trimmed();
+        if (!tridName.isEmpty())
+            line += QString(", %1").arg(tridName);
+    }
+
+    return line;
+}
+
 QStringList PulseqLoader::getAvailableExtensionLabels() const
 {
     QStringList labels = Settings::getSupportedExtensionLabels();
@@ -1042,6 +1079,42 @@ QStringList PulseqLoader::getAvailableExtensionLabels() const
     }
     labels.sort(Qt::CaseInsensitive);
     return labels;
+}
+
+QStringList PulseqLoader::getActiveLabelLines(int blockIdx) const
+{
+    QStringList lines;
+    if (!labelSnapshotAfterBlock(blockIdx))
+        return lines;
+
+    const QStringList labels = getAvailableExtensionLabels();
+    for (const QString& label : labels)
+    {
+        if (!Settings::getInstance().isExtensionLabelEnabled(label))
+            continue;
+        if (!m_usedExtensions.contains(label.toUpper()))
+            continue;
+
+        int value = 0;
+        bool isFlag = false;
+        if (!getExtensionValueAfterBlock(blockIdx, label, value, isFlag))
+            continue;
+
+        if (isFlag)
+        {
+            if (value != 0)
+                lines.append(formatExtensionLabelLine(label, 1, true));
+        }
+        else
+        {
+            lines.append(formatExtensionLabelLine(label, value, false));
+        }
+    }
+
+    std::sort(lines.begin(), lines.end(), [](const QString& a, const QString& b) {
+        return a < b;
+    });
+    return lines;
 }
 
 void PulseqLoader::setBlockInfoContent(EventBlockInfoDialog* dialog, int currentBlock)
@@ -1131,12 +1204,12 @@ void PulseqLoader::setBlockInfoContent(EventBlockInfoDialog* dialog, int current
         blockInfo += QString("|-----------------------------------------------------------------------------------------------|\n");
         blockInfo += QString("Extensions (Current values at this block):\n");
 
-        auto activeLabels = getActiveLabels(currentBlock);
-        if (!activeLabels.isEmpty())
+        const QStringList activeLabelLines = getActiveLabelLines(currentBlock);
+        if (!activeLabelLines.isEmpty())
         {
-            for (const auto& pair : activeLabels)
+            for (const QString& line : activeLabelLines)
             {
-                blockInfo += QString("  %1=%2\n").arg(pair.first).arg(pair.second);
+                blockInfo += QString("  %1\n").arg(line);
             }
         }
         else
