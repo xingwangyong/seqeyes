@@ -37,12 +37,15 @@ or
 seqeyes.seqeyes(seq)
 ```
 
+## Supported Definitions
+
+SeqEyes recognizes several optional Pulseq `[DEFINITIONS]` entries for enhanced display, TR navigation, TE overlays, trajectory units, and extension tooltips. See [Supported Definitions](doc/supported_definitions.md).
+
 ## Build Instructions
 Please see [build.md](build.md) for detailed build steps.
 
 ## Known Issues
 
 Please see [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for a list of known issues and limitations.
-
 
 
