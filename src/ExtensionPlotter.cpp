@@ -20,6 +20,7 @@ static QCPScatterStyle::ScatterShape toQcpScatter(MarkerKind k)
 {
     switch (k)
     {
+        case MarkerKind::Line:     return QCPScatterStyle::ssNone;
         case MarkerKind::Circle:   return QCPScatterStyle::ssCircle;
         case MarkerKind::Plus:     return QCPScatterStyle::ssPlus;
         case MarkerKind::Asterisk: return QCPScatterStyle::ssStar;
@@ -162,7 +163,7 @@ void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader)
 
         const ExtensionVisualStyle vs = extensionStyleForName(name);
         QPen pen(vs.color);
-        pen.setWidthF(1.2);
+        pen.setWidthF(isTridLabel(name) ? 1.0 : 1.2);
         pen.setStyle(Qt::SolidLine);
         g->setPen(pen);
         if (isTridLabel(name))

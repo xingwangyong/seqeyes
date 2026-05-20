@@ -8,6 +8,7 @@
 
 enum class MarkerKind
 {
+    Line,
     Circle,
     Plus,
     Asterisk,
@@ -48,7 +49,7 @@ inline ExtensionVisualStyle extensionStyleForName(const QString& name)
     if (n == "SET") return {QColor(26, 188, 156), MarkerKind::CrossSquare, "xs"};
     if (n == "ACQ") return {QColor(127, 140, 141), MarkerKind::Point, "."};
     if (n == "ONCE") return {QColor(52, 73, 94), MarkerKind::Asterisk, "*"};
-    if (n == "TRID") return {QColor(231, 76, 60), MarkerKind::Peace, "peace"};
+    if (n == "TRID") return {QColor(142, 68, 173), MarkerKind::Line, "line"};
 
     // Flags (keep slightly muted and point-like)
     if (n == "NAV") return {QColor(39, 174, 96), MarkerKind::Point, "."};
@@ -66,4 +67,3 @@ inline ExtensionVisualStyle extensionStyleForName(const QString& name)
     // Fallback
     return {QColor(127, 140, 141), MarkerKind::Point, "."};
 }
-

@@ -36,6 +36,9 @@ static QPixmap drawMarkerIcon(const ExtensionVisualStyle& s, int px = 14)
 
     switch (s.marker)
     {
+        case MarkerKind::Line:
+            p.drawLine(QPointF(r.left(), c.y()), QPointF(r.right(), c.y()));
+            break;
         case MarkerKind::Circle:
             p.drawEllipse(r);
             break;
@@ -167,4 +170,3 @@ void ExtensionLegendDialog::refresh(PulseqLoader* loader)
         m_table->setItem(r, 4, itColor);
     }
 }
-
