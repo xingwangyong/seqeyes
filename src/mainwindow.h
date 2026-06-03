@@ -81,7 +81,8 @@ public:
     enum class TrajectoryProjection
     {
         KxKy = 0,
-        KyKz = 1
+        KyKz = 1,
+        KxKz = 2
     };
 
     explicit MainWindow(QWidget *parent = nullptr);

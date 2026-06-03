@@ -49,23 +49,44 @@ const QVector<double>& selectTrajectoryAxis(MainWindow::TrajectoryProjection pro
                                             const QVector<double>& ky,
                                             const QVector<double>& kz)
 {
-    if (projection == MainWindow::TrajectoryProjection::KyKz)
-        return forXAxis ? ky : kz;
-    return forXAxis ? kx : ky;
+    switch (projection)
+    {
+        case MainWindow::TrajectoryProjection::KyKz:
+            return forXAxis ? ky : kz;
+        case MainWindow::TrajectoryProjection::KxKz:
+            return forXAxis ? kx : kz;
+        case MainWindow::TrajectoryProjection::KxKy:
+        default:
+            return forXAxis ? kx : ky;
+    }
 }
 
 QString trajectoryAxisName(MainWindow::TrajectoryProjection projection, bool forXAxis)
 {
-    if (projection == MainWindow::TrajectoryProjection::KyKz)
-        return forXAxis ? QStringLiteral("ky") : QStringLiteral("kz");
-    return forXAxis ? QStringLiteral("kx") : QStringLiteral("ky");
+    switch (projection)
+    {
+        case MainWindow::TrajectoryProjection::KyKz:
+            return forXAxis ? QStringLiteral("ky") : QStringLiteral("kz");
+        case MainWindow::TrajectoryProjection::KxKz:
+            return forXAxis ? QStringLiteral("kx") : QStringLiteral("kz");
+        case MainWindow::TrajectoryProjection::KxKy:
+        default:
+            return forXAxis ? QStringLiteral("kx") : QStringLiteral("ky");
+    }
 }
 
 QString trajectoryAxisLabel(MainWindow::TrajectoryProjection projection, bool forXAxis)
 {
-    if (projection == MainWindow::TrajectoryProjection::KyKz)
-        return forXAxis ? QStringLiteral("k_y") : QStringLiteral("k_z");
-    return forXAxis ? QStringLiteral("k_x") : QStringLiteral("k_y");
+    switch (projection)
+    {
+        case MainWindow::TrajectoryProjection::KyKz:
+            return forXAxis ? QStringLiteral("k_y") : QStringLiteral("k_z");
+        case MainWindow::TrajectoryProjection::KxKz:
+            return forXAxis ? QStringLiteral("k_x") : QStringLiteral("k_z");
+        case MainWindow::TrajectoryProjection::KxKy:
+        default:
+            return forXAxis ? QStringLiteral("k_x") : QStringLiteral("k_y");
+    }
 }
 
 double selectTrajectoryCoord(MainWindow::TrajectoryProjection projection,
@@ -74,9 +95,16 @@ double selectTrajectoryCoord(MainWindow::TrajectoryProjection projection,
                              double ky,
                              double kz)
 {
-    if (projection == MainWindow::TrajectoryProjection::KyKz)
-        return forXAxis ? ky : kz;
-    return forXAxis ? kx : ky;
+    switch (projection)
+    {
+        case MainWindow::TrajectoryProjection::KyKz:
+            return forXAxis ? ky : kz;
+        case MainWindow::TrajectoryProjection::KxKz:
+            return forXAxis ? kx : kz;
+        case MainWindow::TrajectoryProjection::KxKy:
+        default:
+            return forXAxis ? kx : ky;
+    }
 }
 }
 
@@ -876,7 +904,10 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
                                           static_cast<int>(TrajectoryProjection::KxKy));
     m_pTrajectoryProjectionCombo->addItem(QStringLiteral("ky,kz"),
                                           static_cast<int>(TrajectoryProjection::KyKz));
-    m_pTrajectoryProjectionCombo->setCurrentIndex(static_cast<int>(m_trajectoryProjection));
+    m_pTrajectoryProjectionCombo->addItem(QStringLiteral("kx,kz"),
+                                          static_cast<int>(TrajectoryProjection::KxKz));
+    m_pTrajectoryProjectionCombo->setCurrentIndex(
+        m_pTrajectoryProjectionCombo->findData(static_cast<int>(m_trajectoryProjection)));
     controlLayout->addWidget(m_pTrajectoryProjectionCombo);
     m_pShowKtrajCheckBox = new QCheckBox(tr("ktraj"), m_pTrajectoryPanel);
     m_pShowKtrajCheckBox->setChecked(false);
@@ -2108,10 +2139,12 @@ void MainWindow::updateTrajectoryAxisLabels()
 void MainWindow::updateTrajectoryProjectionUI()
 {
     updateTrajectoryAxisLabels();
-    if (m_pTrajectoryProjectionCombo &&
-        m_pTrajectoryProjectionCombo->currentIndex() != static_cast<int>(m_trajectoryProjection))
+    if (m_pTrajectoryProjectionCombo)
     {
-        m_pTrajectoryProjectionCombo->setCurrentIndex(static_cast<int>(m_trajectoryProjection));
+        const int comboIndex =
+            m_pTrajectoryProjectionCombo->findData(static_cast<int>(m_trajectoryProjection));
+        if (comboIndex >= 0 && m_pTrajectoryProjectionCombo->currentIndex() != comboIndex)
+            m_pTrajectoryProjectionCombo->setCurrentIndex(comboIndex);
     }
 }
 
@@ -2220,9 +2253,15 @@ void MainWindow::onTrajectoryRangeModeChanged(int index)
 
 void MainWindow::onTrajectoryProjectionChanged(int index)
 {
-    TrajectoryProjection newProjection = (index == static_cast<int>(TrajectoryProjection::KyKz))
-        ? TrajectoryProjection::KyKz
-        : TrajectoryProjection::KxKy;
+    if (!m_pTrajectoryProjectionCombo || index < 0)
+        return;
+
+    const QVariant projectionData = m_pTrajectoryProjectionCombo->itemData(index);
+    if (!projectionData.isValid())
+        return;
+
+    const TrajectoryProjection newProjection =
+        static_cast<TrajectoryProjection>(projectionData.toInt());
     if (m_trajectoryProjection == newProjection)
         return;
 
