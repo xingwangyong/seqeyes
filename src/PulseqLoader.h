@@ -416,21 +416,25 @@ private:
     double m_gradExtTrapGlobalMin[3] { std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity() };
     double m_gradExtTrapGlobalMax[3] { -std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity() };
 
-    struct AsyncTrajectoryBlockLifetime {
+    // Shared owner of the decoded SeqBlock* for the current sequence. Both the
+    // loader and any in-flight async trajectory/PNS task hold a shared_ptr to
+    // the same bundle; the blocks are deleted only when the LAST holder releases
+    // it. This makes "reopen while a computation is still running" safe: the old
+    // blocks survive until every reader has finished, instead of being freed out
+    // from under an async task (the previous single-slot handoff could only
+    // protect one of two concurrent tasks, causing use-after-free / nondeterministic
+    // PNS results on reopen).
+    struct BlockBundle {
         std::vector<SeqBlock*> blocks;
-        std::atomic<bool> ownsBlocks {false};
-
-        ~AsyncTrajectoryBlockLifetime()
+        ~BlockBundle()
         {
-            if (!ownsBlocks.load())
-                return;
             for (SeqBlock* block : blocks)
             {
                 delete block;
             }
         }
     };
-    std::shared_ptr<AsyncTrajectoryBlockLifetime> m_activeAsyncBlockLifetime;
+    std::shared_ptr<BlockBundle> m_blockBundle;
 };
 
 #endif // PULSEQLOADER_H

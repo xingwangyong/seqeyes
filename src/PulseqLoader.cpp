@@ -213,6 +213,9 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     m_pnsResult = PnsCalculator::Result{};
     m_pnsState = PnsState::NotStarted;
     m_pnsDirty = true;
+    m_lastPnsComputedSequenceGeneration = 0;
+    m_lastPnsComputedAscPath.clear();
+    m_lastPnsComputedGammaHzPerT = 0.0;
     m_pnsAscPath.clear();
     m_pnsStatusMessage.clear();
     m_usedExtensions.clear();
@@ -230,24 +233,27 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     if (nullptr != m_spPulseqSeq.get())
     {
         m_spPulseqSeq->reset();
-        // m_spPulseqSeq will be recreated based on file version
-        const bool handOffBlocksToAsync =
-            ((m_trajectoryState == TrajectoryState::Calculating) ||
-             (m_pnsState == PnsState::Calculating)) &&
-            static_cast<bool>(m_activeAsyncBlockLifetime);
-        if (handOffBlocksToAsync)
+        // m_spPulseqSeq will be recreated based on file version.
+        // Release the loader's ownership of the decoded blocks. If an async
+        // trajectory/PNS task is still running it holds its own shared_ptr to
+        // the same bundle, so the blocks survive until that task finishes;
+        // otherwise the bundle's refcount drops to zero here and the blocks are
+        // freed immediately. This replaces the old single-slot handoff, which
+        // could only protect one of two concurrent async tasks.
+        if (m_blockBundle)
         {
-            m_activeAsyncBlockLifetime->ownsBlocks.store(true);
+            m_blockBundle.reset();
         }
-        for (size_t ushBlockIndex = 0; ushBlockIndex < m_vecDecodeSeqBlocks.size(); ushBlockIndex++)
+        else
         {
-            if (!handOffBlocksToAsync)
+            // Loose blocks not yet wrapped in a bundle (e.g. a partial decode
+            // failure mid-load): free them directly.
+            for (SeqBlock* block : m_vecDecodeSeqBlocks)
             {
-                SAFE_DELETE(m_vecDecodeSeqBlocks[ushBlockIndex]);
+                delete block;
             }
         }
         m_vecDecodeSeqBlocks.clear();
-        m_activeAsyncBlockLifetime.reset();
         std::cout << m_sPulseqFilePath.toStdString() << " Closed\n";
     }
     setTrajectoryState(TrajectoryState::NotStarted);
@@ -555,6 +561,13 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
         m_mainWindow->getProgressBar()->setValue(progress);
         vecBlockEdges[ushBlockIndex + 1] = vecBlockEdges[ushBlockIndex] + m_vecDecodeSeqBlocks[ushBlockIndex]->GetDuration() * tFactor;
     }
+    // Decode succeeded: take shared ownership of the blocks. From here on the
+    // bundle (not m_vecDecodeSeqBlocks) owns/deletes the SeqBlock*, and async
+    // trajectory/PNS tasks keep a copy of this shared_ptr alive for as long as
+    // they read the blocks. m_vecDecodeSeqBlocks remains a raw view used by the
+    // synchronous code paths.
+    m_blockBundle = std::make_shared<BlockBundle>();
+    m_blockBundle->blocks = m_vecDecodeSeqBlocks;
     updateEchoAndExcitationMetadata(shVersionMajor, shVersionMinor);
     LogManager::getInstance().appendStructured(
         QtInfoMsg,
@@ -1492,14 +1505,14 @@ void PulseqLoader::startTrajectoryComputationAsync()
     const std::uint64_t sequenceGeneration = m_trajectorySequenceGeneration;
     const std::uint64_t requestId = ++m_trajectoryRequestSerial;
     m_activeTrajectoryRequestId = requestId;
-    m_activeAsyncBlockLifetime = std::make_shared<AsyncTrajectoryBlockLifetime>();
-    m_activeAsyncBlockLifetime->blocks = m_vecDecodeSeqBlocks;
     m_kTrajectoryReady = false;
     setTrajectoryState(TrajectoryState::Calculating);
 
     QPointer<PulseqLoader> self(this);
-    const auto blockLifetime = m_activeAsyncBlockLifetime;
-    std::thread([self, input, sequenceGeneration, requestId, blockLifetime]() mutable {
+    // Keep the decoded blocks alive for the duration of this task, even if the
+    // sequence is reopened/cleared while we are still computing.
+    const auto blockBundle = m_blockBundle;
+    std::thread([self, input, sequenceGeneration, requestId, blockBundle]() mutable {
         KSpaceTrajectory::Result result;
         bool ok = true;
         try {
@@ -1524,15 +1537,11 @@ void PulseqLoader::startTrajectoryComputationAsync()
                 self->m_kTrajectoryReady = false;
                 self->setTrajectoryState(TrajectoryState::Failed);
                 self->startPnsComputationIfEnabled();
-                if (self->m_activeTrajectoryRequestId == requestId)
-                    self->m_activeAsyncBlockLifetime.reset();
                 return;
             }
 
             self->applyTrajectoryResult(result);
             self->startPnsComputationIfEnabled();
-            if (self->m_activeTrajectoryRequestId == requestId)
-                self->m_activeAsyncBlockLifetime.reset();
         }, Qt::QueuedConnection);
     }).detach();
 }
@@ -1675,17 +1684,14 @@ void PulseqLoader::startPnsComputationAsync()
     const std::uint64_t sequenceGeneration = m_trajectorySequenceGeneration;
     const std::uint64_t requestId = ++m_pnsRequestSerial;
     m_activePnsRequestId = requestId;
-    if (!m_activeAsyncBlockLifetime)
-    {
-        m_activeAsyncBlockLifetime = std::make_shared<AsyncTrajectoryBlockLifetime>();
-        m_activeAsyncBlockLifetime->blocks = m_vecDecodeSeqBlocks;
-    }
-    const auto blockLifetime = m_activeAsyncBlockLifetime;
+    // Keep the decoded blocks alive for the duration of this task, even if the
+    // sequence is reopened/cleared while we are still computing.
+    const auto blockBundle = m_blockBundle;
     setPnsState(PnsState::Calculating);
     emit pnsDataUpdated();
 
     QPointer<PulseqLoader> self(this);
-    std::thread([self, blockLifetime, hw, gradientRasterUs, gammaHzPerT, ascPath, sequenceGeneration, requestId,
+    std::thread([self, blockBundle, hw, gradientRasterUs, gammaHzPerT, ascPath, sequenceGeneration, requestId,
                  blocks = m_vecDecodeSeqBlocks, blockEdges = vecBlockEdges, tf = tFactor]() mutable {
         PnsCalculator::Result result;
         bool ok = true;
@@ -1718,8 +1724,6 @@ void PulseqLoader::startPnsComputationAsync()
                 self->m_pnsResult = PnsCalculator::Result{};
                 self->m_pnsStatusMessage = QStringLiteral("PNS calculation failed.");
                 self->setPnsState(PnsState::Failed);
-                if (self->m_activePnsRequestId == requestId && self->m_trajectoryState != TrajectoryState::Calculating)
-                    self->m_activeAsyncBlockLifetime.reset();
                 emit self->pnsDataUpdated();
                 return;
             }
@@ -1741,8 +1745,6 @@ void PulseqLoader::startPnsComputationAsync()
                 self->m_lastPnsComputedAscPath = ascPath;
                 self->m_lastPnsComputedGammaHzPerT = gammaHzPerT;
             }
-            if (self->m_activePnsRequestId == requestId && self->m_trajectoryState != TrajectoryState::Calculating)
-                self->m_activeAsyncBlockLifetime.reset();
             emit self->pnsDataUpdated();
         }, Qt::QueuedConnection);
     }).detach();
