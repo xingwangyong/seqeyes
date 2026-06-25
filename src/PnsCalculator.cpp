@@ -161,59 +161,69 @@ bool getAxisHardware(
     bool* gScaleFoundOut,
     QString* error)
 {
+    // ASC key lookup. The stimulation field keys are passed in already fully
+    // qualified with their parent path (e.g. "GradPatSup.Phys.PNS.flGSWDTauX"),
+    // chosen once by parseAscFile() -- see the PNS-vs-CarNS note there. So the
+    // normal path is a single exact match, which is fully deterministic.
+    //
+    // The only reason for a fallback is the array-index spelling of the g_scale
+    // keys ("asGPAParameters[0].sGCParameters.flGScaleFactorX" stored vs the
+    // bare "asGPAParameters.sGCParameters.flGScaleFactorX" queried): we strip
+    // [n] indices and match the normalized name. If several keys still match we
+    // pick deterministically (sorted, and never the cardiac ".CarNS." block)
+    // instead of trusting QHash iteration order -- Qt randomizes that per
+    // process (QT_HASH_SEED), which used to make the PNS percentage jump between
+    // runs (e.g. 75% vs 125%).
+    auto chooseKey = [](const QStringList& matches) -> QString {
+        QStringList pool;
+        for (const QString& k : matches)
+        {
+            if (k.contains(QStringLiteral(".CarNS."), Qt::CaseInsensitive))
+                continue; // cardiac stimulation block: never used for PNS prediction
+            pool.append(k);
+        }
+        if (pool.isEmpty())
+            return QString();
+        std::sort(pool.begin(), pool.end());
+        return pool.first();
+    };
     auto findArray = [&](const QString& key, QVector<double>& out) -> bool {
-        const QString keyNorm = normalizeAscKey(key);
         if (asc.array.contains(key))
         {
             out = asc.array.value(key);
             return true;
         }
+        const QString keyNorm = normalizeAscKey(key);
+        QStringList matches;
         for (auto it = asc.array.constBegin(); it != asc.array.constEnd(); ++it)
         {
             if (normalizeAscKey(it.key()) == keyNorm)
-            {
-                out = it.value();
-                return true;
-            }
+                matches.append(it.key());
         }
-        const QString suffix = QStringLiteral(".") + key;
-        for (auto it = asc.array.constBegin(); it != asc.array.constEnd(); ++it)
-        {
-            const QString itNorm = normalizeAscKey(it.key());
-            if (itNorm.endsWith(QStringLiteral(".") + keyNorm) || it.key().endsWith(suffix))
-            {
-                out = it.value();
-                return true;
-            }
-        }
-        return false;
+        const QString chosen = chooseKey(matches);
+        if (chosen.isEmpty())
+            return false;
+        out = asc.array.value(chosen);
+        return true;
     };
     auto findScalar = [&](const QString& key, double& out) -> bool {
-        const QString keyNorm = normalizeAscKey(key);
         if (asc.scalar.contains(key))
         {
             out = asc.scalar.value(key);
             return true;
         }
+        const QString keyNorm = normalizeAscKey(key);
+        QStringList matches;
         for (auto it = asc.scalar.constBegin(); it != asc.scalar.constEnd(); ++it)
         {
             if (normalizeAscKey(it.key()) == keyNorm)
-            {
-                out = it.value();
-                return true;
-            }
+                matches.append(it.key());
         }
-        const QString suffix = QStringLiteral(".") + key;
-        for (auto it = asc.scalar.constBegin(); it != asc.scalar.constEnd(); ++it)
-        {
-            const QString itNorm = normalizeAscKey(it.key());
-            if (itNorm.endsWith(QStringLiteral(".") + keyNorm) || it.key().endsWith(suffix))
-            {
-                out = it.value();
-                return true;
-            }
-        }
-        return false;
+        const QString chosen = chooseKey(matches);
+        if (chosen.isEmpty())
+            return false;
+        out = asc.scalar.value(chosen);
+        return true;
     };
 
     QVector<double> tau;
@@ -861,19 +871,75 @@ bool PnsCalculator::parseAscFile(const QString& ascPath, Hardware& outHardware, 
     AxisHardware x;
     AxisHardware y;
     AxisHardware z;
+
+    // Select the stimulation parameter block ONCE, then read every axis/field
+    // from that same parent. This mirrors MATLAB's mr.Sequence/calcPNS ->
+    // asc_to_hw():
+    //   * old .asc : the flGSWD* fields live at the top level (PNS only).
+    //   * new .asc : GradPatSup.Phys.PNS.*   = peripheral nerve stimulation,
+    //                GradPatSup.Phys.CarNS.* = cardiac stimulation.
+    // We predict PNS, so we bind the prefix to the PNS block. Reading all
+    // coefficients through one chosen prefix makes it structurally impossible to
+    // mix PNS and CarNS values, and removes any QHash iteration-order ambiguity.
+    //
+    // FUTURE (CNS): to also predict cardiac stimulation, resolve a second prefix
+    // "GradPatSup.Phys.CarNS." when present and run the model again with it (the
+    // SAFE model math is identical; only these hardware coefficients differ).
+    // MATLAB exposes this via the calcCNS flag.
+    QString stimPrefix;
+    if (asc.array.contains(QStringLiteral("flGSWDTauX")))
+    {
+        stimPrefix = QString(); // old format: fields at the top level (PNS)
+    }
+    else if (asc.array.contains(QStringLiteral("GradPatSup.Phys.PNS.flGSWDTauX")))
+    {
+        stimPrefix = QStringLiteral("GradPatSup.Phys.PNS."); // new format: PNS block
+    }
+    else
+    {
+        // Unusual layout: derive the prefix from any non-cardiac key carrying
+        // flGSWDTauX, picked deterministically, so we still never select CarNS.
+        QStringList candidates;
+        for (auto it = asc.array.constBegin(); it != asc.array.constEnd(); ++it)
+        {
+            const QString& k = it.key();
+            if (k.endsWith(QStringLiteral("flGSWDTauX")) &&
+                !k.contains(QStringLiteral(".CarNS."), Qt::CaseInsensitive))
+            {
+                candidates.append(k);
+            }
+        }
+        std::sort(candidates.begin(), candidates.end());
+        if (!candidates.isEmpty())
+        {
+            const QString& k = candidates.first();
+            stimPrefix = k.left(k.size() - QStringLiteral("flGSWDTauX").size());
+        }
+        else
+        {
+            stimPrefix = QStringLiteral("GradPatSup.Phys.PNS."); // absent: fail loudly below
+        }
+    }
+
+    // MATLAB reads g_scale from asGPAParameters(1) (the first amplifier block),
+    // falling back to the old flGCGScaleFactor* keys. The explicit [0] key
+    // resolves by exact match; the bare key is kept as a normalized fallback.
     const QStringList gScaleKeysX = {
+        "asGPAParameters[0].sGCParameters.flGScaleFactorX",
         "asGPAParameters.sGCParameters.flGScaleFactorX",
         "flGScaleFactorX",
         "flGCGScaleFactorX",
         "GScaleFactorX"
     };
     const QStringList gScaleKeysY = {
+        "asGPAParameters[0].sGCParameters.flGScaleFactorY",
         "asGPAParameters.sGCParameters.flGScaleFactorY",
         "flGScaleFactorY",
         "flGCGScaleFactorY",
         "GScaleFactorY"
     };
     const QStringList gScaleKeysZ = {
+        "asGPAParameters[0].sGCParameters.flGScaleFactorZ",
         "asGPAParameters.sGCParameters.flGScaleFactorZ",
         "flGScaleFactorZ",
         "flGCGScaleFactorZ",
@@ -883,12 +949,15 @@ bool PnsCalculator::parseAscFile(const QString& ascPath, Hardware& outHardware, 
     bool gxScaleFound = false;
     bool gyScaleFound = false;
     bool gzScaleFound = false;
-    if (!getAxisHardware(asc, "flGSWDTauX", "flGSWDAX", "flGSWDStimulationLimitX",
-                         "flGSWDStimulationThresholdX", gScaleKeysX, x, &gxScaleFound, &err) ||
-        !getAxisHardware(asc, "flGSWDTauY", "flGSWDAY", "flGSWDStimulationLimitY",
-                         "flGSWDStimulationThresholdY", gScaleKeysY, y, &gyScaleFound, &err) ||
-        !getAxisHardware(asc, "flGSWDTauZ", "flGSWDAZ", "flGSWDStimulationLimitZ",
-                         "flGSWDStimulationThresholdZ", gScaleKeysZ, z, &gzScaleFound, &err))
+    if (!getAxisHardware(asc, stimPrefix + "flGSWDTauX", stimPrefix + "flGSWDAX",
+                         stimPrefix + "flGSWDStimulationLimitX", stimPrefix + "flGSWDStimulationThresholdX",
+                         gScaleKeysX, x, &gxScaleFound, &err) ||
+        !getAxisHardware(asc, stimPrefix + "flGSWDTauY", stimPrefix + "flGSWDAY",
+                         stimPrefix + "flGSWDStimulationLimitY", stimPrefix + "flGSWDStimulationThresholdY",
+                         gScaleKeysY, y, &gyScaleFound, &err) ||
+        !getAxisHardware(asc, stimPrefix + "flGSWDTauZ", stimPrefix + "flGSWDAZ",
+                         stimPrefix + "flGSWDStimulationLimitZ", stimPrefix + "flGSWDStimulationThresholdZ",
+                         gScaleKeysZ, z, &gzScaleFound, &err))
     {
         if (errorMessage)
         {
