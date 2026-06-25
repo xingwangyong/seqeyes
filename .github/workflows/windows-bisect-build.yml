@@ -23,7 +23,7 @@ permissions:
 jobs:
   prepare:
     name: Prepare Commit Matrix
-    runs-on: windows-latest
+    runs-on: windows-2022
     outputs:
       matrix: ${{ steps.range.outputs.matrix }}
       commit_count: ${{ steps.range.outputs.commit_count }}
@@ -124,7 +124,7 @@ jobs:
 
   build:
     name: Build ${{ matrix.exe_name }}
-    runs-on: windows-latest
+    runs-on: windows-2022
     needs: prepare
     strategy:
       fail-fast: false
@@ -209,7 +209,7 @@ jobs:
 
   package:
     name: Aggregate & Package
-    runs-on: windows-latest
+    runs-on: windows-2022
     needs: [prepare, build]
     if: ${{ always() && needs.prepare.result == 'success' }}
 
