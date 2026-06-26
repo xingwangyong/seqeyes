@@ -18,18 +18,24 @@ function seqeyes(varargin)
         % seqeye_exe = 'C:\path\to\seqeyes\out\bin\seqeyes.exe';
         seqeye_exe = 'C:\Users\76494\Downloads\New folder (22)\seqeye\out\build\x64-Release\Release\seqeyes.exe';
         % seqeye_exe = '__SET_WINDOWS_SEQEYES_PATH__';
+        launch_prefix = '';
     elseif ismac
         % Example macOS app-bundle path from this repo build:
         % seqeye_exe = '/Users/yourname/Code/seqeyes/out/bin/seqeyes.app/Contents/MacOS/seqeyes';
         % folder = '~/seqeyes/';  % Parent folder of seqeyes repo
         % seqeye_exe = fullfile(folder, 'out/bin/seqeyes.app/Contents/MacOS/seqeyes');
         seqeye_exe = '__SET_MACOS_SEQEYES_PATH__';
+        launch_prefix = '';
     else
         % Example Linux path:
         % seqeye_exe = '/home/yourname/seqeyes/out/bin/seqeyes';
         folder = '/autofs/cluster/berkin/xingwang/share/seqeyes/linux';
         seqeye_exe = fullfile(folder, get_linux_major_id, 'seqeyes');
         % seqeye_exe = '__SET_LINUX_SEQEYES_PATH__';
+        % MATLAB2026a can export Qt-related library paths that conflict with SeqEyes.
+        % Launching through env -u keeps this child process from inheriting
+        % LD_LIBRARY_PATH and avoids mixed-Qt runtime loader errors.
+        launch_prefix = 'env -u LD_LIBRARY_PATH ';
     end
 
     % MATLAB does not reliably expand '~' in file checks/commands.
@@ -129,7 +135,7 @@ function seqeyes(varargin)
         end
     else
         % No-argument call: launch the executable without loading a file.
-        cmd_args = seqeye_exe;
+        cmd_args = [launch_prefix, seqeye_exe];
         cmd_args = [cmd_args, ' &'];
         fprintf('Opening SeqEyes (no input)\n');
         fprintf('Command: %s\n', cmd_args);
@@ -188,7 +194,7 @@ function seqeyes(varargin)
     %% Prepare command line
     
     % Build command-line arguments
-    cmd_args = seqeye_exe;
+    cmd_args = [launch_prefix, seqeye_exe];
     
     % Append all options (using normalized strings)
     for i = 1:length(normalized_options)
