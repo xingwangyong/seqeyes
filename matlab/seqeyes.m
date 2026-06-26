@@ -16,7 +16,7 @@ function seqeyes(varargin)
     if ispc
         % Example Windows path:
         % seqeye_exe = 'C:\path\to\seqeyes\out\bin\seqeyes.exe';
-        seqeye_exe = 'C:\Users\76494\Downloads\New folder (22)\seqeye\out\build\x64-Debug\seqeyes.exe';
+        seqeye_exe = 'C:\Users\76494\Downloads\New folder (22)\seqeye\out\build\x64-Release\Release\seqeyes.exe';
         % seqeye_exe = '__SET_WINDOWS_SEQEYES_PATH__';
     elseif ismac
         % Example macOS app-bundle path from this repo build:
@@ -27,18 +27,13 @@ function seqeyes(varargin)
     else
         % Example Linux path:
         % seqeye_exe = '/home/yourname/seqeyes/out/bin/seqeyes';
-        folder = '~/seqeyes/linux';
-        seqeye_exe = fullfile(folder, get_linux_major_id,'seqeyes');
+        folder = '/autofs/cluster/berkin/xingwang/share/seqeyes/linux';
+        seqeye_exe = fullfile(folder, get_linux_major_id, 'seqeyes');
         % seqeye_exe = '__SET_LINUX_SEQEYES_PATH__';
     end
 
     % MATLAB does not reliably expand '~' in file checks/commands.
     seqeye_exe = expand_user_path(seqeye_exe);
-
-    if startsWith(seqeye_exe, '__SET_')
-        error(['SeqEyes path is not configured in seqeyes.m. ', ...
-               'Please edit get_user_specified_seqeyes_path() for your OS.']);
-    end
     
     if ~isfile(seqeye_exe)
         msg = 'SeqEyes executable not found, please try to set its path manually';
