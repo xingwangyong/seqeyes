@@ -138,8 +138,7 @@ function seqeyes(varargin)
         cmd_args = [launch_prefix, seqeye_exe];
         cmd_args = [cmd_args, ' &'];
         fprintf('Opening SeqEyes (no input)\n');
-        fprintf('Command: %s\n', cmd_args);
-        system(cmd_args);
+        run_seqeyes_command(cmd_args);
         return;
     end
     
@@ -221,10 +220,24 @@ function seqeyes(varargin)
     cmd_args = [cmd_args, ' &'];
     
     %% Execute
-    fprintf('Command: %s\n', cmd_args);
-    system(cmd_args);
+    run_seqeyes_command(cmd_args);
     
     end
+
+
+function run_seqeyes_command(cmd_args)
+%RUN_SEQEYES_COMMAND Execute SeqEyes and report shell failures clearly.
+
+    fprintf('Command: %s\n', cmd_args);
+    [status, cmdout] = system(cmd_args);
+    if status ~= 0
+        fprintf(2, 'SeqEyes launch failed with status %d.\n', status);
+        if ~isempty(cmdout)
+            disp('SeqEyes command output:');
+            disp(cmdout);
+        end
+    end
+end
 
 
 function out = expand_user_path(in)
