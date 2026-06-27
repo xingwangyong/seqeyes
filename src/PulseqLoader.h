@@ -17,6 +17,7 @@
 #include "ExternalSequence.h" // For ExternalSequence factory and SeqBlock
 #include "KSpaceTrajectory.h"
 #include "PnsCalculator.h"
+#include "M1Calculator.h"
 
 // Forward declarations
 class MainWindow;
@@ -39,6 +40,12 @@ public:
         Failed
     };
     enum class PnsState {
+        NotStarted,
+        Calculating,
+        Ready,
+        Failed
+    };
+    enum class M1State {
         NotStarted,
         Calculating,
         Ready,
@@ -193,6 +200,13 @@ public:
     bool isPnsOk() const { return m_pnsResult.ok; }
     QString getPnsAscPath() const { return m_pnsAscPath; }
     QString getPnsStatusMessage() const { return m_pnsStatusMessage; }
+
+    // M1 (first gradient moment) accessors
+    bool hasM1Data() const { return m_m1Result.valid; }
+    M1State getM1State() const { return m_m1State; }
+    bool isM1Calculating() const { return m_m1State == M1State::Calculating; }
+    const M1Calculator::Result& getM1Result() const { return m_m1Result; }
+    QStringList getM1Warnings() const { return m_m1Result.warnings; }
     const QVector<double>& getPnsTimeSec() const { return m_pnsResult.timeSec; }
     const QVector<double>& getPnsX() const { return m_pnsResult.pnsX; }
     const QVector<double>& getPnsY() const { return m_pnsResult.pnsY; }
@@ -236,6 +250,12 @@ private:
     void setTrajectoryState(TrajectoryState state);
     void startTrajectoryComputationAsync();
     void startTrajectoryComputationIfEnabled();
+    // M1 (first gradient moment) async computation. Mirrors the trajectory
+    // pattern: launched off the main thread on sequence load, result cached
+    // and pushed to the WaveformDrawer via applyM1Result.
+    void startM1ComputationAsync();
+    void applyM1Result(const M1Calculator::Result& result);
+    void setM1State(M1State state);
     void setPnsState(PnsState state);
     void computePnsSynchronously();
     void startPnsComputationAsync();
@@ -343,6 +363,12 @@ private:
     QVector<char>   m_rfUsePerBlock;
     PnsCalculator::Result m_pnsResult;
     PnsState m_pnsState {PnsState::NotStarted};
+    // M1 (first gradient moment) result + state. Mirrors the trajectory/PNS
+    // caching pattern: populated asynchronously on sequence load, then
+    // pushed to WaveformDrawer via applyM1Result.
+    M1Calculator::Result m_m1Result;
+    M1State m_m1State {M1State::NotStarted};
+    std::uint64_t m_m1RequestSerial {0};
     bool m_autoStartPnsAfterLoad {true};
     bool m_pnsDirty {true};
     std::uint64_t m_pnsRequestSerial {0};

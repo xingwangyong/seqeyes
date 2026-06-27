@@ -54,6 +54,14 @@ public:
     void setShowGz(bool visible);
     void setShowPns(bool visible);
     bool isShowPnsChecked() const;
+    // M1 (first gradient moment) per-axis visibility. Curves are pre-computed
+    // and cached in PulseqLoader; toggling just shows/hides the cached data.
+    void setShowM1x(bool visible);
+    bool isShowM1xChecked() const;
+    void setShowM1y(bool visible);
+    bool isShowM1yChecked() const;
+    void setShowM1z(bool visible);
+    bool isShowM1zChecked() const;
     void refreshShowTeOverlay();
     void setShowTrajectory(bool visible);
     void refreshExtensionLegend();
@@ -90,6 +98,9 @@ public slots:
     void onShowGyToggled(bool checked);
     void onShowGzToggled(bool checked);
     void onShowPnsToggled(bool checked);
+    void onShowM1xToggled(bool checked);
+    void onShowM1yToggled(bool checked);
+    void onShowM1zToggled(bool checked);
     void onShowTeToggled(bool checked);
     void onShowKxKyZeroToggled(bool checked);
     void onShowTrajectoryToggled(bool checked);
@@ -191,6 +202,9 @@ private:
     QCheckBox* m_pShowGyCheckBox;
     QCheckBox* m_pShowGzCheckBox;
     QCheckBox* m_pShowPnsCheckBox;
+    QCheckBox* m_pShowM1xCheckBox {nullptr};
+    QCheckBox* m_pShowM1yCheckBox {nullptr};
+    QCheckBox* m_pShowM1zCheckBox {nullptr};
 
     // Render mode controls
     QRadioButton* m_pModeTrRadio;

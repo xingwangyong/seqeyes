@@ -90,6 +90,7 @@ set(SRC_LIST
     ${PROJECT_ROOT}/src/PulseqLoader.cpp
     ${PROJECT_ROOT}/src/SeriesBuilder.cpp
     ${PROJECT_ROOT}/src/KSpaceTrajectory.cpp
+    ${PROJECT_ROOT}/src/M1Calculator.cpp
     ${PROJECT_ROOT}/src/PnsCalculator.cpp
     ${PROJECT_ROOT}/src/Settings.cpp
     ${PROJECT_ROOT}/src/SettingsDialog.cpp
@@ -113,6 +114,7 @@ set(HEADER_LIST
     ${PROJECT_ROOT}/src/NumericLineEdit.h
     ${PROJECT_ROOT}/src/SeriesBuilder.h
     ${PROJECT_ROOT}/src/KSpaceTrajectory.h
+    ${PROJECT_ROOT}/src/M1Calculator.h
     ${PROJECT_ROOT}/src/PnsCalculator.h
     ${PROJECT_ROOT}/src/PulseqLabelAnalyzer.h
     ${PROJECT_ROOT}/src/Settings.h

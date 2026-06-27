@@ -284,6 +284,14 @@ void TRManager::createWidgets()
     m_pShowPnsCheckBox = new QCheckBox("PNS", m_mainWindow);
     // Default OFF: most users/CI don't have ASC configured.
     m_pShowPnsCheckBox->setChecked(false);
+    m_pShowM1xCheckBox = new QCheckBox("M1x", m_mainWindow);
+    // Default OFF: M1 is computed for advanced users inspecting gradient
+    // moment bookkeeping; not part of the typical pulse-sequence review.
+    m_pShowM1xCheckBox->setChecked(false);
+    m_pShowM1yCheckBox = new QCheckBox("M1y", m_mainWindow);
+    m_pShowM1yCheckBox->setChecked(false);
+    m_pShowM1zCheckBox = new QCheckBox("M1z", m_mainWindow);
+    m_pShowM1zCheckBox->setChecked(false);
 
     // Debounce Timer
     m_pUpdateTimer = new QTimer(this);
@@ -398,6 +406,9 @@ void TRManager::setupLayouts(QVBoxLayout* mainLayout)
     curveVisibilityLayout->addWidget(m_pShowGyCheckBox);
     curveVisibilityLayout->addWidget(m_pShowGzCheckBox);
     curveVisibilityLayout->addWidget(m_pShowPnsCheckBox);
+    curveVisibilityLayout->addWidget(m_pShowM1xCheckBox);
+    curveVisibilityLayout->addWidget(m_pShowM1yCheckBox);
+    curveVisibilityLayout->addWidget(m_pShowM1zCheckBox);
     curveVisibilityLayout->addSpacing(12);
     curveVisibilityLayout->addWidget(m_pShowBlockEdgesCheckBox);
     // Remove toolbar-level Undersample (menu contains the single source of truth)
@@ -444,6 +455,9 @@ void TRManager::connectSignals()
     connect(m_pShowGyCheckBox, &QCheckBox::toggled, this, &TRManager::onShowGyToggled);
     connect(m_pShowGzCheckBox, &QCheckBox::toggled, this, &TRManager::onShowGzToggled);
     connect(m_pShowPnsCheckBox, &QCheckBox::toggled, this, &TRManager::onShowPnsToggled);
+    connect(m_pShowM1xCheckBox, &QCheckBox::toggled, this, &TRManager::onShowM1xToggled);
+    connect(m_pShowM1yCheckBox, &QCheckBox::toggled, this, &TRManager::onShowM1yToggled);
+    connect(m_pShowM1zCheckBox, &QCheckBox::toggled, this, &TRManager::onShowM1zToggled);
     connect(m_pShowTeCheckBox, &QCheckBox::toggled, this, &TRManager::onShowTeToggled);
     connect(m_pShowKxKyZeroCheckBox, &QCheckBox::toggled, this, &TRManager::onShowKxKyZeroToggled);
     connect(m_pShowTrajectoryCheckBox, &QCheckBox::toggled, this, &TRManager::onShowTrajectoryToggled);
@@ -468,6 +482,9 @@ void TRManager::connectSignals()
         drawer->setShowCurve(4, m_pShowGyCheckBox && m_pShowGyCheckBox->isChecked());
         drawer->setShowCurve(5, m_pShowGzCheckBox && m_pShowGzCheckBox->isChecked());
         drawer->setShowCurve(6, m_pShowPnsCheckBox && m_pShowPnsCheckBox->isChecked());
+        drawer->setShowCurve(7, m_pShowM1xCheckBox && m_pShowM1xCheckBox->isChecked());
+        drawer->setShowCurve(8, m_pShowM1yCheckBox && m_pShowM1yCheckBox->isChecked());
+        drawer->setShowCurve(9, m_pShowM1zCheckBox && m_pShowM1zCheckBox->isChecked());
         drawer->updateCurveVisibility();
     }
 
@@ -565,6 +582,34 @@ void TRManager::setShowPns(bool visible)
 bool TRManager::isShowPnsChecked() const
 {
     return m_pShowPnsCheckBox && m_pShowPnsCheckBox->isChecked();
+}
+
+void TRManager::setShowM1x(bool visible)
+{
+    if (m_pShowM1xCheckBox) m_pShowM1xCheckBox->setChecked(visible);
+    onShowM1xToggled(visible);
+}
+bool TRManager::isShowM1xChecked() const
+{
+    return m_pShowM1xCheckBox && m_pShowM1xCheckBox->isChecked();
+}
+void TRManager::setShowM1y(bool visible)
+{
+    if (m_pShowM1yCheckBox) m_pShowM1yCheckBox->setChecked(visible);
+    onShowM1yToggled(visible);
+}
+bool TRManager::isShowM1yChecked() const
+{
+    return m_pShowM1yCheckBox && m_pShowM1yCheckBox->isChecked();
+}
+void TRManager::setShowM1z(bool visible)
+{
+    if (m_pShowM1zCheckBox) m_pShowM1zCheckBox->setChecked(visible);
+    onShowM1zToggled(visible);
+}
+bool TRManager::isShowM1zChecked() const
+{
+    return m_pShowM1zCheckBox && m_pShowM1zCheckBox->isChecked();
 }
 
 void TRManager::refreshShowTeOverlay()
@@ -1823,6 +1868,50 @@ void TRManager::onShowPnsToggled(bool checked)
     if (m_mainWindow)
     {
         m_mainWindow->updatePnsStatusIndicator();
+    }
+}
+
+// -----------------------------------------------------------------------------
+// M1 toggle slots
+//
+// M1 is computed asynchronously by PulseqLoader during sequence load and cached.
+// Toggling the checkbox only flips the cached graph visibility; no recompute
+// is triggered. If a sequence has no M1 result yet (compute still running or
+// failed), the drawer no-ops gracefully.
+// -----------------------------------------------------------------------------
+void TRManager::onShowM1xToggled(bool checked)
+{
+    WaveformDrawer* drawer = m_mainWindow ? m_mainWindow->getWaveformDrawer() : nullptr;
+    if (drawer)
+    {
+        drawer->setShowCurve(7, checked); // M1x is at index 7
+        drawer->updateCurveVisibility();
+        if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+    }
+}
+
+void TRManager::onShowM1yToggled(bool checked)
+{
+    WaveformDrawer* drawer = m_mainWindow ? m_mainWindow->getWaveformDrawer() : nullptr;
+    if (drawer)
+    {
+        drawer->setShowCurve(8, checked); // M1y is at index 8
+        drawer->updateCurveVisibility();
+        if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+    }
+}
+
+void TRManager::onShowM1zToggled(bool checked)
+{
+    WaveformDrawer* drawer = m_mainWindow ? m_mainWindow->getWaveformDrawer() : nullptr;
+    if (drawer)
+    {
+        drawer->setShowCurve(9, checked); // M1z is at index 9
+        drawer->updateCurveVisibility();
+        if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
     }
 }
 

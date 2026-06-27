@@ -218,6 +218,10 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     m_lastPnsComputedGammaHzPerT = 0.0;
     m_pnsAscPath.clear();
     m_pnsStatusMessage.clear();
+    // M1 (first gradient moment) cache reset alongside PNS.
+    m_m1Result = M1Calculator::Result{};
+    m_m1State = M1State::NotStarted;
+    m_m1RequestSerial = 0;
     m_usedExtensions.clear();
     m_tridIdNames.clear();
     m_adcPhaseCache.valid = false;
@@ -776,6 +780,10 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     m_sPulseqFilePathCache = sPulseqFilePath;
     addRecentFile(sPulseqFilePath);
     startTrajectoryComputationIfEnabled();
+    // M1 (first gradient moment) is computed asynchronously on every sequence
+    // load. The result is cached and only displayed if the user enables the
+    // M1x/M1y/M1z checkboxes, so there is no cost to running it up front.
+    startM1ComputationAsync();
     m_mainWindow->setEnabled(true);
     return true;
 }
@@ -1748,6 +1756,148 @@ void PulseqLoader::startPnsComputationAsync()
             emit self->pnsDataUpdated();
         }, Qt::QueuedConnection);
     }).detach();
+}
+
+void PulseqLoader::startM1ComputationAsync()
+{
+    if (!m_spPulseqSeq || m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2)
+    {
+        m_m1Result = M1Calculator::Result{};
+        m_m1Result.valid = false;
+        m_m1Result.ok = false;
+        m_m1Result.error = QStringLiteral("Empty or invalid block list.");
+        setM1State(M1State::NotStarted);
+        emit pnsDataUpdated(); // piggy-back to refresh UI status alongside PNS
+        return;
+    }
+
+    // Build the same Input shape KSpaceTrajectory uses; we only need blocks,
+    // edges, tFactor, and the raster-time hints.
+    double gradRasterUs = -1.0;
+    double rfRasterUs = -1.0;
+    if (m_spPulseqSeq) {
+        std::vector<double> def = m_spPulseqSeq->GetDefinition("GradientRasterTime");
+        if (!def.empty() && std::isfinite(def[0]) && def[0] > 0.0) {
+            gradRasterUs = def[0] * 1e6;
+        }
+        def = m_spPulseqSeq->GetDefinition("RadiofrequencyRasterTime");
+        if (!def.empty() && std::isfinite(def[0]) && def[0] > 0.0) {
+            rfRasterUs = def[0] * 1e6;
+        }
+    }
+
+    QVector<double> adcEventTimes;
+    if (!m_vecDecodeSeqBlocks.empty() && vecBlockEdges.size() >= 2) {
+        qsizetype totalSamples = 0;
+        for (SeqBlock* blk : m_vecDecodeSeqBlocks) {
+            if (!blk || !blk->isADC())
+                continue;
+            const ADCEvent& adc = blk->GetADCEvent();
+            if (adc.numSamples > 0)
+                totalSamples += adc.numSamples;
+        }
+        if (totalSamples > 0)
+            adcEventTimes.reserve(totalSamples);
+
+        for (int i = 0; i < static_cast<int>(m_vecDecodeSeqBlocks.size()); ++i) {
+            SeqBlock* blk = m_vecDecodeSeqBlocks[i];
+            if (!blk || !blk->isADC())
+                continue;
+            const ADCEvent& adc = blk->GetADCEvent();
+            if (adc.numSamples <= 0 || adc.dwellTime <= 0)
+                continue;
+            double dwellUs = static_cast<double>(adc.dwellTime) * 1e-3;
+            double dwellInternal = dwellUs * tFactor;
+            double startInternal = vecBlockEdges[i] + adc.delay * tFactor + 0.5 * dwellInternal;
+            for (int sample = 0; sample < adc.numSamples; ++sample) {
+                adcEventTimes.append(startInternal + sample * dwellInternal);
+            }
+        }
+    }
+
+    double b0Tesla = 0.0;
+    if (m_spPulseqSeq) {
+        std::vector<double> defB0 = m_spPulseqSeq->GetDefinition("B0");
+        if (!defB0.empty())
+            b0Tesla = defB0[0];
+    }
+    if (b0Tesla == 0.0) {
+        b0Tesla = 3.0;
+    }
+
+    const M1Calculator::Input input { m_vecDecodeSeqBlocks,
+                                     vecBlockEdges,
+                                     tFactor,
+                                     m_supportsRfUseMetadata,
+                                     rfRasterUs,
+                                     gradRasterUs,
+                                     adcEventTimes,
+                                     b0Tesla };
+    const std::uint64_t requestId = ++m_m1RequestSerial;
+    setM1State(M1State::Calculating);
+
+    QPointer<PulseqLoader> self(this);
+    const auto blockBundle = m_blockBundle;
+    std::thread([self, input, requestId, blockBundle]() mutable {
+        M1Calculator::Result result;
+        bool ok = true;
+        try {
+            result = M1Calculator::compute(input);
+        } catch (...) {
+            ok = false;
+        }
+
+        if (!self)
+            return;
+
+        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, requestId]() mutable {
+            if (!self)
+                return;
+            if (self->m_m1RequestSerial != requestId)
+                return; // superseded by a newer request
+            if (!ok)
+            {
+                self->m_m1Result = M1Calculator::Result{};
+                self->m_m1Result.valid = false;
+                self->m_m1Result.ok = false;
+                self->m_m1Result.error = QStringLiteral("M1 computation failed.");
+                self->setM1State(M1State::Failed);
+                return;
+            }
+            self->applyM1Result(result);
+        }, Qt::QueuedConnection);
+    }).detach();
+}
+
+void PulseqLoader::applyM1Result(const M1Calculator::Result& result)
+{
+    m_m1Result = result;
+    m_m1Result.valid = result.ok;
+    if (m_m1Result.ok)
+    {
+        setM1State(M1State::Ready);
+    }
+    else
+    {
+        setM1State(M1State::Failed);
+    }
+    // Push curves to the WaveformDrawer so toggling the visibility checkboxes
+    // can show them immediately without re-computing.
+    if (m_mainWindow && m_mainWindow->getWaveformDrawer())
+    {
+        m_mainWindow->getWaveformDrawer()->applyM1Result(
+            result.tSec, result.m1x, result.m1y, result.m1z);
+    }
+}
+
+void PulseqLoader::setM1State(M1State state)
+{
+    if (m_m1State == state)
+        return;
+    m_m1State = state;
+    // Status indicator piggy-backs on the PNS signal in this codebase; keeping
+    // the same channel lets the toolbar refresh without adding a second one.
+    emit pnsDataUpdated();
 }
 
 void PulseqLoader::startPnsComputationIfEnabled()

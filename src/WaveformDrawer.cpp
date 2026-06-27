@@ -84,12 +84,15 @@ WaveformDrawer::WaveformDrawer(MainWindow* mainWindow)
       bShowBlocksEdges(false), m_nCurrentMaxPoints(MAX_POINTS_PER_GRAPH)
 {
     // Initialize curve visibility.
-    // Keep PNS hidden by default so initial layout is deterministic and
-    // does not depend on a later checkbox sync from TRManager.
-    m_curveVisibility.resize(7);
-    for (int i = 0; i < 7; i++) { m_curveVisibility[i] = true; }
+    // Keep PNS and M1x/y/z hidden by default so initial layout is deterministic
+    // and does not depend on a later checkbox sync from TRManager.
+    m_curveVisibility.resize(10);
+    for (int i = 0; i < 10; i++) { m_curveVisibility[i] = true; }
     m_curveVisibility[6] = false; // PNS
-    
+    m_curveVisibility[7] = false; // M1x
+    m_curveVisibility[8] = false; // M1y
+    m_curveVisibility[9] = false; // M1z
+
     // Initialize auto expand mode - default to true (auto expand behavior)
     m_autoExpandMode = true;
 
@@ -121,6 +124,9 @@ void WaveformDrawer::InitSequenceFigure()
     m_pGyRect = new QCPAxisRect(customPlot);
     m_pGzRect = new QCPAxisRect(customPlot);
     m_pPnsRect = new QCPAxisRect(customPlot);
+    m_pM1xRect = new QCPAxisRect(customPlot);
+    m_pM1yRect = new QCPAxisRect(customPlot);
+    m_pM1zRect = new QCPAxisRect(customPlot);
 
     m_vecRects.append(m_pADCLabelsRect);
     m_vecRects.append(m_pRfMagRect);
@@ -129,6 +135,9 @@ void WaveformDrawer::InitSequenceFigure()
     m_vecRects.append(m_pGyRect);
     m_vecRects.append(m_pGzRect);
     m_vecRects.append(m_pPnsRect);
+    m_vecRects.append(m_pM1xRect);
+    m_vecRects.append(m_pM1yRect);
+    m_vecRects.append(m_pM1zRect);
 
     auto m_pMarginGroup = new QCPMarginGroup(customPlot);
     // Single-column grid: only plot rects; drag will target axis label area directly
@@ -416,6 +425,50 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphPnsNorm->setAntialiased(true);
         m_graphPnsNorm->setVisible(m_curveVisibility.value(6, true));
     }
+
+    // M1 (first gradient moment) per-axis graphs, one rect each.
+    m_graphM1x = customPlot->addGraph(m_pM1xRect->axis(QCPAxis::atBottom), m_pM1xRect->axis(QCPAxis::atLeft));
+    if (m_graphM1x)
+    {
+        QPen pen(colors.isEmpty() ? Qt::blue : colors[2 % colors.size()]);
+        pen.setWidthF(1.4);
+        m_graphM1x->setPen(pen);
+        m_graphM1x->setLineStyle(QCPGraph::lsLine);
+        m_graphM1x->setScatterStyle(QCPScatterStyle::ssNone);
+        m_graphM1x->setAdaptiveSampling(true);
+        m_graphM1x->setAntialiased(true);
+        m_graphM1x->setVisible(m_curveVisibility.value(7, false));
+    }
+    m_graphM1y = customPlot->addGraph(m_pM1yRect->axis(QCPAxis::atBottom), m_pM1yRect->axis(QCPAxis::atLeft));
+    if (m_graphM1y)
+    {
+        QPen pen(colors.isEmpty() ? Qt::darkYellow : colors[3 % colors.size()]);
+        pen.setWidthF(1.4);
+        m_graphM1y->setPen(pen);
+        m_graphM1y->setLineStyle(QCPGraph::lsLine);
+        m_graphM1y->setScatterStyle(QCPScatterStyle::ssNone);
+        m_graphM1y->setAdaptiveSampling(true);
+        m_graphM1y->setAntialiased(true);
+        m_graphM1y->setVisible(m_curveVisibility.value(8, false));
+    }
+    m_graphM1z = customPlot->addGraph(m_pM1zRect->axis(QCPAxis::atBottom), m_pM1zRect->axis(QCPAxis::atLeft));
+    if (m_graphM1z)
+    {
+        QPen pen(colors.isEmpty() ? Qt::darkCyan : colors[4 % colors.size()]);
+        pen.setWidthF(1.4);
+        m_graphM1z->setPen(pen);
+        m_graphM1z->setLineStyle(QCPGraph::lsLine);
+        m_graphM1z->setScatterStyle(QCPScatterStyle::ssNone);
+        m_graphM1z->setAdaptiveSampling(true);
+        m_graphM1z->setAntialiased(true);
+        m_graphM1z->setVisible(m_curveVisibility.value(9, false));
+    }
+    // Label the M1 axes once. These are independent of the per-curve
+    // visibility flags so the user can still see the axis context when
+    // the curve is hidden.
+    if (m_pM1xRect) m_pM1xRect->axis(QCPAxis::atLeft)->setLabel("M1x [s/m]");
+    if (m_pM1yRect) m_pM1yRect->axis(QCPAxis::atLeft)->setLabel("M1y [s/m]");
+    if (m_pM1zRect) m_pM1zRect->axis(QCPAxis::atLeft)->setLabel("M1z [s/m]");
 
     // Persistent block-edge graphs for each rect
     m_blockEdgeGraphs.resize(m_vecRects.size());
@@ -1369,6 +1422,9 @@ void WaveformDrawer::clearAllWaveformData()
     clearGraph(m_graphGz);
     clearGraph(m_graphTrigMarkers);
     clearGraph(m_graphTrigDurations);
+    clearGraph(m_graphM1x);
+    clearGraph(m_graphM1y);
+    clearGraph(m_graphM1z);
 
     for (QCPGraph* edge : m_blockEdgeGraphs)
         clearGraph(edge);
@@ -1999,6 +2055,35 @@ void WaveformDrawer::DrawBlockEdges()
         if (!ys.isEmpty() && std::isnan(ys.last())) { xs.removeLast(); ys.removeLast(); }
         m_blockEdgeGraphs[r]->setData(xs, ys);
         m_blockEdgeGraphs[r]->setVisible(bShowBlocksEdges && !xs.isEmpty());
+    }
+}
+
+void WaveformDrawer::applyM1Result(const QVector<double>& tSec,
+                                   const QVector<double>& m1x,
+                                   const QVector<double>& m1y,
+                                   const QVector<double>& m1z)
+{
+    // Defensive: all four input vectors must have equal length. If they
+    // don't, drop the update and leave the previous M1 plot in place; an
+    // internal warning has already been emitted by M1Calculator.
+    if (tSec.size() != m1x.size() ||
+        tSec.size() != m1y.size() ||
+        tSec.size() != m1z.size() ||
+        tSec.isEmpty())
+    {
+        return;
+    }
+    if (m_graphM1x) m_graphM1x->setData(tSec, m1x);
+    if (m_graphM1y) m_graphM1y->setData(tSec, m1y);
+    if (m_graphM1z) m_graphM1z->setData(tSec, m1z);
+    // Re-apply current visibility: user may toggle off while data is being
+    // updated and we must not silently re-enable the curve.
+    if (m_graphM1x) m_graphM1x->setVisible(m_curveVisibility.value(7, false));
+    if (m_graphM1y) m_graphM1y->setVisible(m_curveVisibility.value(8, false));
+    if (m_graphM1z) m_graphM1z->setVisible(m_curveVisibility.value(9, false));
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+    {
+        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
     }
 }
 

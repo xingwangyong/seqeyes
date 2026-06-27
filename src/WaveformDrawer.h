@@ -56,6 +56,15 @@ public:
     
     // Update axis labels when settings change
     void updateAxisLabels();
+
+    // Feed pre-computed M1 curves (computed by M1Calculator in PulseqLoader)
+    // into the per-axis rects. Safe to call multiple times; updates data and
+    // graph visibility in one shot. Curves are visible only when their
+    // corresponding toggle (m_curveVisibility[7/8/9]) is on.
+    void applyM1Result(const QVector<double>& tSec,
+                       const QVector<double>& m1x,
+                       const QVector<double>& m1y,
+                       const QVector<double>& m1z);
     
     // Ensure current viewport has been rendered at the correct detail
     void ensureRenderedForCurrentViewport();
@@ -144,6 +153,10 @@ private:
     QCPAxisRect* m_pGyRect;
     QCPAxisRect* m_pGzRect;
     QCPAxisRect* m_pPnsRect;
+    // M1 (first gradient moment) per-axis rects (indices 7/8/9 in m_curveVisibility)
+    QCPAxisRect* m_pM1xRect {nullptr};
+    QCPAxisRect* m_pM1yRect {nullptr};
+    QCPAxisRect* m_pM1zRect {nullptr};
     // Persistent graphs to avoid flicker on redraws
     QCPGraph* m_graphADC {nullptr};
     QCPGraph* m_graphRFMag {nullptr};
@@ -155,6 +168,10 @@ private:
     QCPGraph* m_graphPnsY {nullptr};
     QCPGraph* m_graphPnsZ {nullptr};
     QCPGraph* m_graphPnsNorm {nullptr};
+    // M1 per-axis graphs
+    QCPGraph* m_graphM1x {nullptr};
+    QCPGraph* m_graphM1y {nullptr};
+    QCPGraph* m_graphM1z {nullptr};
 
     // ADC custom phase graph (scatter dots only)
     QCPGraph* m_graphADCPh {nullptr};
@@ -172,7 +189,7 @@ private:
     // Plotting state
     QVector<QColor> colors;
     bool bShowBlocksEdges;
-    QVector<bool> m_curveVisibility; // Track visibility of each curve (0: ADC, 1: RF Mag, 2: RF Phase, 3: GX, 4: GY, 5: GZ, 6: PNS)
+    QVector<bool> m_curveVisibility; // Track visibility of each curve (0: ADC, 1: RF Mag, 2: RF Phase, 3: GX, 4: GY, 5: GZ, 6: PNS, 7: M1x, 8: M1y, 9: M1z)
     bool m_autoExpandMode; // Control behavior: true = auto expand remaining curves, false = just hide curves
 
     // Performance optimization data
