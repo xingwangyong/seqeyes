@@ -154,7 +154,7 @@ void PulseqLoader::ReOpenPulseqFile()
 {
     if (m_sPulseqFilePathCache.size() > 0)
     {
-        ClearPulseqCache();
+        // ClearPulseqCache(); Now LoadPulseqFile() already calls ClearPulseqCache()
         LoadPulseqFile(m_sPulseqFilePathCache);
     }
 }
@@ -354,14 +354,15 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     m_mainWindow->setEnabled(false);
     m_sequenceLoadState = SequenceLoadState::Loading;
 
-    // Opening a different sequence must invalidate all cached waveform/trajectory
-    // state from the previous file before the new load begins. ReOpenPulseqFile
-    // already clears explicitly, but normal Open/CLI paths also come through here.
-    if (!m_vecDecodeSeqBlocks.empty() || m_spPulseqSeq || m_kTrajectoryReady ||
-        m_trajectoryState == TrajectoryState::Calculating)
-    {
-        ClearPulseqCache();
-    }
+    // Opening any sequence must invalidate all cached waveform/trajectory state
+    // from the previous file before the new load begins. Clear unconditionally
+    // instead of trying to detect "is there stale state": a missed condition is
+    // exactly how reopen state leaks (the bug this path keeps regressing into).
+    // On a blank loader ClearPulseqCache() is a cheap no-op, and it always bumps
+    // the trajectory generation so any in-flight async task from the previous
+    // file is discarded. Every entry point (Open / Reopen / Recent / drag-drop /
+    // CLI) funnels through here, so this is the single authoritative reset point.
+    ClearPulseqCache();
 
     m_sequenceLoadState = SequenceLoadState::Loading;
 
@@ -1512,11 +1513,28 @@ void PulseqLoader::startTrajectoryComputationAsync()
     // Keep the decoded blocks alive for the duration of this task, even if the
     // sequence is reopened/cleared while we are still computing.
     const auto blockBundle = m_blockBundle;
-    std::thread([self, input, sequenceGeneration, requestId, blockBundle]() mutable {
+    // KSpaceTrajectory::Input holds *references* to blocks/blockEdges. If they
+    // stayed bound to the loader members (m_vecDecodeSeqBlocks/vecBlockEdges),
+    // this worker would read them while a concurrent reopen clears/reallocates
+    // them on the main thread -> use-after-free. Capture owned copies and rebuild
+    // Input from those inside the thread, mirroring the PNS worker. blockBundle
+    // keeps the pointed-to SeqBlock objects alive.
+    std::thread([self, sequenceGeneration, requestId, blockBundle,
+                 blocks = m_vecDecodeSeqBlocks,
+                 blockEdges = vecBlockEdges,
+                 tFactor = input.tFactor,
+                 supportsRfUse = input.supportsRfUseMetadata,
+                 rfRasterUs = input.rfRasterUs,
+                 gradientRasterUs = input.gradientRasterUs,
+                 adcEventTimes = input.adcEventTimesInternal,
+                 b0Tesla = input.b0Tesla]() mutable {
+        KSpaceTrajectory::Input localInput { blocks, blockEdges, tFactor, supportsRfUse,
+                                             rfRasterUs, gradientRasterUs,
+                                             std::move(adcEventTimes), b0Tesla };
         KSpaceTrajectory::Result result;
         bool ok = true;
         try {
-            result = KSpaceTrajectory::compute(input);
+            result = KSpaceTrajectory::compute(localInput);
         } catch (...) {
             ok = false;
         }

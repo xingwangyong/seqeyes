@@ -12,6 +12,15 @@ namespace KSpaceTrajectory
 
 struct Input
 {
+    // blocks/blockEdges are references: Input does not own this data, it only
+    // points at a vector living elsewhere. Caller must guarantee that data stays
+    // alive AND unmodified for the whole duration of compute(). On the same
+    // thread (synchronous compute) binding them to loader members is fine.
+    // When handing Input to another thread (async compute), DO NOT bind them to
+    // data the main thread can touch (e.g. PulseqLoader::m_vecDecodeSeqBlocks /
+    // vecBlockEdges): a concurrent reopen clears/reallocates those and the worker
+    // would read freed memory (use-after-free). Bind to thread-owned copies
+    // instead. See PulseqLoader::startTrajectoryComputationAsync().
     const std::vector<SeqBlock*>& blocks;
     const QVector<double>& blockEdges;
     double tFactor = 1.0;
