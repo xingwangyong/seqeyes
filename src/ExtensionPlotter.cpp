@@ -95,6 +95,19 @@ void ExtensionPlotter::ensureGraphs()
 
 void ExtensionPlotter::reset()
 {
+    // The label graphs were created with m_plot->addGraph() and are owned by the
+    // QCustomPlot, not by m_graphByName. Clearing the map alone orphans them: they
+    // stay on the canvas with the previous file's data still visible, which leaks
+    // the old sequence's labels onto the next opened file. Remove them from the
+    // plot before dropping our references.
+    if (m_plot)
+    {
+        for (auto it = m_graphByName.begin(); it != m_graphByName.end(); ++it)
+        {
+            if (it.value())
+                m_plot->removeGraph(it.value());
+        }
+    }
     m_graphByName.clear();
     m_cacheByName.clear();
     m_lastSeqPtr = nullptr;
