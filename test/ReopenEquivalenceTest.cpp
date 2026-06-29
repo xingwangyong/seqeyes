@@ -140,31 +140,84 @@ private:
             out << QStringLiteral("rawADCph=%1").arg(hashSeries(tAdc, vAdc));
         }
 
-        // Canvas inventory: which graphs exist, on which row, visible, and how
-        // many points. NOT the decimated data itself -- that is pixel-width
-        // sensitive and varies with layout timing (a false-positive source).
-        // A leaked/orphan graph from a previous file shows up here as an extra
-        // entry; data correctness is covered by the raw hashes above.
-        QStringList graphLines;
-        QCustomPlot* plot = w.getUI()->customPlot;
-        for (int i = 0; i < plot->graphCount(); ++i)
+        // Component-agnostic canvas inventory. Instead of naming components, we
+        // walk the widget tree and capture the *containers* of visible output:
+        // every QCustomPlot's plottables and items, and every QLabel's text.
+        // Whatever component leaks state ends up in one of these containers, so
+        // an orphan/leaked plottable or item (or stale label text) shows up as
+        // an extra/changed entry -- no need to know which component produced it.
+        //
+        // We deliberately record per-plottable point COUNT (g->dataCount()), not
+        // the decimated data values, because the decimated graph data is pixel-
+        // width sensitive and varies with layout timing (a false-positive
+        // source). Value-level correctness is covered by the raw hashes above.
+        QStringList canvasLines;
+        const QList<QCustomPlot*> plots = w.findChildren<QCustomPlot*>();
+        for (QCustomPlot* plot : plots)
         {
-            QCPGraph* g = plot->graph(i);
-            if (!g)
-                continue;
-            QString row = QStringLiteral("?");
-            if (g->valueAxis() && g->valueAxis()->axisRect())
+            const QString pid = plot->objectName().isEmpty()
+                                    ? QStringLiteral("plot")
+                                    : plot->objectName();
+
+            for (int i = 0; i < plot->plottableCount(); ++i)
             {
-                if (QCPAxis* la = g->valueAxis()->axisRect()->axis(QCPAxis::atLeft))
-                    row = la->label();
+                QCPAbstractPlottable* pl = plot->plottable(i);
+                if (!pl)
+                    continue;
+                QString row = QStringLiteral("?");
+                if (pl->valueAxis() && pl->valueAxis()->axisRect())
+                {
+                    if (QCPAxis* la = pl->valueAxis()->axisRect()->axis(QCPAxis::atLeft))
+                        row = la->label();
+                }
+                int n = -1;
+                if (QCPGraph* g = qobject_cast<QCPGraph*>(pl))
+                    n = g->dataCount();
+                // No name: QCustomPlot auto-names graphs "Graph N" by creation
+                // order, which is not a stable identity across reopen (graphs are
+                // removed/re-added), so it would create false positives. The
+                // sorted multiset of (type,row,vis,n) is the stable signal; an
+                // orphan/leaked plottable still shows up as an extra entry.
+                canvasLines << QStringLiteral("%1 plottable type=%2 row=%3 vis=%4 n=%5")
+                                   .arg(pid)
+                                   .arg(QString::fromLatin1(pl->metaObject()->className()))
+                                   .arg(row)
+                                   .arg(pl->visible() ? 1 : 0)
+                                   .arg(n);
             }
-            graphLines << QStringLiteral("row=%1 vis=%2 n=%3")
-                              .arg(row)
-                              .arg(g->visible() ? 1 : 0)
-                              .arg(g->dataCount());
+
+            for (int i = 0; i < plot->itemCount(); ++i)
+            {
+                QCPAbstractItem* item = plot->item(i);
+                if (!item)
+                    continue;
+                QString posStr;
+                const auto positions = item->positions();
+                for (QCPItemPosition* pos : positions)
+                    posStr += QStringLiteral("(%1,%2)").arg(pos->key(), 0, 'g', 8)
+                                  .arg(pos->value(), 0, 'g', 8);
+                canvasLines << QStringLiteral("%1 item type=%2 vis=%3 pos=%4")
+                                   .arg(pid)
+                                   .arg(QString::fromLatin1(item->metaObject()->className()))
+                                   .arg(item->visible() ? 1 : 0)
+                                   .arg(posStr);
+            }
         }
-        graphLines.sort();
-        out += graphLines;
+        canvasLines.sort();
+        out += canvasLines;
+
+        // Every text label (status bar coord readout, version, TR labels, ...).
+        // For A-B-A on the same file these must match; a stale label from the
+        // previous file would differ here.
+        QStringList labelLines;
+        for (QLabel* lbl : w.findChildren<QLabel*>())
+        {
+            const QString id = lbl->objectName().isEmpty() ? QStringLiteral("?") : lbl->objectName();
+            labelLines << QStringLiteral("label[%1]=%2").arg(id, lbl->text());
+        }
+        labelLines.sort();
+        out += labelLines;
+
         return out;
     }
 
