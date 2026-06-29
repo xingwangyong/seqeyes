@@ -2036,6 +2036,22 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
                             else { lo = std::min(lo, v); hi = std::max(hi, v); }
                         }
                     }
+                    // Guard against a zero / inverted range, which QCustomPlot
+                    // treats as "no data" and refuses to draw. If bounds are
+                    // identical (e.g. only reset events in viewport, or empty
+                    // samples), fall back to a unit interval centered on the
+                    // single value (or 0..1 when nothing came through).
+                    if (!any || lo >= hi)
+                    {
+                        const double center = any ? lo : 0.0;
+                        lo = center - 0.5;
+                        hi = center + 0.5;
+                    }
+                    // Add ~5% headroom so the curve does not sit on the axis
+                    // edge. Mirrors the small padding used by the PNS block.
+                    const double pad = 0.05 * (hi - lo);
+                    lo -= pad;
+                    hi += pad;
                 };
                 double loX = 0.0, hiX = 0.0, loY = 0.0, hiY = 0.0, loZ = 0.0, hiZ = 0.0;
                 if (m1xEnabled) computeBounds(m1VxDs, loX, hiX);
@@ -2050,12 +2066,20 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
             }
             else if (m_fixedYRanges.size() > 9)
             {
-                if (m_pM1xRect && m1xEnabled)
-                    m_pM1xRect->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[7].first, m_fixedYRanges[7].second);
-                if (m_pM1yRect && m1yEnabled)
-                    m_pM1yRect->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[8].first, m_fixedYRanges[8].second);
-                if (m_pM1zRect && m1zEnabled)
-                    m_pM1zRect->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[9].first, m_fixedYRanges[9].second);
+                auto applyFixed = [&](QCPAxisRect* rect, bool enabled, int slot) {
+                    if (!rect || !enabled) return;
+                    const double lo = m_fixedYRanges[slot].first;
+                    const double hi = m_fixedYRanges[slot].second;
+                    // Only apply the locked range if it's well-formed; an
+                    // uninitialized (0,0) entry would otherwise squash the axis.
+                    if (std::isfinite(lo) && std::isfinite(hi) && hi > lo)
+                    {
+                        rect->axis(QCPAxis::atLeft)->setRange(lo, hi);
+                    }
+                };
+                applyFixed(m_pM1xRect, m1xEnabled, 7);
+                applyFixed(m_pM1yRect, m1yEnabled, 8);
+                applyFixed(m_pM1zRect, m1zEnabled, 9);
             }
         }
     }
