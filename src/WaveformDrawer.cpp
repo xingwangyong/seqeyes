@@ -1947,10 +1947,14 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
         const bool m1yEnabled = m_curveVisibility.value(8, false);
         const bool m1zEnabled = m_curveVisibility.value(9, false);
         const bool anyM1Enabled = m1xEnabled || m1yEnabled || m1zEnabled;
+        const bool interactionFastMode = (m_mainWindow && m_mainWindow->isInteractionFastMode());
 
         // Fast path: when all M1 toggles are off, hide graphs and skip all vector work.
-        if (!anyM1Enabled)
+        if (!anyM1Enabled || interactionFastMode)
         {
+            // During fast mode we still respect the user toggles — curves that
+            // were on stay hidden until interaction finishes, then the next
+            // DrawGWaveform pass restores them.
             m_graphM1x->setVisible(false);
             m_graphM1y->setVisible(false);
             m_graphM1z->setVisible(false);
@@ -2354,6 +2358,26 @@ void WaveformDrawer::setPnsInteractionFastVisibility(bool enabled)
     if (m_graphPnsY) m_graphPnsY->setVisible(showY);
     if (m_graphPnsZ) m_graphPnsZ->setVisible(showZ);
     if (m_graphPnsNorm) m_graphPnsNorm->setVisible(showNorm);
+
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+    {
+        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+    }
+}
+
+void WaveformDrawer::setM1InteractionFastVisibility(bool enabled)
+{
+    // Mirrors setPnsInteractionFastVisibility: when fast mode is on, hide the
+    // per-axis M1 curves so pan/zoom interactions stay responsive. The next
+    // DrawGWaveform() pass (after setInteractionFastMode(false)) restores
+    // them with the correct viewport-aware downsampling.
+    const bool m1xEnabled = m_curveVisibility.value(7, false);
+    const bool m1yEnabled = m_curveVisibility.value(8, false);
+    const bool m1zEnabled = m_curveVisibility.value(9, false);
+
+    if (m_graphM1x) m_graphM1x->setVisible(!enabled && m1xEnabled);
+    if (m_graphM1y) m_graphM1y->setVisible(!enabled && m1yEnabled);
+    if (m_graphM1z) m_graphM1z->setVisible(!enabled && m1zEnabled);
 
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
     {

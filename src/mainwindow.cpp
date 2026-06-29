@@ -1041,7 +1041,10 @@ void MainWindow::setInteractionFastMode(bool enabled)
         return;
     m_interactionFastMode = enabled;
     if (m_waveformDrawer)
+    {
         m_waveformDrawer->setPnsInteractionFastVisibility(enabled);
+        m_waveformDrawer->setM1InteractionFastVisibility(enabled);
+    }
 }
 void MainWindow::setTrajectoryVisible(bool show)
 {

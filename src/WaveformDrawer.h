@@ -48,6 +48,7 @@ public:
     void setShowCurve(int curveIndex, bool show);
     void updateCurveVisibility();
     void setPnsInteractionFastVisibility(bool enabled);
+    void setM1InteractionFastVisibility(bool enabled);
     void setAutoExpandMode(bool autoExpand);
     bool getAutoExpandMode() const;
     // Programmatic layout control (rows x cols, using current axes order). Currently cols must be 1.
