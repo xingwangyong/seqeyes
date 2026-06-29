@@ -31,6 +31,7 @@ set(TEST_SOURCES
     ${PROJECT_SOURCE_DIR}/src/SeriesBuilder.cpp
     ${PROJECT_SOURCE_DIR}/src/KSpaceTrajectory.cpp
     ${PROJECT_SOURCE_DIR}/src/PnsCalculator.cpp
+    ${PROJECT_SOURCE_DIR}/src/M1Calculator.cpp
     ${PROJECT_SOURCE_DIR}/src/Settings.cpp
     ${PROJECT_SOURCE_DIR}/src/SettingsDialog.cpp
     ${PROJECT_SOURCE_DIR}/src/TRManager.cpp
@@ -78,6 +79,7 @@ add_executable(${PERF_TEST_NAME}
     ${PROJECT_SOURCE_DIR}/src/SeriesBuilder.cpp
     ${PROJECT_SOURCE_DIR}/src/KSpaceTrajectory.cpp
     ${PROJECT_SOURCE_DIR}/src/PnsCalculator.cpp
+    ${PROJECT_SOURCE_DIR}/src/M1Calculator.cpp
     ${PROJECT_SOURCE_DIR}/src/Settings.cpp
     ${PROJECT_SOURCE_DIR}/src/SettingsDialog.cpp
     ${PROJECT_SOURCE_DIR}/src/TRManager.cpp

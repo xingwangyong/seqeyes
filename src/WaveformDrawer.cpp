@@ -97,9 +97,9 @@ WaveformDrawer::WaveformDrawer(MainWindow* mainWindow)
     m_autoExpandMode = true;
 
     // Default axes order (UI config default)
-    m_axesOrder = QStringList() << "RF mag" << "PNS" << "GZ" << "GY" << "GX" << "RF/ADC ph" << "ADC/labels";
+    m_axesOrder = QStringList() << "RF mag" << "PNS" << "GZ" << "GY" << "GX" << "RF/ADC ph" << "ADC/labels" << "M1x" << "M1y" << "M1z";
     // Initialize fixed Y ranges container
-    m_fixedYRanges.resize(7);
+    m_fixedYRanges.resize(10);
 }
 
 WaveformDrawer::~WaveformDrawer()
@@ -2119,6 +2119,9 @@ void WaveformDrawer::updateCurveVisibility()
         if (rect == m_pGyRect) return 4;
         if (rect == m_pGzRect) return 5;
         if (rect == m_pPnsRect) return 6;
+        if (rect == m_pM1xRect) return 7;
+        if (rect == m_pM1yRect) return 8;
+        if (rect == m_pM1zRect) return 9;
         return -1;
     };
 
@@ -2131,6 +2134,9 @@ void WaveformDrawer::updateCurveVisibility()
     labelToRect["GY"] = m_pGyRect;
     labelToRect["GZ"] = m_pGzRect;
     labelToRect["PNS"] = m_pPnsRect;
+    labelToRect["M1x"] = m_pM1xRect;
+    labelToRect["M1y"] = m_pM1yRect;
+    labelToRect["M1z"] = m_pM1zRect;
     
     // Handle auto-expand mode vs fixed layout mode
     if (m_autoExpandMode) {
@@ -2222,6 +2228,12 @@ void WaveformDrawer::updateCurveVisibility()
         m_graphPnsZ->setVisible(m_curveVisibility.value(6, false) && Settings::getInstance().getPnsChannelVisibleZ());
     if (m_graphPnsNorm)
         m_graphPnsNorm->setVisible(m_curveVisibility.value(6, false) && Settings::getInstance().getPnsChannelVisibleNorm());
+    if (m_graphM1x)
+        m_graphM1x->setVisible(m_curveVisibility.value(7, false));
+    if (m_graphM1y)
+        m_graphM1y->setVisible(m_curveVisibility.value(8, false));
+    if (m_graphM1z)
+        m_graphM1z->setVisible(m_curveVisibility.value(9, false));
     if (m_graphTrigMarkers)
         m_graphTrigMarkers->setVisible(m_curveVisibility.value(0, false));
     if (m_graphTrigDurations)
