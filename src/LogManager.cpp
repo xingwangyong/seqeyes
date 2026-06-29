@@ -59,9 +59,10 @@ bool LogManager::shouldLog(Settings::LogLevel messageLevel) const
 void LogManager::appendEntryInternal(QtMsgType type,
                                      const QString& source,
                                      const QString& message,
-                                     const QString& file)
+                                     const QString& file,
+                                     bool bypassFilter)
 {
-    if (!shouldLog(qtMsgTypeToLogLevel(type))) {
+    if (!bypassFilter && !shouldLog(qtMsgTypeToLogLevel(type))) {
         return;
     }
 
@@ -138,6 +139,17 @@ void LogManager::appendStructured(QtMsgType type,
                                   const QString& file)
 {
     appendEntryInternal(type, source.trimmed(), message, file.trimmed());
+}
+
+void LogManager::appendDiagnostic(const QString& source,
+                                  const QString& message,
+                                  const QString& file)
+{
+    appendEntryInternal(QtWarningMsg,
+                        source.trimmed(),
+                        message,
+                        file.trimmed(),
+                        true);
 }
 
 void LogManager::fatal(const QString& message)

@@ -260,9 +260,9 @@ private:
     std::unique_ptr<ExtensionPlotter> m_extensionPlotter;
     std::unique_ptr<PulseqLabelAnalyzer> m_labelAnalyzer;
 
-    // Fixed Y-axis ranges per rect (0..5). When locked, draw functions won't adjust Y ranges dynamically.
+    // Fixed Y-axis ranges per rect (0..9). When locked, draw functions won't adjust Y ranges dynamically.
     bool m_lockYAxisRanges {false};
-    QVector<QPair<double,double>> m_fixedYRanges; // size 6, (min,max) per axis rect
+    QVector<QPair<double,double>> m_fixedYRanges; // size 10, (min,max) per axis rect
 
     // Simple cached render state
     double m_lastViewportLower { std::numeric_limits<double>::infinity() };

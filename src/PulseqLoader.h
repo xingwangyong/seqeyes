@@ -231,6 +231,8 @@ public slots:
 signals:
     void pnsDataUpdated();
     void pnsStateChanged();
+    void m1DataUpdated();
+    void m1StateChanged();
     void trajectoryStateChanged();
     void trajectoryDataUpdated();
 

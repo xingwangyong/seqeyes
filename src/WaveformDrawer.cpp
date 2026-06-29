@@ -71,10 +71,16 @@ static void applyZoomSettingsToManager(ZoomManager* zm)
 
 #include <QPen>
 #include <QDebug>
+#include "LogManager.h"
 #include <chrono>
 #include <complex>
 
 // Debug logging removed for cleaner output in tests and runtime
+
+static void logM1Diagnostic(const QString& message)
+{
+    LogManager::getInstance().appendDiagnostic(QStringLiteral("M1"), message);
+}
 
 WaveformDrawer::WaveformDrawer(MainWindow* mainWindow)
     : QObject(mainWindow),
@@ -1831,109 +1837,111 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
         const bool renderN = settings.getPnsChannelVisibleNorm();
         const bool anyPnsChannelEnabled = renderX || renderY || renderZ || renderN;
 
-        // Fast path: when PNS checkbox is off (or all channels hidden), skip all vector work.
+        // Fast path: when PNS checkbox is off (or all channels hidden), skip
+        // PNS vector work only. M1 is drawn below and must not depend on PNS.
         if (!pnsCurveEnabled || !anyPnsChannelEnabled)
         {
             m_graphPnsX->setVisible(false);
             m_graphPnsY->setVisible(false);
             m_graphPnsZ->setVisible(false);
             m_graphPnsNorm->setVisible(false);
-            return;
         }
-
-        QVector<double> pnsT;
-        QVector<double> pnsX;
-        QVector<double> pnsY;
-        QVector<double> pnsZ;
-        QVector<double> pnsN;
-        const QVector<double>& tSec = loader->getPnsTimeSec();
-        const QVector<double>& sx = loader->getPnsX();
-        const QVector<double>& sy = loader->getPnsY();
-        const QVector<double>& sz = loader->getPnsZ();
-        const QVector<double>& sn = loader->getPnsNorm();
-        const int n = std::min({tSec.size(), sx.size(), sy.size(), sz.size(), sn.size()});
-        const double secStart = visibleStart / (1e6 * tFactor);
-        const double secEnd = visibleEnd / (1e6 * tFactor);
-        int i0 = 0;
-        int i1 = n;
-        if (n > 0)
+        else
         {
-            i0 = static_cast<int>(std::lower_bound(tSec.constBegin(), tSec.constBegin() + n, secStart) - tSec.constBegin());
-            i1 = static_cast<int>(std::upper_bound(tSec.constBegin() + i0, tSec.constBegin() + n, secEnd) - tSec.constBegin());
-        }
-        const int visibleCount = std::max(0, i1 - i0);
-
-        pnsT.reserve(visibleCount);
-        pnsX.reserve(visibleCount);
-        pnsY.reserve(visibleCount);
-        pnsZ.reserve(visibleCount);
-        pnsN.reserve(visibleCount);
-
-        // Display in percent to match MATLAB safe_plot.
-        for (int i = i0; i < i1; ++i)
-        {
-            pnsT.append(tSec[i] * 1e6 * tFactor);
-            pnsX.append(100.0 * sx[i]);
-            pnsY.append(100.0 * sy[i]);
-            pnsZ.append(100.0 * sz[i]);
-            pnsN.append(100.0 * sn[i]);
-        }
-
-        // Downsample each channel independently with min-max buckets (shape-preserving envelope).
-        QVector<double> pnsTx = pnsT, pnsTy = pnsT, pnsTz = pnsT, pnsTn = pnsT;
-        QVector<double> pnsVx = pnsX, pnsVy = pnsY, pnsVz = pnsZ, pnsVn = pnsN;
-        if (m_pPnsRect && pnsT.size() > 0)
-        {
-            const int px = qMax(1, static_cast<int>(qRound(m_pPnsRect->width() * m_mainWindow->devicePixelRatioF())));
-            const int maxPoints = interactionFastMode
-                ? qMax(80, px / 2)
-                : ((currentLODLevel == LODLevel::DOWNSAMPLED)
-                    ? qMax(160, px)
-                    : qMax(220, static_cast<int>(qRound(1.2 * px))));
-            if (pnsT.size() > maxPoints)
+            QVector<double> pnsT;
+            QVector<double> pnsX;
+            QVector<double> pnsY;
+            QVector<double> pnsZ;
+            QVector<double> pnsN;
+            const QVector<double>& tSec = loader->getPnsTimeSec();
+            const QVector<double>& sx = loader->getPnsX();
+            const QVector<double>& sy = loader->getPnsY();
+            const QVector<double>& sz = loader->getPnsZ();
+            const QVector<double>& sn = loader->getPnsNorm();
+            const int n = std::min({tSec.size(), sx.size(), sy.size(), sz.size(), sn.size()});
+            const double secStart = visibleStart / (1e6 * tFactor);
+            const double secEnd = visibleEnd / (1e6 * tFactor);
+            int i0 = 0;
+            int i1 = n;
+            if (n > 0)
             {
-                if (renderX) applyMinMaxDownsampling(pnsT, pnsX, maxPoints, pnsTx, pnsVx);
-                if (renderY) applyMinMaxDownsampling(pnsT, pnsY, maxPoints, pnsTy, pnsVy);
-                if (renderZ) applyMinMaxDownsampling(pnsT, pnsZ, maxPoints, pnsTz, pnsVz);
-                applyMinMaxDownsampling(pnsT, pnsN, maxPoints, pnsTn, pnsVn);
+                i0 = static_cast<int>(std::lower_bound(tSec.constBegin(), tSec.constBegin() + n, secStart) - tSec.constBegin());
+                i1 = static_cast<int>(std::upper_bound(tSec.constBegin() + i0, tSec.constBegin() + n, secEnd) - tSec.constBegin());
             }
-        }
+            const int visibleCount = std::max(0, i1 - i0);
 
-        if (!renderX) { pnsTx.clear(); pnsVx.clear(); }
-        if (!renderY) { pnsTy.clear(); pnsVy.clear(); }
-        if (!renderZ) { pnsTz.clear(); pnsVz.clear(); }
+            pnsT.reserve(visibleCount);
+            pnsX.reserve(visibleCount);
+            pnsY.reserve(visibleCount);
+            pnsZ.reserve(visibleCount);
+            pnsN.reserve(visibleCount);
 
-        const bool showPnsX = !pnsTx.isEmpty();
-        const bool showPnsY = !pnsTy.isEmpty();
-        const bool showPnsZ = !pnsTz.isEmpty();
-        const bool showPnsN = renderN && !pnsTn.isEmpty();
-        m_graphPnsX->setData(pnsTx, pnsVx);
-        m_graphPnsY->setData(pnsTy, pnsVy);
-        m_graphPnsZ->setData(pnsTz, pnsVz);
-        m_graphPnsNorm->setData(pnsTn, pnsVn);
-        m_graphPnsX->setVisible(showPnsX);
-        m_graphPnsY->setVisible(showPnsY);
-        m_graphPnsZ->setVisible(showPnsZ);
-        m_graphPnsNorm->setVisible(showPnsN);
-
-        if (!m_lockYAxisRanges)
-        {
-            double yMax = 120.0;
-            for (double v : pnsVn)
+            // Display in percent to match MATLAB safe_plot.
+            for (int i = i0; i < i1; ++i)
             {
-                if (std::isfinite(v))
+                pnsT.append(tSec[i] * 1e6 * tFactor);
+                pnsX.append(100.0 * sx[i]);
+                pnsY.append(100.0 * sy[i]);
+                pnsZ.append(100.0 * sz[i]);
+                pnsN.append(100.0 * sn[i]);
+            }
+
+            // Downsample each channel independently with min-max buckets (shape-preserving envelope).
+            QVector<double> pnsTx = pnsT, pnsTy = pnsT, pnsTz = pnsT, pnsTn = pnsT;
+            QVector<double> pnsVx = pnsX, pnsVy = pnsY, pnsVz = pnsZ, pnsVn = pnsN;
+            if (m_pPnsRect && pnsT.size() > 0)
+            {
+                const int px = qMax(1, static_cast<int>(qRound(m_pPnsRect->width() * m_mainWindow->devicePixelRatioF())));
+                const int maxPoints = interactionFastMode
+                    ? qMax(80, px / 2)
+                    : ((currentLODLevel == LODLevel::DOWNSAMPLED)
+                        ? qMax(160, px)
+                        : qMax(220, static_cast<int>(qRound(1.2 * px))));
+                if (pnsT.size() > maxPoints)
                 {
-                    yMax = std::max(yMax, v);
+                    if (renderX) applyMinMaxDownsampling(pnsT, pnsX, maxPoints, pnsTx, pnsVx);
+                    if (renderY) applyMinMaxDownsampling(pnsT, pnsY, maxPoints, pnsTy, pnsVy);
+                    if (renderZ) applyMinMaxDownsampling(pnsT, pnsZ, maxPoints, pnsTz, pnsVz);
+                    applyMinMaxDownsampling(pnsT, pnsN, maxPoints, pnsTn, pnsVn);
                 }
             }
-            if (m_pPnsRect)
+
+            if (!renderX) { pnsTx.clear(); pnsVx.clear(); }
+            if (!renderY) { pnsTy.clear(); pnsVy.clear(); }
+            if (!renderZ) { pnsTz.clear(); pnsVz.clear(); }
+
+            const bool showPnsX = !pnsTx.isEmpty();
+            const bool showPnsY = !pnsTy.isEmpty();
+            const bool showPnsZ = !pnsTz.isEmpty();
+            const bool showPnsN = renderN && !pnsTn.isEmpty();
+            m_graphPnsX->setData(pnsTx, pnsVx);
+            m_graphPnsY->setData(pnsTy, pnsVy);
+            m_graphPnsZ->setData(pnsTz, pnsVz);
+            m_graphPnsNorm->setData(pnsTn, pnsVn);
+            m_graphPnsX->setVisible(showPnsX);
+            m_graphPnsY->setVisible(showPnsY);
+            m_graphPnsZ->setVisible(showPnsZ);
+            m_graphPnsNorm->setVisible(showPnsN);
+
+            if (!m_lockYAxisRanges)
             {
-                m_pPnsRect->axis(QCPAxis::atLeft)->setRange(0.0, yMax * 1.05);
+                double yMax = 120.0;
+                for (double v : pnsVn)
+                {
+                    if (std::isfinite(v))
+                    {
+                        yMax = std::max(yMax, v);
+                    }
+                }
+                if (m_pPnsRect)
+                {
+                    m_pPnsRect->axis(QCPAxis::atLeft)->setRange(0.0, yMax * 1.05);
+                }
             }
-        }
-        else if (m_pPnsRect && m_fixedYRanges.size() > 6)
-        {
-            m_pPnsRect->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[6].first, m_fixedYRanges[6].second);
+            else if (m_pPnsRect && m_fixedYRanges.size() > 6)
+            {
+                m_pPnsRect->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[6].first, m_fixedYRanges[6].second);
+            }
         }
     }
 
@@ -1958,6 +1966,13 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
             m_graphM1x->setVisible(false);
             m_graphM1y->setVisible(false);
             m_graphM1z->setVisible(false);
+            if (anyM1Enabled)
+            {
+                logM1Diagnostic(QStringLiteral("draw skipped: interaction fast mode is active; enabled(x/y/z)=%1/%2/%3")
+                                    .arg(m1xEnabled ? "true" : "false")
+                                    .arg(m1yEnabled ? "true" : "false")
+                                    .arg(m1zEnabled ? "true" : "false"));
+            }
         }
         else
         {
@@ -2081,6 +2096,33 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
                 applyFixed(m_pM1yRect, m1yEnabled, 8);
                 applyFixed(m_pM1zRect, m1zEnabled, 9);
             }
+
+            auto rangeText = [](QCPAxisRect* rect) {
+                if (!rect) return QStringLiteral("n/a");
+                const QCPRange r = rect->axis(QCPAxis::atLeft)->range();
+                return QStringLiteral("[%1,%2]").arg(r.lower, 0, 'g', 12)
+                                               .arg(r.upper, 0, 'g', 12);
+            };
+            logM1Diagnostic(QStringLiteral("draw: enabled(x/y/z)=%1/%2/%3 resultSizes(t/x/y/z)=%4/%5/%6/%7 viewportAxis=[%8,%9] viewportSec=[%10,%11] slice=%12 ds(x/y/z)=%13/%14/%15 lockedY=%16 yRanges(x/y/z)=%17/%18/%19")
+                                .arg(m1xEnabled ? "true" : "false")
+                                .arg(m1yEnabled ? "true" : "false")
+                                .arg(m1zEnabled ? "true" : "false")
+                                .arg(tSec.size())
+                                .arg(sx.size())
+                                .arg(sy.size())
+                                .arg(sz.size())
+                                .arg(visibleStart, 0, 'g', 12)
+                                .arg(visibleEnd, 0, 'g', 12)
+                                .arg(secStart, 0, 'g', 12)
+                                .arg(secEnd, 0, 'g', 12)
+                                .arg(visibleCount)
+                                .arg(m1Tx.size())
+                                .arg(m1Ty.size())
+                                .arg(m1Tz.size())
+                                .arg(m_lockYAxisRanges ? "true" : "false")
+                                .arg(rangeText(m_pM1xRect))
+                                .arg(rangeText(m_pM1yRect))
+                                .arg(rangeText(m_pM1zRect)));
         }
     }
 }
@@ -2095,7 +2137,7 @@ void WaveformDrawer::computeAndLockYAxisRanges()
     auto computeRange = [](const QVector<double>& vals){
         double mn = std::numeric_limits<double>::max();
         double mx = -std::numeric_limits<double>::infinity();
-        for (double v : vals) { if (std::isnan(v)) continue; mn = std::min(mn, v); mx = std::max(mx, v);} 
+        for (double v : vals) { if (!std::isfinite(v)) continue; mn = std::min(mn, v); mx = std::max(mx, v);}
         if (mx < mn) { mn = -1.0; mx = 1.0; }
         double pad = (mx - mn) * 0.05; if (pad == 0) pad = 1.0; return qMakePair(mn - pad, mx + pad);
     };
@@ -2155,10 +2197,22 @@ void WaveformDrawer::computeAndLockYAxisRanges()
         m_fixedYRanges[6] = qMakePair(0.0, pMax * 1.05);
     }
 
+    // 7/8/9: M1x/M1y/M1z. These ranges may become available after the initial
+    // sequence draw because M1 is computed asynchronously.
+    if (m_fixedYRanges.size() > 9)
+    {
+        m_fixedYRanges[7] = computeRange(loader->getM1X());
+        m_fixedYRanges[8] = computeRange(loader->getM1Y());
+        m_fixedYRanges[9] = computeRange(loader->getM1Z());
+    }
+
     // Apply ranges now
     for (int i = 0; i < m_vecRects.size() && i < m_fixedYRanges.size(); ++i) {
         if (m_vecRects[i]) {
-            m_vecRects[i]->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[i].first, m_fixedYRanges[i].second);
+            const double lo = m_fixedYRanges[i].first;
+            const double hi = m_fixedYRanges[i].second;
+            if (std::isfinite(lo) && std::isfinite(hi) && hi > lo)
+                m_vecRects[i]->axis(QCPAxis::atLeft)->setRange(lo, hi);
         }
     }
     m_lockYAxisRanges = true;

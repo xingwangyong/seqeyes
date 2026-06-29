@@ -228,9 +228,26 @@ char classifyRfUse(SeqBlock* blk)
     return 'u';
 }
 
+inline double internalToSec(double v, double tFactor)
+{
+    if (tFactor == 0.0)
+    {
+        return v;
+    }
+    return (v / tFactor) * 1e-6;
+}
+
+void convertInternalTimesToSec(QVector<double>& times, double tFactor)
+{
+    for (double& t : times)
+    {
+        t = internalToSec(t, tFactor);
+    }
+}
+
 // RF center time (seconds), matching KSpaceTrajectory::rfCenterUs semantics
 // but returning seconds directly.
-double rfCenterSec(SeqBlock* blk, double tFactor)
+double rfCenterSec(SeqBlock* blk)
 {
     if (!blk || !blk->isRF()) return 0.0;
     const RFEvent& rf = blk->GetRFEvent();
@@ -258,13 +275,7 @@ double rfCenterSec(SeqBlock* blk, double tFactor)
             centerUs = 0.0;
         }
     }
-    return (rf.delay + centerUs) * tFactor * 1e-6;
-}
-
-// Convert internal pulseq time units to seconds.
-inline double internalToSec(double v, double tFactor)
-{
-    return (v / tFactor) * 1e-6;
+    return (rf.delay + centerUs) * 1e-6;
 }
 
 struct RfEventRec
@@ -289,7 +300,7 @@ void collectRfEvents(const std::vector<SeqBlock*>& blocks,
         SeqBlock* blk = blocks[i];
         if (!blk || !blk->isRF()) continue;
         const double edgeSec = internalToSec(blockEdges[static_cast<int>(i)], tFactor);
-        const double centerSec = rfCenterSec(blk, tFactor);
+        const double centerSec = rfCenterSec(blk);
         const char use = classifyRfUse(blk);
         if (use == '\0') continue;
         RfEventRec rec;
@@ -379,6 +390,9 @@ Result compute(const Input& input)
     sanitizeGradientSeries(gxTime, gxVal);
     sanitizeGradientSeries(gyTime, gyVal);
     sanitizeGradientSeries(gzTime, gzVal);
+    convertInternalTimesToSec(gxTime, input.tFactor);
+    convertInternalTimesToSec(gyTime, input.tFactor);
+    convertInternalTimesToSec(gzTime, input.tFactor);
 
     auto timeRangeSec = [&](const QVector<double>& t) -> std::pair<double,double> {
         if (t.isEmpty()) return {0.0, 0.0};
@@ -479,7 +493,88 @@ Result compute(const Input& input)
         {
             tReset = samples.first();
         }
-        double m1Accum = 0.0;
+        double currentT = tReset;
+        double unsignedM1 = 0.0;
+
+        auto sampleGradientAt = [&](double t) -> double {
+            const int n = std::min(gTime.size(), gVal.size());
+            if (n <= 0 || t < gTime.first() || t > gTime[n - 1])
+            {
+                return 0.0;
+            }
+            if (n == 1 || t <= gTime.first())
+            {
+                return gVal.first();
+            }
+            if (t >= gTime[n - 1])
+            {
+                return gVal[n - 1];
+            }
+            auto it = std::lower_bound(gTime.constBegin(), gTime.constBegin() + n, t);
+            const int i1 = static_cast<int>(it - gTime.constBegin());
+            if (i1 <= 0)
+            {
+                return gVal[0];
+            }
+            const int i0 = i1 - 1;
+            const double t0 = gTime[i0];
+            const double t1 = gTime[i1];
+            if (!(t1 > t0))
+            {
+                return gVal[i0];
+            }
+            const double alpha = (t - t0) / (t1 - t0);
+            return gVal[i0] + alpha * (gVal[i1] - gVal[i0]);
+        };
+
+        auto nextGradientBreakpoint = [&](double t, double target) -> double {
+            const int n = gTime.size();
+            if (n <= 1 || t >= gTime[n - 1])
+            {
+                return target;
+            }
+            auto it = std::upper_bound(gTime.constBegin(), gTime.constEnd(), t + 1e-15);
+            if (it == gTime.constEnd())
+            {
+                return target;
+            }
+            return std::min(target, *it);
+        };
+
+        auto integrateLinearSegment = [](double a,
+                                         double b,
+                                         double tRef,
+                                         double ga,
+                                         double gb) -> double {
+            const double h = b - a;
+            if (!(h > 0.0))
+            {
+                return 0.0;
+            }
+            const double slope = (gb - ga) / h;
+            const double aRel = a - tRef;
+            return ga * (aRel * h + 0.5 * h * h)
+                 + slope * (0.5 * aRel * h * h + (h * h * h) / 3.0);
+        };
+
+        auto advanceTo = [&](double targetT) {
+            if (!(targetT > currentT + 1e-15))
+            {
+                return;
+            }
+            while (currentT < targetT - 1e-15)
+            {
+                double nextT = nextGradientBreakpoint(currentT, targetT);
+                if (!(nextT > currentT))
+                {
+                    nextT = targetT;
+                }
+                const double ga = sampleGradientAt(currentT);
+                const double gb = sampleGradientAt(nextT);
+                unsignedM1 += integrateLinearSegment(currentT, nextT, tReset, ga, gb);
+                currentT = nextT;
+            }
+        };
 
         size_t ei = 0;
         size_t si = 0;
@@ -493,13 +588,7 @@ Result compute(const Input& input)
             if (nextEvtT <= nextSampT)
             {
                 // Advance cumulative M1 up to the event time.
-                if (nextEvtT > tReset + 1e-15)
-                {
-                    double m0Tmp = 0.0, m1Tmp = 0.0;
-                    continuousMomentFromPolylineWindow(
-                        gTime, gVal, tReset, nextEvtT, tReset, m0Tmp, m1Tmp);
-                    m1Accum = sign * m1Tmp;
-                }
+                advanceTo(nextEvtT);
                 if (events[ei].kind == EvKind::Reset)
                 {
                     // Drop M1 to 0 at reset moments, emit zero, restart epoch.
@@ -516,12 +605,13 @@ Result compute(const Input& input)
                     }
                     sign = +1.0;
                     tReset = nextEvtT;
-                    m1Accum = 0.0;
+                    currentT = nextEvtT;
+                    unsignedM1 = 0.0;
                 }
                 else // EvKind::Flip
                 {
                     outT.append(nextEvtT);
-                    outM1.append(m1Accum);
+                    outM1.append(sign * unsignedM1);
                     sign = -sign;
                 }
                 ++ei;
@@ -529,15 +619,9 @@ Result compute(const Input& input)
             else
             {
                 // Plain raster-grid sample point.
-                if (nextSampT > tReset + 1e-15)
-                {
-                    double m0Tmp = 0.0, m1Tmp = 0.0;
-                    continuousMomentFromPolylineWindow(
-                        gTime, gVal, tReset, nextSampT, tReset, m0Tmp, m1Tmp);
-                    m1Accum = sign * m1Tmp;
-                }
+                advanceTo(nextSampT);
                 outT.append(nextSampT);
-                outM1.append(m1Accum);
+                outM1.append(sign * unsignedM1);
                 ++si;
             }
         }

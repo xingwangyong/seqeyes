@@ -36,9 +36,11 @@ namespace M1Calculator
 
 struct Input
 {
-    const std::vector<SeqBlock*>& blocks;
-    const QVector<double>& blockEdges;
-    double tFactor = 1.0;             // pulseq internal-to-seconds scale
+    // Snapshot containers by value so async M1 workers don't retain references
+    // into PulseqLoader after a new sequence load clears/replaces them.
+    std::vector<SeqBlock*> blocks;
+    QVector<double> blockEdges;
+    double tFactor = 1.0;             // microseconds-to-axis-units scale
     bool supportsRfUseMetadata = false;
     double rfRasterUs = 1.0;          // microseconds
     double gradientRasterUs = -1.0;   // microseconds; if <=0 a default is used

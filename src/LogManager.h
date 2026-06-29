@@ -52,6 +52,9 @@ public:
                           const QString& source,
                           const QString& message,
                           const QString& file = QString());
+    void appendDiagnostic(const QString& source,
+                          const QString& message,
+                          const QString& file = QString());
 
     // Return the in‑memory log buffer (oldest first).
     QStringList getBufferedLines() const { return m_lines; }
@@ -82,7 +85,8 @@ private:
     void appendEntryInternal(QtMsgType type,
                              const QString& source,
                              const QString& message,
-                             const QString& file);
+                             const QString& file,
+                             bool bypassFilter = false);
 
     // In‑memory rolling buffer of formatted log lines (for Log window)
     QStringList m_lines;

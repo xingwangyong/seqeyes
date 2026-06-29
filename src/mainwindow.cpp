@@ -374,6 +374,15 @@ MainWindow::MainWindow(QWidget* parent)
         }
         updatePnsStatusIndicator();
     });
+    connect(m_pulseqLoader, &PulseqLoader::m1DataUpdated, this, [this]() {
+        if (m_waveformDrawer)
+        {
+            m_waveformDrawer->computeAndLockYAxisRanges();
+            m_waveformDrawer->DrawGWaveform();
+            if (ui && ui->customPlot)
+                ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+        }
+    });
     connect(m_pulseqLoader, &PulseqLoader::trajectoryDataUpdated, this, [this]() {
         if (m_showTrajectory && m_pulseqLoader && m_pulseqLoader->needsRfUseGuessWarning())
         {
