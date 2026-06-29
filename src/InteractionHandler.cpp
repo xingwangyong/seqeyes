@@ -465,9 +465,13 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
         {
             // Keep sequence red guide responsive: trajectory/pns cursor update can be
             // relatively expensive on dense data, so update only when needed and throttled.
+            TRManager* trm = m_mainWindow->getTRManager();
             const bool needCursorValue =
                 m_mainWindow->isTrajectoryVisible() ||
-                (m_mainWindow->getTRManager() && m_mainWindow->getTRManager()->isShowPnsChecked());
+                (trm && (trm->isShowPnsChecked() ||
+                         trm->isShowM1xChecked() ||
+                         trm->isShowM1yChecked() ||
+                         trm->isShowM1zChecked()));
             if (needCursorValue)
             {
                 static QElapsedTimer s_cursorUpdateTimer;
@@ -490,6 +494,9 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
             const QString pnsStatus = m_mainWindow->getPnsStatusText();
             if (!pnsStatus.isEmpty())
                 coordText += " | " + pnsStatus;
+            const QString m1Status = m_mainWindow->getM1StatusText();
+            if (!m1Status.isEmpty())
+                coordText += " | " + m1Status;
         }
         // If measuring and at least one point exists, append Δt info
         if (m_measureMode)

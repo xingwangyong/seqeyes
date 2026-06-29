@@ -598,6 +598,105 @@ QString MainWindow::getPnsStatusText() const
     return QString("PNSxyzn=%1,%2,%3,%4").arg(xp).arg(yp).arg(zp).arg(np) + "%";
 }
 
+QString MainWindow::getM1StatusText() const
+{
+    const bool showX = (m_trManager && m_trManager->isShowM1xChecked());
+    const bool showY = (m_trManager && m_trManager->isShowM1yChecked());
+    const bool showZ = (m_trManager && m_trManager->isShowM1zChecked());
+    if (!showX && !showY && !showZ)
+    {
+        return QString();
+    }
+
+    if (!m_pulseqLoader ||
+        m_pulseqLoader->getM1State() != PulseqLoader::M1State::Ready ||
+        !m_pulseqLoader->hasM1Data())
+    {
+        return QStringLiteral("M1=not ready");
+    }
+
+    auto sampleAt = [](const QVector<double>& t, const QVector<double>& v, double ts) {
+        if (t.isEmpty() || v.isEmpty()) return 0.0;
+        const int n = std::min(t.size(), v.size());
+        if (n <= 0) return 0.0;
+        if (ts <= t[0]) return v[0];
+        if (ts >= t[n - 1]) return v[n - 1];
+        auto it = std::lower_bound(t.constBegin(), t.constBegin() + n, ts);
+        int i1 = static_cast<int>(it - t.constBegin());
+        if (i1 <= 0) return v[0];
+        if (i1 >= n) return v[n - 1];
+        const int i0 = i1 - 1;
+        const double t0 = t[i0], t1 = t[i1];
+        if (!(std::isfinite(t0) && std::isfinite(t1)) || t1 <= t0) return v[i0];
+        const double a = std::clamp((ts - t0) / (t1 - t0), 0.0, 1.0);
+        return v[i0] + (v[i1] - v[i0]) * a;
+    };
+    auto maxAbsSigned = [](const QVector<double>& v) {
+        double best = 0.0;
+        double bestAbs = -1.0;
+        for (double x : v)
+        {
+            if (!std::isfinite(x)) continue;
+            const double ax = std::abs(x);
+            if (ax > bestAbs)
+            {
+                bestAbs = ax;
+                best = x;
+            }
+        }
+        return best;
+    };
+    auto fmt = [](double v) {
+        if (!std::isfinite(v)) return QStringLiteral("nan");
+        if (std::abs(v) < 5e-13) v = 0.0;
+        return QString::number(v, 'g', 4);
+    };
+
+    const QVector<double>& m1T = m_pulseqLoader->getM1TimeSec();
+    const QVector<double>& m1X = m_pulseqLoader->getM1X();
+    const QVector<double>& m1Y = m_pulseqLoader->getM1Y();
+    const QVector<double>& m1Z = m_pulseqLoader->getM1Z();
+
+    double x = 0.0, y = 0.0, z = 0.0;
+    if (m_hasTrajectoryCursorTime)
+    {
+        const double tFactor = m_pulseqLoader->getTFactor();
+        if (tFactor > 0.0)
+        {
+            const double cursorTimeSec = (m_currentTrajectoryTimeInternal / tFactor) * 1e-6;
+            x = sampleAt(m1T, m1X, cursorTimeSec);
+            y = sampleAt(m1T, m1Y, cursorTimeSec);
+            z = sampleAt(m1T, m1Z, cursorTimeSec);
+        }
+    }
+    else
+    {
+        x = maxAbsSigned(m1X);
+        y = maxAbsSigned(m1Y);
+        z = maxAbsSigned(m1Z);
+    }
+
+    QString axes;
+    QStringList values;
+    if (showX)
+    {
+        axes += QLatin1Char('x');
+        values << fmt(x);
+    }
+    if (showY)
+    {
+        axes += QLatin1Char('y');
+        values << fmt(y);
+    }
+    if (showZ)
+    {
+        axes += QLatin1Char('z');
+        values << fmt(z);
+    }
+
+    return QStringLiteral("M1%1=%2 s/m").arg(axes, values.join(QLatin1Char(',')));
+}
+
 void MainWindow::updatePnsStatusIndicator()
 {
     // PNS is appended to the normal coordinate status text by InteractionHandler.

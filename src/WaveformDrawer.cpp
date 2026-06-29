@@ -71,16 +71,10 @@ static void applyZoomSettingsToManager(ZoomManager* zm)
 
 #include <QPen>
 #include <QDebug>
-#include "LogManager.h"
 #include <chrono>
 #include <complex>
 
 // Debug logging removed for cleaner output in tests and runtime
-
-static void logM1Diagnostic(const QString& message)
-{
-    LogManager::getInstance().appendDiagnostic(QStringLiteral("M1"), message);
-}
 
 WaveformDrawer::WaveformDrawer(MainWindow* mainWindow)
     : QObject(mainWindow),
@@ -432,11 +426,16 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphPnsNorm->setVisible(m_curveVisibility.value(6, true));
     }
 
+    auto m1AxisColor = [&](const QColor& fallback, int colorIndex) {
+        const QColor base = colors.isEmpty() ? fallback : colors[colorIndex % colors.size()];
+        return base.lighter(135);
+    };
+
     // M1 (first gradient moment) per-axis graphs, one rect each.
     m_graphM1x = customPlot->addGraph(m_pM1xRect->axis(QCPAxis::atBottom), m_pM1xRect->axis(QCPAxis::atLeft));
     if (m_graphM1x)
     {
-        QPen pen(colors.isEmpty() ? Qt::blue : colors[2 % colors.size()]);
+        QPen pen(m1AxisColor(QColor(Qt::red), 2));
         pen.setWidthF(1.4);
         m_graphM1x->setPen(pen);
         m_graphM1x->setLineStyle(QCPGraph::lsLine);
@@ -448,7 +447,7 @@ void WaveformDrawer::InitSequenceFigure()
     m_graphM1y = customPlot->addGraph(m_pM1yRect->axis(QCPAxis::atBottom), m_pM1yRect->axis(QCPAxis::atLeft));
     if (m_graphM1y)
     {
-        QPen pen(colors.isEmpty() ? Qt::darkYellow : colors[3 % colors.size()]);
+        QPen pen(m1AxisColor(QColor(Qt::darkYellow), 3));
         pen.setWidthF(1.4);
         m_graphM1y->setPen(pen);
         m_graphM1y->setLineStyle(QCPGraph::lsLine);
@@ -460,7 +459,7 @@ void WaveformDrawer::InitSequenceFigure()
     m_graphM1z = customPlot->addGraph(m_pM1zRect->axis(QCPAxis::atBottom), m_pM1zRect->axis(QCPAxis::atLeft));
     if (m_graphM1z)
     {
-        QPen pen(colors.isEmpty() ? Qt::darkCyan : colors[4 % colors.size()]);
+        QPen pen(m1AxisColor(QColor(Qt::darkCyan), 4));
         pen.setWidthF(1.4);
         m_graphM1z->setPen(pen);
         m_graphM1z->setLineStyle(QCPGraph::lsLine);
@@ -1966,13 +1965,6 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
             m_graphM1x->setVisible(false);
             m_graphM1y->setVisible(false);
             m_graphM1z->setVisible(false);
-            if (anyM1Enabled)
-            {
-                logM1Diagnostic(QStringLiteral("draw skipped: interaction fast mode is active; enabled(x/y/z)=%1/%2/%3")
-                                    .arg(m1xEnabled ? "true" : "false")
-                                    .arg(m1yEnabled ? "true" : "false")
-                                    .arg(m1zEnabled ? "true" : "false"));
-            }
         }
         else
         {
@@ -2096,33 +2088,6 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
                 applyFixed(m_pM1yRect, m1yEnabled, 8);
                 applyFixed(m_pM1zRect, m1zEnabled, 9);
             }
-
-            auto rangeText = [](QCPAxisRect* rect) {
-                if (!rect) return QStringLiteral("n/a");
-                const QCPRange r = rect->axis(QCPAxis::atLeft)->range();
-                return QStringLiteral("[%1,%2]").arg(r.lower, 0, 'g', 12)
-                                               .arg(r.upper, 0, 'g', 12);
-            };
-            logM1Diagnostic(QStringLiteral("draw: enabled(x/y/z)=%1/%2/%3 resultSizes(t/x/y/z)=%4/%5/%6/%7 viewportAxis=[%8,%9] viewportSec=[%10,%11] slice=%12 ds(x/y/z)=%13/%14/%15 lockedY=%16 yRanges(x/y/z)=%17/%18/%19")
-                                .arg(m1xEnabled ? "true" : "false")
-                                .arg(m1yEnabled ? "true" : "false")
-                                .arg(m1zEnabled ? "true" : "false")
-                                .arg(tSec.size())
-                                .arg(sx.size())
-                                .arg(sy.size())
-                                .arg(sz.size())
-                                .arg(visibleStart, 0, 'g', 12)
-                                .arg(visibleEnd, 0, 'g', 12)
-                                .arg(secStart, 0, 'g', 12)
-                                .arg(secEnd, 0, 'g', 12)
-                                .arg(visibleCount)
-                                .arg(m1Tx.size())
-                                .arg(m1Ty.size())
-                                .arg(m1Tz.size())
-                                .arg(m_lockYAxisRanges ? "true" : "false")
-                                .arg(rangeText(m_pM1xRect))
-                                .arg(rangeText(m_pM1yRect))
-                                .arg(rangeText(m_pM1zRect)));
         }
     }
 }

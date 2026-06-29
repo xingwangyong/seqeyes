@@ -34,11 +34,6 @@
 
 namespace
 {
-void logM1Diagnostic(const QString& message)
-{
-    LogManager::getInstance().appendDiagnostic(QStringLiteral("M1"), message);
-}
-
 struct KnownExtensionSpec
 {
     const char* name;
@@ -1839,12 +1834,6 @@ void PulseqLoader::startM1ComputationAsync()
                                      adcEventTimes,
                                      b0Tesla };
     const std::uint64_t requestId = ++m_m1RequestSerial;
-    logM1Diagnostic(QStringLiteral("queued computation: blocks=%1 edges=%2 gradientRasterUs=%3 rfRasterUs=%4 tFactor=%5")
-                        .arg(input.blocks.size())
-                        .arg(input.blockEdges.size())
-                        .arg(input.gradientRasterUs, 0, 'g', 12)
-                        .arg(input.rfRasterUs, 0, 'g', 12)
-                        .arg(input.tFactor, 0, 'g', 12));
     setM1State(M1State::Calculating);
 
     QPointer<PulseqLoader> self(this);
@@ -1872,7 +1861,10 @@ void PulseqLoader::startM1ComputationAsync()
                 self->m_m1Result.valid = false;
                 self->m_m1Result.ok = false;
                 self->m_m1Result.error = QStringLiteral("M1 computation failed.");
-                logM1Diagnostic(QStringLiteral("computation failed: worker threw an exception"));
+                LogManager::getInstance().appendStructured(
+                    QtWarningMsg,
+                    QStringLiteral("M1"),
+                    QStringLiteral("Computation failed: worker threw an exception."));
                 self->setM1State(M1State::Failed);
                 emit self->m1DataUpdated();
                 return;
@@ -1886,20 +1878,6 @@ void PulseqLoader::applyM1Result(const M1Calculator::Result& result)
 {
     m_m1Result = result;
     m_m1Result.valid = result.ok && result.valid;
-    const QString tRange = result.tSec.isEmpty()
-        ? QStringLiteral("empty")
-        : QStringLiteral("%1..%2 s").arg(result.tSec.first(), 0, 'g', 12)
-                                  .arg(result.tSec.last(), 0, 'g', 12);
-    logM1Diagnostic(QStringLiteral("result applied: ok=%1 valid=%2 tSec=%3 m1x=%4 m1y=%5 m1z=%6 tRange=%7 warnings=%8 error='%9'")
-                        .arg(result.ok ? "true" : "false")
-                        .arg(result.valid ? "true" : "false")
-                        .arg(result.tSec.size())
-                        .arg(result.m1x.size())
-                        .arg(result.m1y.size())
-                        .arg(result.m1z.size())
-                        .arg(tRange)
-                        .arg(result.warnings.size())
-                        .arg(result.error));
     if (m_m1Result.ok)
     {
         setM1State(M1State::Ready);

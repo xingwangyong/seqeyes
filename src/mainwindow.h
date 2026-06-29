@@ -105,6 +105,7 @@ public:
     QLabel* getVersionLabel() const { return m_pVersionLabel; }
     QProgressBar* getProgressBar() const { return m_pProgressBar; }
     QString getPnsStatusText() const;
+    QString getM1StatusText() const;
     void updatePnsStatusIndicator();
 
 protected:
