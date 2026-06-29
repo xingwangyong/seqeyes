@@ -1936,6 +1936,125 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
             m_pPnsRect->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[6].first, m_fixedYRanges[6].second);
         }
     }
+
+    // M1 (first gradient moment) per-axis curves. Mirrors the PNS pattern:
+    // data lives in PulseqLoader::m_m1Result, here we slice the visible viewport
+    // and min-max downsample to the rect width so very long sequences stay
+    // smooth on pan/zoom.
+    if (m_graphM1x && m_graphM1y && m_graphM1z)
+    {
+        const bool m1xEnabled = m_curveVisibility.value(7, false);
+        const bool m1yEnabled = m_curveVisibility.value(8, false);
+        const bool m1zEnabled = m_curveVisibility.value(9, false);
+        const bool anyM1Enabled = m1xEnabled || m1yEnabled || m1zEnabled;
+
+        // Fast path: when all M1 toggles are off, hide graphs and skip all vector work.
+        if (!anyM1Enabled)
+        {
+            m_graphM1x->setVisible(false);
+            m_graphM1y->setVisible(false);
+            m_graphM1z->setVisible(false);
+        }
+        else
+        {
+            const QVector<double>& tSec = loader->getM1TimeSec();
+            const QVector<double>& sx = loader->getM1X();
+            const QVector<double>& sy = loader->getM1Y();
+            const QVector<double>& sz = loader->getM1Z();
+            const int n = std::min({tSec.size(), sx.size(), sy.size(), sz.size()});
+            const double secStart = visibleStart / (1e6 * tFactor);
+            const double secEnd = visibleEnd / (1e6 * tFactor);
+            int i0 = 0;
+            int i1 = n;
+            if (n > 0)
+            {
+                i0 = static_cast<int>(std::lower_bound(tSec.constBegin(), tSec.constBegin() + n, secStart) - tSec.constBegin());
+                i1 = static_cast<int>(std::upper_bound(tSec.constBegin() + i0, tSec.constBegin() + n, secEnd) - tSec.constBegin());
+            }
+            const int visibleCount = std::max(0, i1 - i0);
+
+            QVector<double> m1T;
+            QVector<double> m1Vx, m1Vy, m1Vz;
+            m1T.reserve(visibleCount);
+            m1Vx.reserve(visibleCount);
+            m1Vy.reserve(visibleCount);
+            m1Vz.reserve(visibleCount);
+            for (int i = i0; i < i1; ++i)
+            {
+                m1T.append(tSec[i] * 1e6 * tFactor);
+                m1Vx.append(sx[i]);
+                m1Vy.append(sy[i]);
+                m1Vz.append(sz[i]);
+            }
+
+            // Min-max downsample each axis independently to the rect width, using
+            // the same helper the PNS path uses. Keeps envelope (zero-crossings
+            // and slopes visible) while capping point count to the visible pixels.
+            QVector<double> m1Tx = m1T, m1Ty = m1T, m1Tz = m1T;
+            QVector<double> m1VxDs = m1Vx, m1VyDs = m1Vy, m1VzDs = m1Vz;
+            if (m1T.size() > 0)
+            {
+                auto rectPixelWidth = [&](QCPAxisRect* rect) {
+                    if (!rect || !m_mainWindow) return 1;
+                    return qMax(1, static_cast<int>(qRound(rect->width() * m_mainWindow->devicePixelRatioF())));
+                };
+                const int pxX = rectPixelWidth(m_pM1xRect);
+                const int pxY = rectPixelWidth(m_pM1yRect);
+                const int pxZ = rectPixelWidth(m_pM1zRect);
+                const int targetX = qMax(160, pxX);
+                const int targetY = qMax(160, pxY);
+                const int targetZ = qMax(160, pxZ);
+                if (m1T.size() > targetX) applyMinMaxDownsampling(m1T, m1Vx, targetX, m1Tx, m1VxDs);
+                if (m1T.size() > targetY) applyMinMaxDownsampling(m1T, m1Vy, targetY, m1Ty, m1VyDs);
+                if (m1T.size() > targetZ) applyMinMaxDownsampling(m1T, m1Vz, targetZ, m1Tz, m1VzDs);
+            }
+
+            m_graphM1x->setData(m1Tx, m1VxDs);
+            m_graphM1y->setData(m1Ty, m1VyDs);
+            m_graphM1z->setData(m1Tz, m1VzDs);
+            m_graphM1x->setVisible(m1xEnabled);
+            m_graphM1y->setVisible(m1yEnabled);
+            m_graphM1z->setVisible(m1zEnabled);
+
+            // Auto Y-range when not locked. Use the visible sample max so the
+            // chosen viewport drives the scale, just like PNS does.
+            if (!m_lockYAxisRanges)
+            {
+                auto computeBounds = [&](const QVector<double>& vals, double& lo, double& hi) {
+                    lo = 0.0;
+                    hi = 0.0;
+                    bool any = false;
+                    for (double v : vals)
+                    {
+                        if (std::isfinite(v))
+                        {
+                            if (!any) { lo = v; hi = v; any = true; }
+                            else { lo = std::min(lo, v); hi = std::max(hi, v); }
+                        }
+                    }
+                };
+                double loX = 0.0, hiX = 0.0, loY = 0.0, hiY = 0.0, loZ = 0.0, hiZ = 0.0;
+                if (m1xEnabled) computeBounds(m1VxDs, loX, hiX);
+                if (m1yEnabled) computeBounds(m1VyDs, loY, hiY);
+                if (m1zEnabled) computeBounds(m1VzDs, loZ, hiZ);
+                if (m_pM1xRect && m1xEnabled)
+                    m_pM1xRect->axis(QCPAxis::atLeft)->setRange(loX, hiX);
+                if (m_pM1yRect && m1yEnabled)
+                    m_pM1yRect->axis(QCPAxis::atLeft)->setRange(loY, hiY);
+                if (m_pM1zRect && m1zEnabled)
+                    m_pM1zRect->axis(QCPAxis::atLeft)->setRange(loZ, hiZ);
+            }
+            else if (m_fixedYRanges.size() > 9)
+            {
+                if (m_pM1xRect && m1xEnabled)
+                    m_pM1xRect->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[7].first, m_fixedYRanges[7].second);
+                if (m_pM1yRect && m1yEnabled)
+                    m_pM1yRect->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[8].first, m_fixedYRanges[8].second);
+                if (m_pM1zRect && m1zEnabled)
+                    m_pM1zRect->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[9].first, m_fixedYRanges[9].second);
+            }
+        }
+    }
 }
 
 void WaveformDrawer::computeAndLockYAxisRanges()
@@ -2055,35 +2174,6 @@ void WaveformDrawer::DrawBlockEdges()
         if (!ys.isEmpty() && std::isnan(ys.last())) { xs.removeLast(); ys.removeLast(); }
         m_blockEdgeGraphs[r]->setData(xs, ys);
         m_blockEdgeGraphs[r]->setVisible(bShowBlocksEdges && !xs.isEmpty());
-    }
-}
-
-void WaveformDrawer::applyM1Result(const QVector<double>& tSec,
-                                   const QVector<double>& m1x,
-                                   const QVector<double>& m1y,
-                                   const QVector<double>& m1z)
-{
-    // Defensive: all four input vectors must have equal length. If they
-    // don't, drop the update and leave the previous M1 plot in place; an
-    // internal warning has already been emitted by M1Calculator.
-    if (tSec.size() != m1x.size() ||
-        tSec.size() != m1y.size() ||
-        tSec.size() != m1z.size() ||
-        tSec.isEmpty())
-    {
-        return;
-    }
-    if (m_graphM1x) m_graphM1x->setData(tSec, m1x);
-    if (m_graphM1y) m_graphM1y->setData(tSec, m1y);
-    if (m_graphM1z) m_graphM1z->setData(tSec, m1z);
-    // Re-apply current visibility: user may toggle off while data is being
-    // updated and we must not silently re-enable the curve.
-    if (m_graphM1x) m_graphM1x->setVisible(m_curveVisibility.value(7, false));
-    if (m_graphM1y) m_graphM1y->setVisible(m_curveVisibility.value(8, false));
-    if (m_graphM1z) m_graphM1z->setVisible(m_curveVisibility.value(9, false));
-    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-    {
-        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
     }
 }
 

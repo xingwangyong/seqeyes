@@ -207,6 +207,13 @@ public:
     bool isM1Calculating() const { return m_m1State == M1State::Calculating; }
     const M1Calculator::Result& getM1Result() const { return m_m1Result; }
     QStringList getM1Warnings() const { return m_m1Result.warnings; }
+    // Convenience accessors so WaveformDrawer::DrawGWaveform can mirror the PNS
+    // data path (load -> downsample on viewport change -> setData) without
+    // reaching into the M1Calculator::Result struct directly.
+    const QVector<double>& getM1TimeSec() const { return m_m1Result.tSec; }
+    const QVector<double>& getM1X() const { return m_m1Result.m1x; }
+    const QVector<double>& getM1Y() const { return m_m1Result.m1y; }
+    const QVector<double>& getM1Z() const { return m_m1Result.m1z; }
     const QVector<double>& getPnsTimeSec() const { return m_pnsResult.timeSec; }
     const QVector<double>& getPnsX() const { return m_pnsResult.pnsX; }
     const QVector<double>& getPnsY() const { return m_pnsResult.pnsY; }

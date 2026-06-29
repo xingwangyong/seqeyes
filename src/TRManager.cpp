@@ -35,6 +35,7 @@
 #include <QIntValidator>
 #include <algorithm>
 #include <QFileInfo>
+#include <QPointer>
 
 TRManager::TRManager(MainWindow* mainWindow)
     : QObject(mainWindow),
@@ -1888,6 +1889,20 @@ void TRManager::onShowM1xToggled(bool checked)
         drawer->updateCurveVisibility();
         if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
             m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+        // Defer one tick so axis rect geometry is finalized before downsampling
+        // uses rect width (mirrors the PNS toggle pattern).
+        if (checked && m_mainWindow)
+        {
+            QPointer<MainWindow> win(m_mainWindow);
+            QTimer::singleShot(0, m_mainWindow, [win]() {
+                if (!win) return;
+                auto* d = win->getWaveformDrawer();
+                if (!d) return;
+                d->DrawGWaveform();
+                if (win->ui && win->ui->customPlot)
+                    win->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            });
+        }
     }
 }
 
@@ -1900,6 +1915,18 @@ void TRManager::onShowM1yToggled(bool checked)
         drawer->updateCurveVisibility();
         if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
             m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+        if (checked && m_mainWindow)
+        {
+            QPointer<MainWindow> win(m_mainWindow);
+            QTimer::singleShot(0, m_mainWindow, [win]() {
+                if (!win) return;
+                auto* d = win->getWaveformDrawer();
+                if (!d) return;
+                d->DrawGWaveform();
+                if (win->ui && win->ui->customPlot)
+                    win->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            });
+        }
     }
 }
 
@@ -1912,6 +1939,18 @@ void TRManager::onShowM1zToggled(bool checked)
         drawer->updateCurveVisibility();
         if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
             m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+        if (checked && m_mainWindow)
+        {
+            QPointer<MainWindow> win(m_mainWindow);
+            QTimer::singleShot(0, m_mainWindow, [win]() {
+                if (!win) return;
+                auto* d = win->getWaveformDrawer();
+                if (!d) return;
+                d->DrawGWaveform();
+                if (win->ui && win->ui->customPlot)
+                    win->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            });
+        }
     }
 }
 

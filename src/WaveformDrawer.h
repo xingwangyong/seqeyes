@@ -57,15 +57,10 @@ public:
     // Update axis labels when settings change
     void updateAxisLabels();
 
-    // Feed pre-computed M1 curves (computed by M1Calculator in PulseqLoader)
-    // into the per-axis rects. Safe to call multiple times; updates data and
-    // graph visibility in one shot. Curves are visible only when their
-    // corresponding toggle (m_curveVisibility[7/8/9]) is on.
-    void applyM1Result(const QVector<double>& tSec,
-                       const QVector<double>& m1x,
-                       const QVector<double>& m1y,
-                       const QVector<double>& m1z);
-    
+    // M1 (first gradient moment) curves are sourced directly from
+    // PulseqLoader::m_m1Result during DrawGWaveform() so they can share the
+    // PNS viewport-aware downsampling pipeline. No apply*() hook is needed.
+
     // Ensure current viewport has been rendered at the correct detail
     void ensureRenderedForCurrentViewport();
     

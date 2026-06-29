@@ -1881,12 +1881,15 @@ void PulseqLoader::applyM1Result(const M1Calculator::Result& result)
     {
         setM1State(M1State::Failed);
     }
-    // Push curves to the WaveformDrawer so toggling the visibility checkboxes
-    // can show them immediately without re-computing.
+    // Curves live in m_m1Result; the WaveformDrawer reads them on the next
+    // DrawGWaveform() pass (which mirrors the PNS path). No explicit push is
+    // needed here; just trigger a redraw so the data shows up the moment the
+    // user toggles the M1 visibility checkboxes.
     if (m_mainWindow && m_mainWindow->getWaveformDrawer())
     {
-        m_mainWindow->getWaveformDrawer()->applyM1Result(
-            result.tSec, result.m1x, result.m1y, result.m1z);
+        m_mainWindow->getWaveformDrawer()->DrawGWaveform();
+        if (m_mainWindow->ui && m_mainWindow->ui->customPlot)
+            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
     }
 }
 
