@@ -8,6 +8,9 @@
 //    reference MATLAB helper (continuousMomentFromPolylineWindow +
 //    continuousMomentFromPolyline). The math is closed-form and exact for
 //    piecewise-linear waveforms; no numerical quadrature is needed.
+//    Internally we accumulate both M0 and M1 about the RF/reset center, then
+//    report M1 about each output sample time:
+//       M1_about_t(t) = M1_about_reset(t) - (t - t_reset) * M0(t).
 //
 // 2) Bookkeeping model (per the spec):
 //      - Reset events (excitation 'e'/'E', saturation 's'/'S'):
@@ -494,6 +497,7 @@ Result compute(const Input& input)
             tReset = samples.first();
         }
         double currentT = tReset;
+        double unsignedM0 = 0.0;
         double unsignedM1 = 0.0;
 
         auto sampleGradientAt = [&](double t) -> double {
@@ -545,16 +549,25 @@ Result compute(const Input& input)
                                          double b,
                                          double tRef,
                                          double ga,
-                                         double gb) -> double {
+                                         double gb,
+                                         double& m0Out,
+                                         double& m1Out) {
+            m0Out = 0.0;
+            m1Out = 0.0;
             const double h = b - a;
             if (!(h > 0.0))
             {
-                return 0.0;
+                return;
             }
             const double slope = (gb - ga) / h;
             const double aRel = a - tRef;
-            return ga * (aRel * h + 0.5 * h * h)
-                 + slope * (0.5 * aRel * h * h + (h * h * h) / 3.0);
+            m0Out = ga * h + 0.5 * slope * h * h;
+            m1Out = ga * (aRel * h + 0.5 * h * h)
+                  + slope * (0.5 * aRel * h * h + (h * h * h) / 3.0);
+        };
+
+        auto reportedM1At = [&](double t) {
+            return sign * (unsignedM1 - (t - tReset) * unsignedM0);
         };
 
         auto advanceTo = [&](double targetT) {
@@ -571,7 +584,11 @@ Result compute(const Input& input)
                 }
                 const double ga = sampleGradientAt(currentT);
                 const double gb = sampleGradientAt(nextT);
-                unsignedM1 += integrateLinearSegment(currentT, nextT, tReset, ga, gb);
+                double m0Seg = 0.0;
+                double m1Seg = 0.0;
+                integrateLinearSegment(currentT, nextT, tReset, ga, gb, m0Seg, m1Seg);
+                unsignedM0 += m0Seg;
+                unsignedM1 += m1Seg;
                 currentT = nextT;
             }
         };
@@ -606,12 +623,13 @@ Result compute(const Input& input)
                     sign = +1.0;
                     tReset = nextEvtT;
                     currentT = nextEvtT;
+                    unsignedM0 = 0.0;
                     unsignedM1 = 0.0;
                 }
                 else // EvKind::Flip
                 {
                     outT.append(nextEvtT);
-                    outM1.append(sign * unsignedM1);
+                    outM1.append(reportedM1At(nextEvtT));
                     sign = -sign;
                 }
                 ++ei;
@@ -621,7 +639,7 @@ Result compute(const Input& input)
                 // Plain raster-grid sample point.
                 advanceTo(nextSampT);
                 outT.append(nextSampT);
-                outM1.append(sign * unsignedM1);
+                outM1.append(reportedM1At(nextSampT));
                 ++si;
             }
         }

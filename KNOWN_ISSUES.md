@@ -13,4 +13,4 @@
 
 ## K-space and M1 main-pathway approximation
 - **Issue**: K-space trajectory and M1 calculations only account for the main pathway. Alternate coherence pathways or sequence-specific pathway selection are not modeled.
-- **Workaround**: Treat K-space and M1 plots as main-pathway references, and validate pathway-dependent behavior with dedicated simulation or reconstruction tools.
+- **Workaround**: Treat K-space and M1 plots as main-pathway estimates, and validate pathway-dependent behavior with dedicated simulation or reconstruction tools.

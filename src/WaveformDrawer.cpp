@@ -471,9 +471,9 @@ void WaveformDrawer::InitSequenceFigure()
     // Label the M1 axes once. These are independent of the per-curve
     // visibility flags so the user can still see the axis context when
     // the curve is hidden.
-    if (m_pM1xRect) m_pM1xRect->axis(QCPAxis::atLeft)->setLabel("M1x [s/m]");
-    if (m_pM1yRect) m_pM1yRect->axis(QCPAxis::atLeft)->setLabel("M1y [s/m]");
-    if (m_pM1zRect) m_pM1zRect->axis(QCPAxis::atLeft)->setLabel("M1z [s/m]");
+    if (m_pM1xRect) m_pM1xRect->axis(QCPAxis::atLeft)->setLabel("M1x ref=t [s/m]");
+    if (m_pM1yRect) m_pM1yRect->axis(QCPAxis::atLeft)->setLabel("M1y ref=t [s/m]");
+    if (m_pM1zRect) m_pM1zRect->axis(QCPAxis::atLeft)->setLabel("M1z ref=t [s/m]");
 
     // Persistent block-edge graphs for each rect
     m_blockEdgeGraphs.resize(m_vecRects.size());

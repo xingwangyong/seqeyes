@@ -12,10 +12,13 @@ class SeqBlock;
 // =============================================================================
 // Continuous M1 (first gradient moment) bookkeeping for pulse sequences.
 //
-// M1(t) = sum over sign-flipped segments of:  sgn * int (tau - t_reset) G(tau) dtau
+// M1(t) = sum over sign-flipped segments of:
+//         sgn * int from t_reset to t of (tau - t) G(tau) dtau
 //
 // where:
 //   - t_reset is the time of the most recent reset event (excitation or saturation)
+//     and remains the integration start for the current repetition/epoch
+//   - t is the reported sample time and is used as the M1 reference time
 //   - sgn flips between +1 and -1 at each refocusing event (spin-echo physics)
 //   - Inversion ('i'), preparation ('p'), and unknown ('u') RF events follow
 //     simplified rules documented in M1Calculator.cpp.
@@ -55,6 +58,8 @@ struct Result
     QString error;
 
     // Output sample times (seconds) and per-axis cumulative M1 curves.
+    // M1 values are integrated from the current reset/RF center to each sample
+    // time, with that sample time itself used as the M1 reference time.
     // Lengths of tSec, m1x, m1y, m1z are equal.
     QVector<double> tSec;
     QVector<double> m1x;
