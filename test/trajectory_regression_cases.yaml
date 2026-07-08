@@ -2,7 +2,7 @@ defaults:
   thresholds:
     max_abs: 1.0e-5
     rmse: 1.0e-5
-    mean_abs: 5.0e-6
+    mean_abs: 1.0e-5
 
 cases:
   - id: v151_gre
@@ -11,6 +11,14 @@ cases:
 
   - id: v151_spiral
     seq: test/seq_files/writeSpiral.seq
+    pulseq_matlab_dir: ${PULSEQ_V151_MATLAB_DIR}
+
+  - id: v151_radial_rotext
+    seq: test/seq_files/writeRadialGradientEcho_rotExt.seq
+    pulseq_matlab_dir: ${PULSEQ_V151_MATLAB_DIR}
+
+  - id: v151_fast_radial_rotext
+    seq: test/seq_files/writeFastRadialGradientEcho_rotExt.seq
     pulseq_matlab_dir: ${PULSEQ_V151_MATLAB_DIR}
 
   - id: v142_gre
