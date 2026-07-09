@@ -58,6 +58,12 @@ public:
         double measured {0.0};
         double limit {0.0};
         bool passed {true};
+        bool hasLocation {false};
+        int blockIndex {-1};
+        double timeUs {std::numeric_limits<double>::quiet_NaN()};
+        double blockStartUs {std::numeric_limits<double>::quiet_NaN()};
+        double blockEndUs {std::numeric_limits<double>::quiet_NaN()};
+        QString channel;
     };
     struct SafetyResult
     {

@@ -1596,6 +1596,42 @@ void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
     auto maxAbsOfRange = [](const QPair<double, double>& range) {
         return std::max(std::abs(range.first), std::abs(range.second));
     };
+    auto channelNameFor = [](int channel) -> QString {
+        switch (channel)
+        {
+        case 0: return QStringLiteral("X");
+        case 1: return QStringLiteral("Y");
+        case 2: return QStringLiteral("Z");
+        default: return QStringLiteral("?");
+        }
+    };
+    struct MetricLocation
+    {
+        double measuredHzUnits {0.0};
+        int blockIndex {-1};
+        double timeUs {std::numeric_limits<double>::quiet_NaN()};
+        double blockStartUs {std::numeric_limits<double>::quiet_NaN()};
+        double blockEndUs {std::numeric_limits<double>::quiet_NaN()};
+        QString channel;
+        bool valid {false};
+    };
+    auto updateMetricLocation = [&](MetricLocation& location,
+                                    double measuredHzUnits,
+                                    int blockIndex,
+                                    double timeUs,
+                                    double blockStartUs,
+                                    double blockEndUs,
+                                    const QString& channel) {
+        if (measuredHzUnits < location.measuredHzUnits)
+            return;
+        location.measuredHzUnits = measuredHzUnits;
+        location.blockIndex = blockIndex;
+        location.timeUs = timeUs;
+        location.blockStartUs = blockStartUs;
+        location.blockEndUs = blockEndUs;
+        location.channel = channel;
+        location.valid = true;
+    };
 
     double measuredGradHzPerM = 0.0;
     for (int ch = 0; ch < 3; ++ch)
@@ -1606,25 +1642,66 @@ void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
     measuredB1Hz = maxAbsOfRange(rfRange);
 
     double maxSlewHzPerMPerS = 0.0;
+    MetricLocation maxGradLocation;
+    MetricLocation maxSlewLocation;
     std::vector<double> def = m_spPulseqSeq->GetDefinition("GradientRasterTime");
     const double gradientRasterSec = (!def.empty() && std::isfinite(def[0]) && def[0] > 0.0) ? def[0] : 0.0;
+    const double gradientRasterUs = gradientRasterSec * 1e6;
 
-    for (SeqBlock* blk : m_vecDecodeSeqBlocks)
+    for (int blockIndex = 0; blockIndex < static_cast<int>(m_vecDecodeSeqBlocks.size()); ++blockIndex)
     {
+        SeqBlock* blk = m_vecDecodeSeqBlocks[blockIndex];
         if (!blk)
             continue;
+        const double blockStartUs = vecBlockEdges[blockIndex] / tFactor;
+        const double blockEndUs = vecBlockEdges[blockIndex + 1] / tFactor;
         for (int ch = 0; ch < 3; ++ch)
         {
             if (!(blk->isTrapGradient(ch) || blk->isArbitraryGradient(ch) || blk->isExtTrapGradient(ch)))
                 continue;
 
             const GradEvent& grad = blk->GetGradEvent(ch);
+            const QString channel = channelNameFor(ch);
+            const double gradStartUs = blockStartUs + double(grad.delay);
             if (blk->isTrapGradient(ch))
             {
+                updateMetricLocation(maxGradLocation,
+                                     std::abs(double(grad.amplitude)),
+                                     blockIndex,
+                                     gradStartUs + std::max(0L, grad.rampUpTime),
+                                     blockStartUs,
+                                     blockEndUs,
+                                     channel);
                 if (grad.rampUpTime > 0)
-                    maxSlewHzPerMPerS = std::max(maxSlewHzPerMPerS, std::abs(double(grad.amplitude)) / (double(grad.rampUpTime) * 1e-6));
+                {
+                    const double slew = std::abs(double(grad.amplitude)) / (double(grad.rampUpTime) * 1e-6);
+                    if (slew >= maxSlewHzPerMPerS)
+                    {
+                        maxSlewHzPerMPerS = slew;
+                        updateMetricLocation(maxSlewLocation,
+                                             slew,
+                                             blockIndex,
+                                             gradStartUs + 0.5 * double(grad.rampUpTime),
+                                             blockStartUs,
+                                             blockEndUs,
+                                             channel);
+                    }
+                }
                 if (grad.rampDownTime > 0)
-                    maxSlewHzPerMPerS = std::max(maxSlewHzPerMPerS, std::abs(double(grad.amplitude)) / (double(grad.rampDownTime) * 1e-6));
+                {
+                    const double slew = std::abs(double(grad.amplitude)) / (double(grad.rampDownTime) * 1e-6);
+                    if (slew >= maxSlewHzPerMPerS)
+                    {
+                        maxSlewHzPerMPerS = slew;
+                        updateMetricLocation(maxSlewLocation,
+                                             slew,
+                                             blockIndex,
+                                             gradStartUs + double(grad.rampUpTime) + double(grad.flatTime) + 0.5 * double(grad.rampDownTime),
+                                             blockStartUs,
+                                             blockEndUs,
+                                             channel);
+                    }
+                }
                 continue;
             }
 
@@ -1636,14 +1713,45 @@ void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
                     continue;
                 const bool oversampled = blk->isArbGradWithOversampling(ch) || (grad.timeShape == -1);
                 const double dtSec = oversampled ? (0.5 * gradientRasterSec) : gradientRasterSec;
+                const double dtUs = oversampled ? (0.5 * gradientRasterUs) : gradientRasterUs;
+                const double tFirstUs = gradStartUs + 0.5 * gradientRasterUs;
                 double prev = 0.0;
                 for (int i = 0; i < n; ++i)
                 {
                     const double value = double(shape[i]) * double(grad.amplitude);
-                    maxSlewHzPerMPerS = std::max(maxSlewHzPerMPerS, std::abs(value - prev) / dtSec);
+                    updateMetricLocation(maxGradLocation,
+                                         std::abs(value),
+                                         blockIndex,
+                                         tFirstUs + double(i) * dtUs,
+                                         blockStartUs,
+                                         blockEndUs,
+                                         channel);
+                    const double slew = std::abs(value - prev) / dtSec;
+                    if (slew >= maxSlewHzPerMPerS)
+                    {
+                        maxSlewHzPerMPerS = slew;
+                        updateMetricLocation(maxSlewLocation,
+                                             slew,
+                                             blockIndex,
+                                             (tFirstUs + double(i) * dtUs) - 0.5 * dtUs,
+                                             blockStartUs,
+                                             blockEndUs,
+                                             channel);
+                    }
                     prev = value;
                 }
-                maxSlewHzPerMPerS = std::max(maxSlewHzPerMPerS, std::abs(prev) / dtSec);
+                const double tailSlew = std::abs(prev) / dtSec;
+                if (tailSlew >= maxSlewHzPerMPerS)
+                {
+                    maxSlewHzPerMPerS = tailSlew;
+                    updateMetricLocation(maxSlewLocation,
+                                         tailSlew,
+                                         blockIndex,
+                                         tFirstUs + double(n - 1) * dtUs + 0.5 * dtUs,
+                                         blockStartUs,
+                                         blockEndUs,
+                                         channel);
+                }
                 continue;
             }
 
@@ -1653,6 +1761,17 @@ void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
                 const std::vector<float>& shape = blk->GetExtTrapGradShape(ch);
                 if (times.size() != shape.size() || times.size() < 2)
                     continue;
+                for (size_t i = 0; i < times.size(); ++i)
+                {
+                    const double value = double(shape[i]) * double(grad.amplitude);
+                    updateMetricLocation(maxGradLocation,
+                                         std::abs(value),
+                                         blockIndex,
+                                         gradStartUs + double(times[i]),
+                                         blockStartUs,
+                                         blockEndUs,
+                                         channel);
+                }
                 for (size_t i = 1; i < times.size(); ++i)
                 {
                     const double dtSec = (double(times[i]) - double(times[i - 1])) * 1e-6;
@@ -1660,7 +1779,18 @@ void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
                         continue;
                     const double v0 = double(shape[i - 1]) * double(grad.amplitude);
                     const double v1 = double(shape[i]) * double(grad.amplitude);
-                    maxSlewHzPerMPerS = std::max(maxSlewHzPerMPerS, std::abs(v1 - v0) / dtSec);
+                    const double slew = std::abs(v1 - v0) / dtSec;
+                    if (slew >= maxSlewHzPerMPerS)
+                    {
+                        maxSlewHzPerMPerS = slew;
+                        updateMetricLocation(maxSlewLocation,
+                                             slew,
+                                             blockIndex,
+                                             gradStartUs + 0.5 * (double(times[i - 1]) + double(times[i])),
+                                             blockStartUs,
+                                             blockEndUs,
+                                             channel);
+                    }
                 }
             }
         }
@@ -1671,6 +1801,17 @@ void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
     const double measuredSlewTPerMPerS = Settings::getInstance().convertSlew(maxSlewHzPerMPerS, "Hz/m/s", "T/m/s");
     const double measuredB1uT = (gammaHzPerT > 0.0) ? (measuredB1Hz / gammaHzPerT * 1e6) : 0.0;
 
+    auto applyMetricLocation = [&](SafetyMetric& metric, const MetricLocation& location, double scale) {
+        if (!location.valid)
+            return;
+        metric.hasLocation = true;
+        metric.blockIndex = location.blockIndex;
+        metric.timeUs = location.timeUs;
+        metric.blockStartUs = location.blockStartUs;
+        metric.blockEndUs = location.blockEndUs;
+        metric.channel = location.channel;
+        metric.measured = location.measuredHzUnits * scale;
+    };
     auto fillMetric = [&](SafetyMetric& metric, double measured, double limit) {
         metric.configured = std::isfinite(limit) && limit > 0.0;
         metric.measured = measured;
@@ -1685,6 +1826,12 @@ void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
     fillMetric(m_safetyResult.maxGrad, measuredGradMtPerM, profile.maxGrad);
     fillMetric(m_safetyResult.maxSlew, measuredSlewTPerMPerS, profile.maxSlew);
     fillMetric(m_safetyResult.maxB1, measuredB1uT, profile.maxB1);
+    applyMetricLocation(m_safetyResult.maxGrad,
+                        maxGradLocation,
+                        Settings::getInstance().convertGradient(1.0, "Hz/m", "mT/m"));
+    applyMetricLocation(m_safetyResult.maxSlew,
+                        maxSlewLocation,
+                        Settings::getInstance().convertSlew(1.0, "Hz/m/s", "T/m/s"));
 
     if (!m_safetyResult.hasAnyChecks)
     {
@@ -1696,11 +1843,32 @@ void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
     auto appendFailure = [&](const QString& name, const SafetyMetric& metric, const QString& unit) {
         if (!metric.configured || metric.passed)
             return;
-        failed.append(QStringLiteral("%1: measured %2 %3 > limit %4 %3")
-                          .arg(name)
-                          .arg(metric.measured, 0, 'f', 3)
-                          .arg(unit)
-                          .arg(metric.limit, 0, 'f', 3));
+        auto formatField = [](const QString& label, const QString& value) {
+            return QStringLiteral("  %1  %2")
+                .arg(label.leftJustified(11, QLatin1Char(' ')))
+                .arg(value);
+        };
+
+        QStringList lines;
+        lines << name
+              << formatField(QStringLiteral("measured"),
+                             QStringLiteral("%1 %2").arg(metric.measured, 0, 'f', 3).arg(unit))
+              << formatField(QStringLiteral("limit"),
+                             QStringLiteral("%1 %2").arg(metric.limit, 0, 'f', 3).arg(unit));
+        if (metric.hasLocation)
+        {
+            lines << formatField(QStringLiteral("channel"),
+                                 metric.channel.isEmpty() ? QStringLiteral("?") : metric.channel)
+                  << formatField(QStringLiteral("block index"),
+                                 QString::number(metric.blockIndex))
+                  << formatField(QStringLiteral("time"),
+                                 QStringLiteral("%1 ms").arg(metric.timeUs / 1000.0, 0, 'f', 3))
+                  << formatField(QStringLiteral("block range"),
+                                 QStringLiteral("%1 - %2 ms")
+                                     .arg(metric.blockStartUs / 1000.0, 0, 'f', 3)
+                                     .arg(metric.blockEndUs / 1000.0, 0, 'f', 3));
+        }
+        failed.append(lines.join(QStringLiteral("\n")));
     };
     appendFailure(QStringLiteral("maxGrad"), m_safetyResult.maxGrad, QStringLiteral("mT/m"));
     appendFailure(QStringLiteral("maxSlew"), m_safetyResult.maxSlew, QStringLiteral("T/m/s"));
@@ -1710,9 +1878,9 @@ void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
     {
         m_safetyResult.summary = QStringLiteral("Safety warning");
         m_safetyResult.warningMessage =
-            QStringLiteral("System \"%1\" exceeded configured safety limits:\n%2")
-                .arg(m_safetyResult.profileAlias.isEmpty() ? QStringLiteral("(unnamed)") : m_safetyResult.profileAlias,
-                     failed.join(QStringLiteral("\n")));
+            QStringLiteral("<html><body><p>Safety limits of system profile &quot;%1&quot; exceeded.</p><pre>%2</pre></body></html>")
+                .arg((m_safetyResult.profileAlias.isEmpty() ? QStringLiteral("(unnamed)") : m_safetyResult.profileAlias).toHtmlEscaped(),
+                     failed.join(QStringLiteral("\n\n")).toHtmlEscaped());
         if (showWarningDialog && !m_silentMode && m_mainWindow)
         {
             QMessageBox::warning(m_mainWindow, QStringLiteral("Safety warning"), m_safetyResult.warningMessage);
