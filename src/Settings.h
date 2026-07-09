@@ -8,12 +8,41 @@
 #include <QJsonDocument>
 #include <QMap>
 #include <QStringList>
+#include <QVector>
 
 class Settings : public QObject
 {
     Q_OBJECT
 
 public:
+    struct SystemProfile
+    {
+        QString alias;
+        QString ascPath;
+        double maxGrad {0.0}; // Stored in mT/m; NaN means unset
+        double maxSlew {0.0}; // Stored in T/m/s; NaN means unset
+        double maxB1 {0.0};   // Stored in uT; NaN means unset
+
+        bool operator==(const SystemProfile& other) const
+        {
+            auto sameDouble = [](double a, double b) {
+                const bool aNan = !(a == a);
+                const bool bNan = !(b == b);
+                return (aNan && bNan) || a == b;
+            };
+            return alias == other.alias &&
+                   ascPath == other.ascPath &&
+                   sameDouble(maxGrad, other.maxGrad) &&
+                   sameDouble(maxSlew, other.maxSlew) &&
+                   sameDouble(maxB1, other.maxB1);
+        }
+
+        bool operator!=(const SystemProfile& other) const
+        {
+            return !(*this == other);
+        }
+    };
+
     // Mouse zoom input mode
     enum class ZoomInputMode {
         CtrlWheel,  // Ctrl + Mouse wheel for zoom
@@ -152,10 +181,17 @@ public:
     void setShowExtensionTooltip(bool show);
     bool getShowExtensionTooltip() const;
 
-    // PNS ASC file selection/history
+    // System safety profiles
+    QVector<SystemProfile> getSystemProfiles() const;
+    QString getActiveSystemProfileAlias() const;
+    SystemProfile getActiveSystemProfile() const;
+    void setSystemProfiles(const QVector<SystemProfile>& profiles);
+    void setActiveSystemProfileAlias(const QString& alias);
+    QString generateNextSystemProfileAlias() const;
+
+    // Legacy ASC/PNS compatibility accessors
     QString getPnsAscPath() const;
     QStringList getPnsAscHistory() const;
-    // PNS ASC Nicknames: path -> display nickname (optional, can be empty)
     QString getPnsAscNickname(const QString& path) const;
     QMap<QString, QString> getPnsAscNicknames() const;
     void setPnsAscPath(const QString& path);
@@ -202,9 +238,6 @@ private:
     bool m_showTeApproximateDialog { true }; // Show TE approximate warning for legacy sequences
     bool m_showTrajectoryApproximateDialog { true }; // Show trajectory warning for legacy sequences
     bool m_showExtensionTooltip { false }; // Show extension tooltip on hover
-    QString m_pnsAscPath;
-    QStringList m_pnsAscHistory;
-    QMap<QString, QString> m_pnsAscNicknames;
     bool m_pnsShowX {false};
     bool m_pnsShowY {false};
     bool m_pnsShowZ {true};
@@ -227,7 +260,14 @@ private:
 
     // Extension label helpers
     void initDefaultExtensionLabels();
+    QString normalizeSystemAlias(const QString& alias) const;
+    QString makeUniqueSystemAlias(const QString& preferredAlias, const QString& currentAlias = QString()) const;
+    void sanitizeSystemProfiles();
+    void migrateLegacyPnsSettings(const QJsonObject& obj);
+    static bool isLimitConfigured(double value);
     QMap<QString, bool> m_extensionLabelStates;
+    QVector<SystemProfile> m_systemProfiles;
+    QString m_activeSystemProfileAlias;
 };
 
 #endif // SETTINGS_H

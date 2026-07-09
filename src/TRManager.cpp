@@ -1820,7 +1820,7 @@ void TRManager::onShowPnsToggled(bool checked)
             QMessageBox::warning(
                 m_mainWindow,
                 "Show PNS unavailable",
-                "PNS requires a valid ASC profile.\n"
+                "PNS requires the active system profile to contain a valid ASC path.\n"
                 "Open Settings > Safety and select a valid .asc file.");
             if (m_pShowPnsCheckBox)
             {

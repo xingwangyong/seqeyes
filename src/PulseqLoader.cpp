@@ -218,6 +218,7 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     m_lastPnsComputedGammaHzPerT = 0.0;
     m_pnsAscPath.clear();
     m_pnsStatusMessage.clear();
+    m_safetyResult = SafetyResult{};
     // M1 (first gradient moment) cache reset alongside PNS.
     m_m1Result = M1Calculator::Result{};
     m_m1State = M1State::NotStarted;
@@ -752,6 +753,8 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     {
         drawer->ensureRenderedForCurrentViewport();
     }
+
+    computeSafetyAnalysis(true);
 
     // PNS is always queued automatically after load. It is lower priority than
     // trajectory computation, so startPnsComputationIfEnabled() will defer while
@@ -1581,6 +1584,146 @@ void PulseqLoader::startTrajectoryComputationIfEnabled()
     startTrajectoryComputationAsync();
 }
 
+void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
+{
+    m_safetyResult = SafetyResult{};
+    const Settings::SystemProfile profile = Settings::getInstance().getActiveSystemProfile();
+    m_safetyResult.profileAlias = profile.alias.trimmed();
+
+    if (!m_spPulseqSeq || m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2)
+        return;
+
+    auto maxAbsOfRange = [](const QPair<double, double>& range) {
+        return std::max(std::abs(range.first), std::abs(range.second));
+    };
+
+    double measuredGradHzPerM = 0.0;
+    for (int ch = 0; ch < 3; ++ch)
+        measuredGradHzPerM = std::max(measuredGradHzPerM, maxAbsOfRange(getGradGlobalRange(ch)));
+
+    double measuredB1Hz = 0.0;
+    const QPair<double, double> rfRange = getRfGlobalRangeAmp();
+    measuredB1Hz = maxAbsOfRange(rfRange);
+
+    double maxSlewHzPerMPerS = 0.0;
+    std::vector<double> def = m_spPulseqSeq->GetDefinition("GradientRasterTime");
+    const double gradientRasterSec = (!def.empty() && std::isfinite(def[0]) && def[0] > 0.0) ? def[0] : 0.0;
+
+    for (SeqBlock* blk : m_vecDecodeSeqBlocks)
+    {
+        if (!blk)
+            continue;
+        for (int ch = 0; ch < 3; ++ch)
+        {
+            if (!(blk->isTrapGradient(ch) || blk->isArbitraryGradient(ch) || blk->isExtTrapGradient(ch)))
+                continue;
+
+            const GradEvent& grad = blk->GetGradEvent(ch);
+            if (blk->isTrapGradient(ch))
+            {
+                if (grad.rampUpTime > 0)
+                    maxSlewHzPerMPerS = std::max(maxSlewHzPerMPerS, std::abs(double(grad.amplitude)) / (double(grad.rampUpTime) * 1e-6));
+                if (grad.rampDownTime > 0)
+                    maxSlewHzPerMPerS = std::max(maxSlewHzPerMPerS, std::abs(double(grad.amplitude)) / (double(grad.rampDownTime) * 1e-6));
+                continue;
+            }
+
+            if (blk->isArbitraryGradient(ch))
+            {
+                const int n = blk->GetArbGradNumSamples(ch);
+                const float* shape = blk->GetArbGradShapePtr(ch);
+                if (n <= 0 || !shape || gradientRasterSec <= 0.0)
+                    continue;
+                const bool oversampled = blk->isArbGradWithOversampling(ch) || (grad.timeShape == -1);
+                const double dtSec = oversampled ? (0.5 * gradientRasterSec) : gradientRasterSec;
+                double prev = 0.0;
+                for (int i = 0; i < n; ++i)
+                {
+                    const double value = double(shape[i]) * double(grad.amplitude);
+                    maxSlewHzPerMPerS = std::max(maxSlewHzPerMPerS, std::abs(value - prev) / dtSec);
+                    prev = value;
+                }
+                maxSlewHzPerMPerS = std::max(maxSlewHzPerMPerS, std::abs(prev) / dtSec);
+                continue;
+            }
+
+            if (blk->isExtTrapGradient(ch))
+            {
+                const std::vector<long>& times = blk->GetExtTrapGradTimes(ch);
+                const std::vector<float>& shape = blk->GetExtTrapGradShape(ch);
+                if (times.size() != shape.size() || times.size() < 2)
+                    continue;
+                for (size_t i = 1; i < times.size(); ++i)
+                {
+                    const double dtSec = (double(times[i]) - double(times[i - 1])) * 1e-6;
+                    if (dtSec <= 0.0)
+                        continue;
+                    const double v0 = double(shape[i - 1]) * double(grad.amplitude);
+                    const double v1 = double(shape[i]) * double(grad.amplitude);
+                    maxSlewHzPerMPerS = std::max(maxSlewHzPerMPerS, std::abs(v1 - v0) / dtSec);
+                }
+            }
+        }
+    }
+
+    const double gammaHzPerT = Settings::getInstance().getGamma();
+    const double measuredGradMtPerM = Settings::getInstance().convertGradient(measuredGradHzPerM, "Hz/m", "mT/m");
+    const double measuredSlewTPerMPerS = Settings::getInstance().convertSlew(maxSlewHzPerMPerS, "Hz/m/s", "T/m/s");
+    const double measuredB1uT = (gammaHzPerT > 0.0) ? (measuredB1Hz / gammaHzPerT * 1e6) : 0.0;
+
+    auto fillMetric = [&](SafetyMetric& metric, double measured, double limit) {
+        metric.configured = std::isfinite(limit) && limit > 0.0;
+        metric.measured = measured;
+        metric.limit = metric.configured ? limit : 0.0;
+        metric.passed = !metric.configured || measured <= limit;
+        if (metric.configured)
+            m_safetyResult.hasAnyChecks = true;
+        if (metric.configured && !metric.passed)
+            m_safetyResult.hasViolation = true;
+    };
+
+    fillMetric(m_safetyResult.maxGrad, measuredGradMtPerM, profile.maxGrad);
+    fillMetric(m_safetyResult.maxSlew, measuredSlewTPerMPerS, profile.maxSlew);
+    fillMetric(m_safetyResult.maxB1, measuredB1uT, profile.maxB1);
+
+    if (!m_safetyResult.hasAnyChecks)
+    {
+        m_safetyResult.summary = QStringLiteral("Safety checks are not configured.");
+        return;
+    }
+
+    QStringList failed;
+    auto appendFailure = [&](const QString& name, const SafetyMetric& metric, const QString& unit) {
+        if (!metric.configured || metric.passed)
+            return;
+        failed.append(QStringLiteral("%1: measured %2 %3 > limit %4 %3")
+                          .arg(name)
+                          .arg(metric.measured, 0, 'f', 3)
+                          .arg(unit)
+                          .arg(metric.limit, 0, 'f', 3));
+    };
+    appendFailure(QStringLiteral("maxGrad"), m_safetyResult.maxGrad, QStringLiteral("mT/m"));
+    appendFailure(QStringLiteral("maxSlew"), m_safetyResult.maxSlew, QStringLiteral("T/m/s"));
+    appendFailure(QStringLiteral("maxB1"), m_safetyResult.maxB1, QStringLiteral("uT"));
+
+    if (m_safetyResult.hasViolation)
+    {
+        m_safetyResult.summary = QStringLiteral("Safety warning");
+        m_safetyResult.warningMessage =
+            QStringLiteral("System \"%1\" exceeded configured safety limits:\n%2")
+                .arg(m_safetyResult.profileAlias.isEmpty() ? QStringLiteral("(unnamed)") : m_safetyResult.profileAlias,
+                     failed.join(QStringLiteral("\n")));
+        if (showWarningDialog && !m_silentMode && m_mainWindow)
+        {
+            QMessageBox::warning(m_mainWindow, QStringLiteral("Safety warning"), m_safetyResult.warningMessage);
+        }
+    }
+    else
+    {
+        m_safetyResult.summary = QStringLiteral("Safety OK");
+    }
+}
+
 void PulseqLoader::computePnsSynchronously()
 {
     m_pnsResult = PnsCalculator::Result{};
@@ -1597,7 +1740,7 @@ void PulseqLoader::computePnsSynchronously()
 
     if (m_pnsAscPath.isEmpty())
     {
-        m_pnsStatusMessage = QStringLiteral("PNS is not configured. Select a valid ASC profile in Settings > Safety.");
+        m_pnsStatusMessage = QStringLiteral("PNS is not configured. Select a system profile with a valid ASC path in Settings > Safety.");
         setPnsState(PnsState::Failed);
         emit pnsDataUpdated();
         return;
@@ -1671,7 +1814,7 @@ void PulseqLoader::startPnsComputationAsync()
 
     if (m_pnsAscPath.isEmpty())
     {
-        m_pnsStatusMessage = QStringLiteral("PNS is not configured. Select a valid ASC profile in Settings > Safety.");
+        m_pnsStatusMessage = QStringLiteral("PNS is not configured. Select a system profile with a valid ASC path in Settings > Safety.");
         setPnsState(PnsState::Failed);
         emit pnsDataUpdated();
         return;
@@ -2414,6 +2557,7 @@ void PulseqLoader::rescaleTimeUnit()
 void PulseqLoader::recomputePnsFromSettings()
 {
     markPnsDirty();
+    computeSafetyAnalysis(false);
     if (m_pnsState == PnsState::Calculating)
         return;
     startPnsComputationIfEnabled();

@@ -18,6 +18,7 @@
 #include "KSpaceTrajectory.h"
 #include "PnsCalculator.h"
 #include "M1Calculator.h"
+#include "Settings.h"
 
 // Forward declarations
 class MainWindow;
@@ -50,6 +51,24 @@ public:
         Calculating,
         Ready,
         Failed
+    };
+    struct SafetyMetric
+    {
+        bool configured {false};
+        double measured {0.0};
+        double limit {0.0};
+        bool passed {true};
+    };
+    struct SafetyResult
+    {
+        QString profileAlias;
+        SafetyMetric maxGrad;
+        SafetyMetric maxSlew;
+        SafetyMetric maxB1;
+        bool hasAnyChecks {false};
+        bool hasViolation {false};
+        QString summary;
+        QString warningMessage;
     };
 
     explicit PulseqLoader(MainWindow* mainWindow);
@@ -200,6 +219,7 @@ public:
     bool isPnsOk() const { return m_pnsResult.ok; }
     QString getPnsAscPath() const { return m_pnsAscPath; }
     QString getPnsStatusMessage() const { return m_pnsStatusMessage; }
+    const SafetyResult& getSafetyResult() const { return m_safetyResult; }
 
     // M1 (first gradient moment) accessors
     bool hasM1Data() const { return m_m1Result.valid; }
@@ -266,6 +286,7 @@ private:
     void applyM1Result(const M1Calculator::Result& result);
     void setM1State(M1State state);
     void setPnsState(PnsState state);
+    void computeSafetyAnalysis(bool showWarningDialog);
     void computePnsSynchronously();
     void startPnsComputationAsync();
     void startPnsComputationIfEnabled();
@@ -387,6 +408,7 @@ private:
     double m_lastPnsComputedGammaHzPerT {0.0};
     QString m_pnsAscPath;
     QString m_pnsStatusMessage;
+    SafetyResult m_safetyResult;
 
     // ===== RF Shape Cache (split Amp/Phase) =====
     struct RFAmpEntry {

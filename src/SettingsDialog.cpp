@@ -18,6 +18,9 @@
 #include <QInputDialog>
 #include <QListWidgetItem>
 #include <QSignalBlocker>
+#include <QSet>
+#include <algorithm>
+#include <limits>
 #include "mainwindow.h"
 #include "WaveformDrawer.h"
 #include "PnsCalculator.h"
@@ -34,10 +37,16 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_panDragCheck(nullptr)
     , m_panWheelCheck(nullptr)
     , m_showExtensionTooltipCheck(nullptr)
-    , m_pnsAscPathCombo(nullptr)
-    , m_pnsNicknameEdit(nullptr)
-    , m_pnsBrowseButton(nullptr)
-    , m_pnsRemoveButton(nullptr)
+    , m_systemProfileCombo(nullptr)
+    , m_addSystemProfileButton(nullptr)
+    , m_removeSystemProfileButton(nullptr)
+    , m_systemAliasEdit(nullptr)
+    , m_systemAscPathEdit(nullptr)
+    , m_systemAscBrowseButton(nullptr)
+    , m_systemAscClearButton(nullptr)
+    , m_systemMaxGradEdit(nullptr)
+    , m_systemMaxSlewEdit(nullptr)
+    , m_systemMaxB1Edit(nullptr)
     , m_pnsShowXCheck(nullptr)
     , m_pnsShowYCheck(nullptr)
     , m_pnsShowZCheck(nullptr)
@@ -317,44 +326,70 @@ void SettingsDialog::setupUI()
     m_tabWidget->addTab(extensionsTab, "Extensions");
 
     // ============================================================================
-    // Safety Tab (PNS)
+    // Safety Tab (System Profiles)
     // ============================================================================
     QWidget* safetyTab = new QWidget();
     QVBoxLayout* safetyLayout = new QVBoxLayout(safetyTab);
 
-    QGroupBox* pnsGroup = new QGroupBox("Select Siemens ASC profile for PNS prediction (.asc)", safetyTab);
+    QGroupBox* systemGroup = new QGroupBox("", safetyTab);
+    QVBoxLayout* systemGroupLayout = new QVBoxLayout(systemGroup);
+
+    QWidget* systemMetaWidget = new QWidget(systemGroup);
+    QFormLayout* systemForm = new QFormLayout(systemMetaWidget);
+
+    QWidget* systemSelectorRow = new QWidget(systemGroup);
+    QHBoxLayout* systemSelectorLayout = new QHBoxLayout(systemSelectorRow);
+    systemSelectorLayout->setContentsMargins(0, 0, 0, 0);
+    systemSelectorLayout->setSpacing(6);
+    m_systemProfileCombo = new QComboBox(systemGroup);
+    m_addSystemProfileButton = new QPushButton("Add", systemGroup);
+    m_removeSystemProfileButton = new QPushButton("Remove", systemGroup);
+    systemSelectorLayout->addWidget(m_systemProfileCombo, 1);
+    systemSelectorLayout->addWidget(m_addSystemProfileButton);
+    systemSelectorLayout->addWidget(m_removeSystemProfileButton);
+    systemForm->addRow("System Profile:", systemSelectorRow);
+
+    m_systemAliasEdit = new QLineEdit(systemGroup);
+    m_systemAliasEdit->setPlaceholderText("Optional, auto-generated as systemN");
+    systemForm->addRow("Alias:", m_systemAliasEdit);
+
+    m_systemMaxGradEdit = new QLineEdit(systemGroup);
+    m_systemMaxGradEdit->setPlaceholderText("Optional, mT/m");
+    systemForm->addRow("maxGrad (mT/m):", m_systemMaxGradEdit);
+
+    m_systemMaxSlewEdit = new QLineEdit(systemGroup);
+    m_systemMaxSlewEdit->setPlaceholderText("Optional, T/m/s");
+    systemForm->addRow("maxSlew (T/m/s):", m_systemMaxSlewEdit);
+
+    m_systemMaxB1Edit = new QLineEdit(systemGroup);
+    m_systemMaxB1Edit->setPlaceholderText("Optional, uT");
+    systemForm->addRow("maxB1 (uT):", m_systemMaxB1Edit);
+
+    systemGroupLayout->addWidget(systemMetaWidget);
+
+    QGroupBox* pnsGroup = new QGroupBox("PNS (Siemens only)", systemGroup);
     QFormLayout* pnsForm = new QFormLayout(pnsGroup);
 
-    QWidget* pnsPathRow = new QWidget(safetyTab);
-    QHBoxLayout* pnsPathLayout = new QHBoxLayout(pnsPathRow);
-    pnsPathLayout->setContentsMargins(0, 0, 0, 0);
-    pnsPathLayout->setSpacing(6);
+    QWidget* systemAscRow = new QWidget(pnsGroup);
+    QHBoxLayout* systemAscLayout = new QHBoxLayout(systemAscRow);
+    systemAscLayout->setContentsMargins(0, 0, 0, 0);
+    systemAscLayout->setSpacing(6);
+    m_systemAscPathEdit = new QLineEdit(pnsGroup);
+    m_systemAscBrowseButton = new QPushButton("Browse...", pnsGroup);
+    m_systemAscClearButton = new QPushButton("Clear", pnsGroup);
+    systemAscLayout->addWidget(m_systemAscPathEdit, 1);
+    systemAscLayout->addWidget(m_systemAscBrowseButton);
+    systemAscLayout->addWidget(m_systemAscClearButton);
+    pnsForm->addRow("Siemens ASC Path:", systemAscRow);
 
-    m_pnsAscPathCombo = new QComboBox(safetyTab);
-    m_pnsAscPathCombo->setEditable(false);
-    m_pnsAscPathCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_pnsBrowseButton = new QPushButton("Browse...", safetyTab);
-    m_pnsRemoveButton = new QPushButton("Remove", safetyTab);
-
-    pnsPathLayout->addWidget(m_pnsAscPathCombo, 1);
-    pnsPathLayout->addWidget(m_pnsBrowseButton);
-    pnsPathLayout->addWidget(m_pnsRemoveButton);
-
-    pnsForm->addRow("ASC Path:", pnsPathRow);
-
-    // Nickname row (below ASC Path)
-    m_pnsNicknameEdit = new QLineEdit(safetyTab);
-    m_pnsNicknameEdit->setPlaceholderText("Enter nickname for the selected profile");
-    pnsForm->addRow("ASC Nickname:", m_pnsNicknameEdit);
-
-    QWidget* pnsChannelsRow = new QWidget(safetyTab);
+    QWidget* pnsChannelsRow = new QWidget(pnsGroup);
     QHBoxLayout* pnsChannelsLayout = new QHBoxLayout(pnsChannelsRow);
     pnsChannelsLayout->setContentsMargins(0, 0, 0, 0);
     pnsChannelsLayout->setSpacing(10);
-    m_pnsShowXCheck = new QCheckBox("X", safetyTab);
-    m_pnsShowYCheck = new QCheckBox("Y", safetyTab);
-    m_pnsShowZCheck = new QCheckBox("Z", safetyTab);
-    m_pnsShowNormCheck = new QCheckBox("Norm", safetyTab);
+    m_pnsShowXCheck = new QCheckBox("X", pnsGroup);
+    m_pnsShowYCheck = new QCheckBox("Y", pnsGroup);
+    m_pnsShowZCheck = new QCheckBox("Z", pnsGroup);
+    m_pnsShowNormCheck = new QCheckBox("Norm", pnsGroup);
     pnsChannelsLayout->addWidget(m_pnsShowXCheck);
     pnsChannelsLayout->addWidget(m_pnsShowYCheck);
     pnsChannelsLayout->addWidget(m_pnsShowZCheck);
@@ -362,7 +397,9 @@ void SettingsDialog::setupUI()
     pnsChannelsLayout->addStretch();
     pnsForm->addRow("Display:", pnsChannelsRow);
 
-    safetyLayout->addWidget(pnsGroup);
+    systemGroupLayout->addWidget(pnsGroup);
+
+    safetyLayout->addWidget(systemGroup);
     safetyLayout->addStretch();
 
     m_tabWidget->addTab(safetyTab, "Safety");
@@ -399,14 +436,26 @@ void SettingsDialog::setupUI()
             this, &SettingsDialog::onZoomModeChanged);
     connect(m_panWheelCheck, &QCheckBox::toggled,
             this, &SettingsDialog::onPanWheelToggled);
-    connect(m_pnsBrowseButton, &QPushButton::clicked,
-            this, &SettingsDialog::onBrowsePnsAscPath);
-    connect(m_pnsRemoveButton, &QPushButton::clicked,
-            this, &SettingsDialog::onRemovePnsAscPath);
-    connect(m_pnsAscPathCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &SettingsDialog::onPnsAscPathComboChanged);
-    connect(m_pnsNicknameEdit, &QLineEdit::editingFinished,
-            this, &SettingsDialog::onPnsNicknameEditingFinished);
+    connect(m_systemProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SettingsDialog::onSystemProfileChanged);
+    connect(m_addSystemProfileButton, &QPushButton::clicked,
+            this, &SettingsDialog::onAddSystemProfileClicked);
+    connect(m_removeSystemProfileButton, &QPushButton::clicked,
+            this, &SettingsDialog::onRemoveSystemProfileClicked);
+    connect(m_systemAscBrowseButton, &QPushButton::clicked,
+            this, &SettingsDialog::onBrowseSystemAscPath);
+    connect(m_systemAscClearButton, &QPushButton::clicked,
+            this, &SettingsDialog::onClearSystemAscPath);
+    connect(m_systemAliasEdit, &QLineEdit::textChanged,
+            this, [this]() { syncCurrentSystemProfileDraft(true); });
+    connect(m_systemAscPathEdit, &QLineEdit::textChanged,
+            this, [this]() { syncCurrentSystemProfileDraft(false); });
+    connect(m_systemMaxGradEdit, &QLineEdit::textChanged,
+            this, [this]() { syncCurrentSystemProfileDraft(false); });
+    connect(m_systemMaxSlewEdit, &QLineEdit::textChanged,
+            this, [this]() { syncCurrentSystemProfileDraft(false); });
+    connect(m_systemMaxB1Edit, &QLineEdit::textChanged,
+            this, [this]() { syncCurrentSystemProfileDraft(false); });
     connect(m_axisOrderList, &QListWidget::itemSelectionChanged,
             this, &SettingsDialog::onAxisOrderSelectionChanged);
     connect(m_axisOrderList->model(), &QAbstractItemModel::rowsMoved,
@@ -440,9 +489,9 @@ void SettingsDialog::loadCurrentSettings()
     m_originalZoomInputMode = settings.getZoomInputMode();
     m_originalPanWheelEnabled = settings.getPanWheelEnabled();
     m_originalShowExtensionTooltip = settings.getShowExtensionTooltip();
-    m_originalPnsAscPath = settings.getPnsAscPath();
-    m_originalPnsAscHistory = settings.getPnsAscHistory();
-    m_originalPnsAscNicknames = settings.getPnsAscNicknames();
+    m_originalSystemProfiles = settings.getSystemProfiles();
+    m_originalActiveSystemProfileAlias = settings.getActiveSystemProfileAlias();
+    m_systemProfilesDraft = m_originalSystemProfiles;
     m_originalPnsShowX = settings.getPnsChannelVisibleX();
     m_originalPnsShowY = settings.getPnsChannelVisibleY();
     m_originalPnsShowZ = settings.getPnsChannelVisibleZ();
@@ -504,34 +553,25 @@ void SettingsDialog::loadCurrentSettings()
     m_panWheelCheck->setChecked(m_originalPanWheelEnabled);
     updateInteractionControlsForExclusivity();
 
-    if (m_pnsAscPathCombo && m_pnsNicknameEdit)
+    if (m_systemProfileCombo)
     {
-        const QSignalBlocker blockPath(m_pnsAscPathCombo);
-
-        m_pnsAscPathCombo->clear();
-
-        QStringList paths = settings.getPnsAscHistory();
-        const QString current = settings.getPnsAscPath();
-        if (!current.isEmpty() && !paths.contains(current))
-            paths.prepend(current);
-
-        for (const QString& p : paths)
+        const QSignalBlocker blocker(m_systemProfileCombo);
+        m_systemProfileCombo->clear();
+        int selectedIndex = -1;
+        for (int i = 0; i < m_systemProfilesDraft.size(); ++i)
         {
-            const QString nick = settings.getPnsAscNickname(p);
-            m_pnsAscPathCombo->addItem(pnsPathDisplayText(p, nick), p);
+            const Settings::SystemProfile& profile = m_systemProfilesDraft[i];
+            m_systemProfileCombo->addItem(profile.alias.trimmed().isEmpty() ? QStringLiteral("(auto)") : profile.alias);
+            if (profile.alias == m_originalActiveSystemProfileAlias)
+                selectedIndex = i;
         }
-
-        if (!current.isEmpty())
-        {
-            selectPathInComboByPath(current);
-            m_pnsNicknameEdit->setText(settings.getPnsAscNickname(current));
-        }
-        else
-        {
-            m_pnsAscPathCombo->setCurrentIndex(-1);
-            m_pnsNicknameEdit->setText("");
-        }
+        if (selectedIndex < 0 && m_systemProfileCombo->count() > 0)
+            selectedIndex = 0;
+        m_systemProfileCombo->setCurrentIndex(selectedIndex);
     }
+    loadCurrentSystemProfileIntoEditor();
+    if (m_removeSystemProfileButton)
+        m_removeSystemProfileButton->setEnabled(!m_systemProfilesDraft.isEmpty());
     if (m_pnsShowXCheck) m_pnsShowXCheck->setChecked(settings.getPnsChannelVisibleX());
     if (m_pnsShowYCheck) m_pnsShowYCheck->setChecked(settings.getPnsChannelVisibleY());
     if (m_pnsShowZCheck) m_pnsShowZCheck->setChecked(settings.getPnsChannelVisibleZ());
@@ -621,92 +661,61 @@ bool SettingsDialog::applySettings()
     bool panWheel = (zoomMode == Settings::ZoomInputMode::Wheel) ? false : m_panWheelCheck->isChecked();
     settings.setPanWheelEnabled(panWheel);
 
-    if (m_pnsAscPathCombo && m_pnsNicknameEdit)
+    QVector<Settings::SystemProfile> nextProfiles = m_systemProfilesDraft;
+    const int idx = currentSystemProfileIndex();
+    if (idx >= 0 && idx < nextProfiles.size())
     {
-        const QString currentPath = resolveCurrentPnsAscPath();
-        QString nickname = currentNicknameText();
-
-        const QStringList previousHistory = settings.getPnsAscHistory();
-        const bool isNewPath = !currentPath.isEmpty() && !previousHistory.contains(currentPath);
-        if (isNewPath && nickname.isEmpty())
+        bool ok = false;
+        QString error;
+        Settings::SystemProfile profile = buildCurrentSystemProfileFromEditor(&ok, &error);
+        if (!ok)
         {
-            bool ok = false;
-            const QString suggested = QFileInfo(currentPath).baseName();
-            const QString entered = QInputDialog::getText(
-                this,
-                tr("ASC Nickname (Optional)"),
-                tr("Set a nickname for this ASC profile (optional):"),
-                QLineEdit::Normal,
-                suggested,
-                &ok).trimmed();
-            if (ok)
-                nickname = entered;
-        }
-
-        QMap<QString, QString> nicknameMap = settings.getPnsAscNicknames();
-        if (!currentPath.isEmpty())
-        {
-            if (!nickname.isEmpty())
-                nicknameMap[currentPath] = nickname;
-        }
-
-        QString duplicateNick;
-        QString firstPath;
-        QString secondPath;
-        if (!validatePnsNicknameUniqueness(nicknameMap, &duplicateNick, &firstPath, &secondPath))
-        {
-            QMessageBox::warning(
-                this,
-                tr("Duplicate ASC nickname"),
-                tr("ASC nickname \"%1\" is already used by another ASC path.\n\n"
-                   "Please use a unique nickname.\n"
-                   "Path 1: %2\n"
-                   "Path 2: %3")
-                    .arg(duplicateNick, firstPath, secondPath));
+            QMessageBox::warning(this, tr("System profile warning"), error);
             return false;
         }
+        nextProfiles[idx] = profile;
+    }
 
-        // Validate before persisting, so failed validation never writes a broken path.
-        if (!currentPath.isEmpty())
+    QSet<QString> aliases;
+    for (int i = 0; i < nextProfiles.size(); ++i)
+    {
+        Settings::SystemProfile& profile = nextProfiles[i];
+        profile.alias = resolvedAliasForInput(profile.alias, i);
+        const QString aliasKey = profile.alias.toCaseFolded();
+        if (aliases.contains(aliasKey))
+        {
+            QMessageBox::warning(this,
+                                 tr("Duplicate system alias"),
+                                 tr("System alias \"%1\" is used more than once. Please choose unique aliases.")
+                                     .arg(profile.alias));
+            return false;
+        }
+        aliases.insert(aliasKey);
+
+        if (!profile.ascPath.trimmed().isEmpty())
         {
             PnsCalculator::Hardware hw;
             QString parseError;
-            if (!QFileInfo::exists(currentPath))
+            if (!QFileInfo::exists(profile.ascPath))
             {
-                QMessageBox::warning(this, "PNS ASC warning",
-                                     "Selected ASC path does not exist.\n"
-                                     "Please select a valid ASC file before applying.");
+                QMessageBox::warning(this, tr("System profile warning"),
+                                     tr("ASC path does not exist for system \"%1\".\nPlease select a valid ASC file before applying.")
+                                         .arg(profile.alias));
                 return false;
             }
-            else if (!PnsCalculator::parseAscFile(currentPath, hw, &parseError))
+            if (!PnsCalculator::parseAscFile(profile.ascPath, hw, &parseError))
             {
-                QMessageBox::warning(this, "PNS ASC warning",
-                                     "Selected ASC file is invalid for PNS calculation:\n" + parseError +
-                                     "\n\nPlease select a valid ASC file before applying.");
+                QMessageBox::warning(this, tr("System profile warning"),
+                                     tr("ASC file is invalid for system \"%1\":\n%2\n\nPlease select a valid ASC file before applying.")
+                                         .arg(profile.alias, parseError));
                 return false;
             }
         }
-
-        // Collect history from itemData (real paths, not display text)
-        QStringList history;
-        for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
-        {
-            const QString path = m_pnsAscPathCombo->itemData(i).toString().trimmed();
-            if (!path.isEmpty() && !history.contains(path))
-                history.append(path);
-        }
-        if (!currentPath.isEmpty())
-        {
-            history.removeAll(currentPath);
-            history.prepend(currentPath);
-        }
-        settings.setPnsAscHistory(history);
-        settings.setPnsAscPath(currentPath);
-
-        // Save nickname for the current path
-        if (!currentPath.isEmpty() && !nickname.isEmpty())
-            settings.setPnsAscNickname(currentPath, nickname);
     }
+
+    settings.setSystemProfiles(nextProfiles);
+    if (m_systemProfileCombo && m_systemProfileCombo->currentIndex() >= 0 && m_systemProfileCombo->currentIndex() < nextProfiles.size())
+        settings.setActiveSystemProfileAlias(nextProfiles[m_systemProfileCombo->currentIndex()].alias);
     if (m_pnsShowXCheck) settings.setPnsChannelVisibleX(m_pnsShowXCheck->isChecked());
     if (m_pnsShowYCheck) settings.setPnsChannelVisibleY(m_pnsShowYCheck->isChecked());
     if (m_pnsShowZCheck) settings.setPnsChannelVisibleZ(m_pnsShowZCheck->isChecked());
@@ -742,7 +751,6 @@ void SettingsDialog::onOKClicked()
 
 void SettingsDialog::onCancelClicked()
 {
-    // Restore original settings
     Settings& settings = Settings::getInstance();
     settings.setGradientUnit(m_originalGradientUnit);
     settings.setSlewUnit(m_originalSlewUnit);
@@ -752,19 +760,8 @@ void SettingsDialog::onCancelClicked()
     settings.setGamma(m_originalGamma);
     settings.setLogLevel(m_originalLogLevel);
     settings.setShowExtensionTooltip(m_originalShowExtensionTooltip);
-    settings.setPnsAscHistory(m_originalPnsAscHistory);
-    settings.setPnsAscPath(m_originalPnsAscPath);
-    // Restore nicknames
-    const QMap<QString, QString> currentNicknames = settings.getPnsAscNicknames();
-    for (auto it = currentNicknames.constBegin(); it != currentNicknames.constEnd(); ++it)
-    {
-        if (!m_originalPnsAscNicknames.contains(it.key()))
-            settings.setPnsAscNickname(it.key(), QString());
-    }
-    for (auto it = m_originalPnsAscNicknames.constBegin(); it != m_originalPnsAscNicknames.constEnd(); ++it)
-    {
-        settings.setPnsAscNickname(it.key(), it.value());
-    }
+    settings.setSystemProfiles(m_originalSystemProfiles);
+    settings.setActiveSystemProfileAlias(m_originalActiveSystemProfileAlias);
     settings.setPnsChannelVisibleX(m_originalPnsShowX);
     settings.setPnsChannelVisibleY(m_originalPnsShowY);
     settings.setPnsChannelVisibleZ(m_originalPnsShowZ);
@@ -1130,128 +1127,160 @@ void SettingsDialog::updateInteractionControlsForExclusivity()
     }
 }
 
-QString SettingsDialog::resolvePathFromPathComboText(const QString& text) const
+void SettingsDialog::syncCurrentSystemProfileDraft(bool updateComboText)
 {
-    if (!m_pnsAscPathCombo)
-        return QString();
+    const int idx = currentSystemProfileIndex();
+    if (idx < 0 || idx >= m_systemProfilesDraft.size())
+        return;
 
-    const QString trimmed = text.trimmed();
-    if (trimmed.isEmpty())
-        return QString();
+    bool ok = false;
+    Settings::SystemProfile profile = buildCurrentSystemProfileFromEditor(&ok, nullptr);
+    if (!ok)
+        return;
 
-    for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
+    m_systemProfilesDraft[idx] = profile;
+    if (updateComboText && m_systemProfileCombo)
     {
-        if (m_pnsAscPathCombo->itemText(i) == trimmed)
-            return m_pnsAscPathCombo->itemData(i).toString().trimmed();
+        const QString label = profile.alias.trimmed().isEmpty()
+            ? QStringLiteral("(auto)")
+            : profile.alias.trimmed();
+        m_systemProfileCombo->setItemText(idx, label);
+    }
+}
+
+int SettingsDialog::currentSystemProfileIndex() const
+{
+    return m_systemProfileCombo ? m_systemProfileCombo->currentIndex() : -1;
+}
+
+QString SettingsDialog::resolvedAliasForInput(const QString& alias, int profileIndex) const
+{
+    QString trimmed = alias.trimmed();
+    if (trimmed.isEmpty())
+    {
+        QSet<QString> used;
+        for (int i = 0; i < m_systemProfilesDraft.size(); ++i)
+        {
+            if (i == profileIndex)
+                continue;
+            used.insert(m_systemProfilesDraft[i].alias.toCaseFolded());
+        }
+        for (int i = 1; ; ++i)
+        {
+            const QString candidate = QStringLiteral("system%1").arg(i);
+            if (!used.contains(candidate.toCaseFolded()))
+                return candidate;
+        }
     }
     return trimmed;
 }
 
-QString SettingsDialog::resolveCurrentPnsAscPath() const
+Settings::SystemProfile SettingsDialog::buildCurrentSystemProfileFromEditor(bool* ok, QString* error) const
 {
-    if (!m_pnsAscPathCombo)
-        return QString();
+    if (ok) *ok = false;
+    Settings::SystemProfile profile;
+    profile.alias = m_systemAliasEdit ? m_systemAliasEdit->text().trimmed() : QString();
+    profile.ascPath = m_systemAscPathEdit ? m_systemAscPathEdit->text().trimmed() : QString();
+    profile.maxGrad = std::numeric_limits<double>::quiet_NaN();
+    profile.maxSlew = std::numeric_limits<double>::quiet_NaN();
+    profile.maxB1 = std::numeric_limits<double>::quiet_NaN();
 
-    const QString fromText = resolvePathFromPathComboText(m_pnsAscPathCombo->currentText());
-    if (!fromText.isEmpty())
-        return fromText;
-
-    return m_pnsAscPathCombo->currentData().toString().trimmed();
-}
-
-QString SettingsDialog::currentNicknameText() const
-{
-    if (!m_pnsNicknameEdit)
-        return QString();
-    return m_pnsNicknameEdit->text().trimmed();
-}
-
-QString SettingsDialog::pnsPathDisplayText(const QString& path, const QString& nickname) const
-{
-    const QString p = path.trimmed();
-    const QString n = nickname.trimmed();
-    const QString shown = n.isEmpty() ? QStringLiteral("Unnamed") : n;
-    return QString("[%1] - %2").arg(shown, p);
-}
-
-void SettingsDialog::selectPathInComboByPath(const QString& path)
-{
-    if (!m_pnsAscPathCombo)
-        return;
-
-    const QSignalBlocker blocker(m_pnsAscPathCombo);
-
-    const QString p = path.trimmed();
-    if (p.isEmpty())
-    {
-        m_pnsAscPathCombo->setCurrentIndex(-1);
-        return;
-    }
-
-    for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
-    {
-        if (m_pnsAscPathCombo->itemData(i).toString().trimmed() == p)
+    auto parseOptionalPositive = [&](QLineEdit* edit, const QString& label, double& out) -> bool {
+        if (!edit)
+            return true;
+        const QString text = edit->text().trimmed();
+        if (text.isEmpty())
+            return true;
+        bool okLocal = false;
+        const double value = text.toDouble(&okLocal);
+        if (!okLocal || !std::isfinite(value) || value <= 0.0)
         {
-            m_pnsAscPathCombo->setCurrentIndex(i);
-            return;
-        }
-    }
-
-    m_pnsAscPathCombo->setCurrentIndex(-1);
-}
-
-void SettingsDialog::persistCurrentPnsPathSelection()
-{
-    if (!m_pnsAscPathCombo)
-        return;
-
-    Settings& settings = Settings::getInstance();
-    const QString currentPath = resolveCurrentPnsAscPath();
-
-    QStringList history;
-    for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
-    {
-        const QString path = m_pnsAscPathCombo->itemData(i).toString().trimmed();
-        if (!path.isEmpty() && !history.contains(path))
-            history.append(path);
-    }
-    if (!currentPath.isEmpty())
-    {
-        history.removeAll(currentPath);
-        history.prepend(currentPath);
-    }
-    settings.setPnsAscHistory(history);
-    settings.setPnsAscPath(currentPath);
-}
-
-bool SettingsDialog::validatePnsNicknameUniqueness(const QMap<QString, QString>& nickMap, QString* duplicateNickname, QString* firstPath, QString* secondPath) const
-{
-    QMap<QString, QString> firstPathByNick;
-    QMap<QString, QString> displayNickByKey;
-    for (auto it = nickMap.constBegin(); it != nickMap.constEnd(); ++it)
-    {
-        const QString path = it.key().trimmed();
-        const QString nick = it.value().trimmed();
-        if (path.isEmpty() || nick.isEmpty())
-            continue;
-
-        const QString key = nick.toCaseFolded();
-        if (firstPathByNick.contains(key) && firstPathByNick.value(key) != path)
-        {
-            if (duplicateNickname) *duplicateNickname = displayNickByKey.value(key, nick);
-            if (firstPath) *firstPath = firstPathByNick.value(key);
-            if (secondPath) *secondPath = path;
+            if (error)
+                *error = tr("%1 must be a positive number or left empty.").arg(label);
             return false;
         }
-        firstPathByNick.insert(key, path);
-        displayNickByKey.insert(key, nick);
-    }
-    return true;
+        out = value;
+        return true;
+    };
+
+    if (!parseOptionalPositive(m_systemMaxGradEdit, tr("maxGrad"), profile.maxGrad))
+        return profile;
+    if (!parseOptionalPositive(m_systemMaxSlewEdit, tr("maxSlew"), profile.maxSlew))
+        return profile;
+    if (!parseOptionalPositive(m_systemMaxB1Edit, tr("maxB1"), profile.maxB1))
+        return profile;
+
+    if (ok) *ok = true;
+    return profile;
 }
 
-void SettingsDialog::onBrowsePnsAscPath()
+void SettingsDialog::loadCurrentSystemProfileIntoEditor()
 {
-    const QString currentPath = resolveCurrentPnsAscPath();
+    const int idx = currentSystemProfileIndex();
+    const bool hasProfile = idx >= 0 && idx < m_systemProfilesDraft.size();
+    const Settings::SystemProfile profile = hasProfile ? m_systemProfilesDraft[idx] : Settings::SystemProfile{};
+
+    if (m_systemAliasEdit) m_systemAliasEdit->setText(hasProfile ? profile.alias : QString());
+    if (m_systemAscPathEdit) m_systemAscPathEdit->setText(hasProfile ? profile.ascPath : QString());
+    if (m_systemMaxGradEdit)
+        m_systemMaxGradEdit->setText(std::isfinite(profile.maxGrad) ? QString::number(profile.maxGrad) : QString());
+    if (m_systemMaxSlewEdit)
+        m_systemMaxSlewEdit->setText(std::isfinite(profile.maxSlew) ? QString::number(profile.maxSlew) : QString());
+    if (m_systemMaxB1Edit)
+        m_systemMaxB1Edit->setText(std::isfinite(profile.maxB1) ? QString::number(profile.maxB1) : QString());
+
+    if (m_systemAliasEdit) m_systemAliasEdit->setEnabled(hasProfile);
+    if (m_systemAscPathEdit) m_systemAscPathEdit->setEnabled(hasProfile);
+    if (m_systemAscBrowseButton) m_systemAscBrowseButton->setEnabled(hasProfile);
+    if (m_systemAscClearButton) m_systemAscClearButton->setEnabled(hasProfile);
+    if (m_systemMaxGradEdit) m_systemMaxGradEdit->setEnabled(hasProfile);
+    if (m_systemMaxSlewEdit) m_systemMaxSlewEdit->setEnabled(hasProfile);
+    if (m_systemMaxB1Edit) m_systemMaxB1Edit->setEnabled(hasProfile);
+    if (m_removeSystemProfileButton) m_removeSystemProfileButton->setEnabled(hasProfile);
+}
+
+void SettingsDialog::onSystemProfileChanged(int index)
+{
+    Q_UNUSED(index);
+    loadCurrentSystemProfileIntoEditor();
+}
+
+void SettingsDialog::onAddSystemProfileClicked()
+{
+    Settings::SystemProfile profile;
+    profile.alias.clear();
+    profile.maxGrad = std::numeric_limits<double>::quiet_NaN();
+    profile.maxSlew = std::numeric_limits<double>::quiet_NaN();
+    profile.maxB1 = std::numeric_limits<double>::quiet_NaN();
+    m_systemProfilesDraft.append(profile);
+    if (m_systemProfileCombo)
+    {
+        m_systemProfileCombo->addItem(QStringLiteral("(auto)"));
+        m_systemProfileCombo->setCurrentIndex(m_systemProfileCombo->count() - 1);
+    }
+    loadCurrentSystemProfileIntoEditor();
+}
+
+void SettingsDialog::onRemoveSystemProfileClicked()
+{
+    const int idx = currentSystemProfileIndex();
+    if (idx < 0 || idx >= m_systemProfilesDraft.size())
+        return;
+
+    m_systemProfilesDraft.removeAt(idx);
+    if (m_systemProfileCombo)
+    {
+        const QSignalBlocker blocker(m_systemProfileCombo);
+        m_systemProfileCombo->removeItem(idx);
+        if (m_systemProfileCombo->count() > 0)
+            m_systemProfileCombo->setCurrentIndex(std::min(idx, m_systemProfileCombo->count() - 1));
+    }
+    loadCurrentSystemProfileIntoEditor();
+}
+
+void SettingsDialog::onBrowseSystemAscPath()
+{
+    const QString currentPath = m_systemAscPathEdit ? m_systemAscPathEdit->text().trimmed() : QString();
     const QString startDir = QFileInfo(currentPath).exists()
         ? QFileInfo(currentPath).absolutePath()
         : QDir::homePath();
@@ -1259,8 +1288,6 @@ void SettingsDialog::onBrowsePnsAscPath()
     QFileDialog::Options options;
     QWidget* parentForDialog = this;
 #ifdef Q_OS_MAC
-    // Match the Open/Export dialog workaround on macOS: native panel can fail
-    // to appear in this app context, so force Qt dialog implementation.
     options |= QFileDialog::DontUseNativeDialog;
     parentForDialog = nullptr;
 #endif
@@ -1272,92 +1299,12 @@ void SettingsDialog::onBrowsePnsAscPath()
         tr("ASC files (*.asc);;All files (*.*)"),
         nullptr,
         options);
-    if (selected.isEmpty() || !m_pnsAscPathCombo)
-    {
-        return;
-    }
-
-    const QString nick = Settings::getInstance().getPnsAscNickname(selected);
-    int idx = -1;
-    for (int i = 0; i < m_pnsAscPathCombo->count(); ++i)
-    {
-        if (m_pnsAscPathCombo->itemData(i).toString() == selected)
-        {
-            idx = i;
-            break;
-        }
-    }
-    if (idx < 0)
-    {
-        m_pnsAscPathCombo->insertItem(0, pnsPathDisplayText(selected, nick), selected);
-        idx = 0;
-    }
-    m_pnsAscPathCombo->setCurrentIndex(idx);
-    if (m_pnsNicknameEdit)
-    {
-        m_pnsNicknameEdit->setText(nick);
-    }
+    if (!selected.isEmpty() && m_systemAscPathEdit)
+        m_systemAscPathEdit->setText(selected);
 }
 
-void SettingsDialog::onRemovePnsAscPath()
+void SettingsDialog::onClearSystemAscPath()
 {
-    if (!m_pnsAscPathCombo)
-        return;
-
-    const QString path = resolveCurrentPnsAscPath();
-    if (path.isEmpty())
-        return;
-
-    Settings& settings = Settings::getInstance();
-    settings.removePnsAscHistoryPath(path);
-    loadCurrentSettings();
-}
-
-void SettingsDialog::onPnsAscPathComboChanged(int index)
-{
-    Q_UNUSED(index);
-    if (!m_pnsAscPathCombo || !m_pnsNicknameEdit)
-        return;
-    const QString path = resolveCurrentPnsAscPath();
-    m_pnsNicknameEdit->setText(Settings::getInstance().getPnsAscNickname(path));
-    persistCurrentPnsPathSelection();
-}
-
-void SettingsDialog::onPnsNicknameEditingFinished()
-{
-    if (!m_pnsNicknameEdit || !m_pnsAscPathCombo)
-        return;
-
-    const QString currentPath = resolveCurrentPnsAscPath();
-    if (currentPath.isEmpty())
-        return;
-
-    Settings& settings = Settings::getInstance();
-    const QString nickname = currentNicknameText();
-
-    QMap<QString, QString> nicknameMap = settings.getPnsAscNicknames();
-    if (!nickname.isEmpty())
-        nicknameMap[currentPath] = nickname;
-
-    QString duplicateNick;
-    QString firstPath;
-    QString secondPath;
-    if (!validatePnsNicknameUniqueness(nicknameMap, &duplicateNick, &firstPath, &secondPath))
-    {
-        QMessageBox::warning(
-            this,
-            tr("Duplicate ASC nickname"),
-            tr("ASC nickname \"%1\" is already used by another ASC path.\n\n"
-               "Please use a unique nickname.\n"
-               "Path 1: %2\n"
-               "Path 2: %3")
-                .arg(duplicateNick, firstPath, secondPath));
-        m_pnsNicknameEdit->setText(settings.getPnsAscNickname(currentPath));
-        return;
-    }
-
-    if (!nickname.isEmpty())
-        settings.setPnsAscNickname(currentPath, nickname);
-
-    loadCurrentSettings();
+    if (m_systemAscPathEdit)
+        m_systemAscPathEdit->clear();
 }

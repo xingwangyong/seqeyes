@@ -8,10 +8,13 @@
 #include <QDateTime>
 #include <QFileInfo>
 #include <QJsonArray>
+#include <QSet>
 #include <cmath>
+#include <limits>
 
 namespace {
 constexpr int kMaxAscHistoryItems = 16;
+constexpr double kUnsetLimit = std::numeric_limits<double>::quiet_NaN();
 }
 
 Settings& Settings::getInstance()
@@ -412,23 +415,23 @@ void Settings::saveSettings()
     obj["showTeApproximateDialog"] = m_showTeApproximateDialog;
     obj["showTrajectoryApproximateDialog"] = m_showTrajectoryApproximateDialog;
     obj["showExtensionTooltip"] = m_showExtensionTooltip;
-    obj["pnsAscPath"] = m_pnsAscPath;
     {
         QJsonArray arr;
-        for (const QString& p : m_pnsAscHistory) {
-            arr.append(p);
+        for (const SystemProfile& profile : m_systemProfiles) {
+            QJsonObject profileObj;
+            profileObj["alias"] = profile.alias.trimmed();
+            profileObj["ascPath"] = profile.ascPath.trimmed();
+            if (isLimitConfigured(profile.maxGrad))
+                profileObj["maxGrad"] = profile.maxGrad;
+            if (isLimitConfigured(profile.maxSlew))
+                profileObj["maxSlew"] = profile.maxSlew;
+            if (isLimitConfigured(profile.maxB1))
+                profileObj["maxB1"] = profile.maxB1;
+            arr.append(profileObj);
         }
-        obj["pnsAscHistory"] = arr;
+        obj["systemProfiles"] = arr;
     }
-    {
-        QJsonObject nickObj;
-        for (auto it = m_pnsAscNicknames.constBegin(); it != m_pnsAscNicknames.constEnd(); ++it) {
-            if (!it.key().trimmed().isEmpty()) {
-                nickObj[it.key()] = it.value();
-            }
-        }
-        obj["pnsAscNicknames"] = nickObj;
-    }
+    obj["activeSystemProfileAlias"] = m_activeSystemProfileAlias.trimmed();
     obj["pnsShowX"] = m_pnsShowX;
     obj["pnsShowY"] = m_pnsShowY;
     obj["pnsShowZ"] = m_pnsShowZ;
@@ -555,40 +558,26 @@ void Settings::loadSettings()
     m_showTeApproximateDialog = obj.value("showTeApproximateDialog").toBool(true);
     m_showTrajectoryApproximateDialog = obj.value("showTrajectoryApproximateDialog").toBool(true);
     m_showExtensionTooltip = obj.value("showExtensionTooltip").toBool(false);
-    m_pnsAscPath = obj.value("pnsAscPath").toString("").trimmed();
-    m_pnsAscHistory.clear();
-    if (obj.value("pnsAscHistory").isArray()) {
-        const QJsonArray arr = obj.value("pnsAscHistory").toArray();
-        for (const QJsonValue& v : arr) {
-            if (!v.isString()) {
+    m_systemProfiles.clear();
+    m_activeSystemProfileAlias = obj.value("activeSystemProfileAlias").toString().trimmed();
+    if (obj.value("systemProfiles").isArray()) {
+        const QJsonArray profiles = obj.value("systemProfiles").toArray();
+        for (const QJsonValue& v : profiles) {
+            if (!v.isObject())
                 continue;
-            }
-            const QString p = v.toString().trimmed();
-            if (!p.isEmpty() && !m_pnsAscHistory.contains(p)) {
-                m_pnsAscHistory.append(p);
-            }
+            const QJsonObject profileObj = v.toObject();
+            SystemProfile profile;
+            profile.alias = profileObj.value("alias").toString().trimmed();
+            profile.ascPath = profileObj.value("ascPath").toString().trimmed();
+            profile.maxGrad = profileObj.contains("maxGrad") ? profileObj.value("maxGrad").toDouble(kUnsetLimit) : kUnsetLimit;
+            profile.maxSlew = profileObj.contains("maxSlew") ? profileObj.value("maxSlew").toDouble(kUnsetLimit) : kUnsetLimit;
+            profile.maxB1 = profileObj.contains("maxB1") ? profileObj.value("maxB1").toDouble(kUnsetLimit) : kUnsetLimit;
+            m_systemProfiles.append(profile);
         }
+    } else {
+        migrateLegacyPnsSettings(obj);
     }
-    if (!m_pnsAscPath.isEmpty() && !m_pnsAscHistory.contains(m_pnsAscPath)) {
-        m_pnsAscHistory.prepend(m_pnsAscPath);
-    }
-    while (m_pnsAscHistory.size() > kMaxAscHistoryItems) {
-        m_pnsAscHistory.removeLast();
-    }
-    m_pnsAscNicknames.clear();
-    if (obj.value("pnsAscNicknames").isObject()) {
-        const QJsonObject nickObj = obj.value("pnsAscNicknames").toObject();
-        for (auto it = nickObj.constBegin(); it != nickObj.constEnd(); ++it) {
-            if (!it.value().isString()) {
-                continue;
-            }
-            const QString p = it.key().trimmed();
-            const QString n = it.value().toString().trimmed();
-            if (!p.isEmpty()) {
-                m_pnsAscNicknames.insert(p, n);
-            }
-        }
-    }
+    sanitizeSystemProfiles();
     m_pnsShowX = obj.value("pnsShowX").toBool(false);
     m_pnsShowY = obj.value("pnsShowY").toBool(false);
     m_pnsShowZ = obj.value("pnsShowZ").toBool(true);
@@ -632,9 +621,8 @@ void Settings::resetToDefaults()
     m_showTeApproximateDialog = true;
     m_showTrajectoryApproximateDialog = true;
     m_showExtensionTooltip = false;
-    m_pnsAscPath.clear();
-    m_pnsAscHistory.clear();
-    m_pnsAscNicknames.clear();
+    m_systemProfiles.clear();
+    m_activeSystemProfileAlias.clear();
     m_pnsShowX = false;
     m_pnsShowY = false;
     m_pnsShowZ = true;
@@ -778,14 +766,74 @@ bool Settings::getShowExtensionTooltip() const
     return m_showExtensionTooltip;
 }
 
+QVector<Settings::SystemProfile> Settings::getSystemProfiles() const
+{
+    return m_systemProfiles;
+}
+
+QString Settings::getActiveSystemProfileAlias() const
+{
+    return m_activeSystemProfileAlias;
+}
+
+Settings::SystemProfile Settings::getActiveSystemProfile() const
+{
+    for (const SystemProfile& profile : m_systemProfiles) {
+        if (profile.alias == m_activeSystemProfileAlias)
+            return profile;
+    }
+    return SystemProfile{};
+}
+
+void Settings::setSystemProfiles(const QVector<SystemProfile>& profiles)
+{
+    const QVector<SystemProfile> prevProfiles = m_systemProfiles;
+    const QString prevActive = m_activeSystemProfileAlias;
+    m_systemProfiles = profiles;
+    sanitizeSystemProfiles();
+    if (m_systemProfiles != prevProfiles || m_activeSystemProfileAlias != prevActive) {
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+void Settings::setActiveSystemProfileAlias(const QString& alias)
+{
+    if (m_activeSystemProfileAlias == alias.trimmed())
+        return;
+    m_activeSystemProfileAlias = alias.trimmed();
+    sanitizeSystemProfiles();
+    saveSettings();
+    emit settingsChanged();
+}
+
+QString Settings::generateNextSystemProfileAlias() const
+{
+    QSet<QString> used;
+    for (const SystemProfile& profile : m_systemProfiles)
+        used.insert(profile.alias.toCaseFolded());
+
+    for (int i = 1; ; ++i) {
+        const QString candidate = QStringLiteral("system%1").arg(i);
+        if (!used.contains(candidate.toCaseFolded()))
+            return candidate;
+    }
+}
+
 QString Settings::getPnsAscPath() const
 {
-    return m_pnsAscPath;
+    return getActiveSystemProfile().ascPath.trimmed();
 }
 
 QStringList Settings::getPnsAscHistory() const
 {
-    return m_pnsAscHistory;
+    QStringList paths;
+    for (const SystemProfile& profile : m_systemProfiles) {
+        const QString path = profile.ascPath.trimmed();
+        if (!path.isEmpty() && !paths.contains(path))
+            paths.append(path);
+    }
+    return paths;
 }
 
 QString Settings::getPnsAscNickname(const QString& path) const
@@ -794,43 +842,63 @@ QString Settings::getPnsAscNickname(const QString& path) const
     if (key.isEmpty()) {
         return QString();
     }
-    return m_pnsAscNicknames.value(key).trimmed();
+    for (const SystemProfile& profile : m_systemProfiles) {
+        if (profile.ascPath.trimmed() == key)
+            return profile.alias.trimmed();
+    }
+    return QString();
 }
 
 QMap<QString, QString> Settings::getPnsAscNicknames() const
 {
-    return m_pnsAscNicknames;
+    QMap<QString, QString> nicknames;
+    for (const SystemProfile& profile : m_systemProfiles) {
+        const QString path = profile.ascPath.trimmed();
+        if (!path.isEmpty())
+            nicknames.insert(path, profile.alias.trimmed());
+    }
+    return nicknames;
 }
 
 void Settings::setPnsAscPath(const QString& path)
 {
     const QString normalized = path.trimmed();
-    bool changed = false;
-    if (m_pnsAscPath != normalized) {
-        m_pnsAscPath = normalized;
-        changed = true;
-    }
-    if (!normalized.isEmpty()) {
-        const int existing = m_pnsAscHistory.indexOf(normalized);
-        if (existing >= 0) {
-            if (existing != 0) {
-                m_pnsAscHistory.removeAt(existing);
-                m_pnsAscHistory.prepend(normalized);
-                changed = true;
-            }
-        } else {
-            m_pnsAscHistory.prepend(normalized);
-            changed = true;
-        }
-    }
-    while (m_pnsAscHistory.size() > kMaxAscHistoryItems) {
-        m_pnsAscHistory.removeLast();
-        changed = true;
-    }
-    if (changed) {
+    QVector<SystemProfile> next = m_systemProfiles;
+
+    if (next.isEmpty()) {
+        SystemProfile profile;
+        profile.alias = generateNextSystemProfileAlias();
+        profile.ascPath = normalized;
+        profile.maxGrad = kUnsetLimit;
+        profile.maxSlew = kUnsetLimit;
+        profile.maxB1 = kUnsetLimit;
+        next.append(profile);
+        m_systemProfiles = next;
+        m_activeSystemProfileAlias = profile.alias;
         saveSettings();
         emit settingsChanged();
+        return;
     }
+
+    bool updated = false;
+    for (SystemProfile& profile : next) {
+        if (profile.alias == m_activeSystemProfileAlias) {
+            profile.ascPath = normalized;
+            updated = true;
+            break;
+        }
+    }
+    if (!updated) {
+        SystemProfile profile;
+        profile.alias = generateNextSystemProfileAlias();
+        profile.ascPath = normalized;
+        profile.maxGrad = kUnsetLimit;
+        profile.maxSlew = kUnsetLimit;
+        profile.maxB1 = kUnsetLimit;
+        next.prepend(profile);
+        m_activeSystemProfileAlias = profile.alias;
+    }
+    setSystemProfiles(next);
 }
 
 void Settings::setPnsAscHistory(const QStringList& history)
@@ -838,23 +906,33 @@ void Settings::setPnsAscHistory(const QStringList& history)
     QStringList normalized;
     for (const QString& p : history) {
         const QString trimmed = p.trimmed();
-        if (trimmed.isEmpty() || normalized.contains(trimmed)) {
+        if (trimmed.isEmpty() || normalized.contains(trimmed))
             continue;
-        }
         normalized.append(trimmed);
-        if (normalized.size() >= kMaxAscHistoryItems) {
+        if (normalized.size() >= kMaxAscHistoryItems)
             break;
+    }
+
+    QVector<SystemProfile> next = m_systemProfiles;
+    for (const QString& path : normalized) {
+        bool exists = false;
+        for (const SystemProfile& profile : next) {
+            if (profile.ascPath.trimmed() == path) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            SystemProfile profile;
+            profile.alias = generateNextSystemProfileAlias();
+            profile.ascPath = path;
+            profile.maxGrad = kUnsetLimit;
+            profile.maxSlew = kUnsetLimit;
+            profile.maxB1 = kUnsetLimit;
+            next.append(profile);
         }
     }
-    if (!m_pnsAscPath.isEmpty()) {
-        normalized.removeAll(m_pnsAscPath);
-        normalized.prepend(m_pnsAscPath);
-    }
-    if (m_pnsAscHistory != normalized) {
-        m_pnsAscHistory = normalized;
-        saveSettings();
-        emit settingsChanged();
-    }
+    setSystemProfiles(next);
 }
 
 void Settings::setPnsAscNickname(const QString& path, const QString& nickname)
@@ -863,18 +941,24 @@ void Settings::setPnsAscNickname(const QString& path, const QString& nickname)
     if (key.isEmpty()) {
         return;
     }
-    const QString nick = nickname.trimmed();
-    const QString prev = m_pnsAscNicknames.value(key).trimmed();
-    if (prev == nick) {
-        return;
+
+    QVector<SystemProfile> next = m_systemProfiles;
+    for (SystemProfile& profile : next) {
+        if (profile.ascPath.trimmed() == key) {
+            profile.alias = nickname.trimmed();
+            setSystemProfiles(next);
+            return;
+        }
     }
-    if (nick.isEmpty()) {
-        m_pnsAscNicknames.remove(key);
-    } else {
-        m_pnsAscNicknames.insert(key, nick);
-    }
-    saveSettings();
-    emit settingsChanged();
+
+    SystemProfile profile;
+    profile.alias = nickname.trimmed();
+    profile.ascPath = key;
+    profile.maxGrad = kUnsetLimit;
+    profile.maxSlew = kUnsetLimit;
+    profile.maxB1 = kUnsetLimit;
+    next.append(profile);
+    setSystemProfiles(next);
 }
 
 bool Settings::removePnsAscHistoryPath(const QString& path)
@@ -884,50 +968,171 @@ bool Settings::removePnsAscHistoryPath(const QString& path)
         return false;
     }
 
-    QStringList nextHistory = m_pnsAscHistory;
-    const int removed = nextHistory.removeAll(normalized);
-    const bool removedNickname = m_pnsAscNicknames.remove(normalized) > 0;
-
-    QString nextCurrent = m_pnsAscPath;
-    if (nextCurrent == normalized) {
-        nextCurrent = nextHistory.isEmpty() ? QString() : nextHistory.first();
+    QVector<SystemProfile> next;
+    bool removed = false;
+    for (const SystemProfile& profile : m_systemProfiles) {
+        if (profile.ascPath.trimmed() == normalized) {
+            removed = true;
+            continue;
+        }
+        next.append(profile);
     }
-
-    const bool changed = (removed > 0) || removedNickname || (nextCurrent != m_pnsAscPath);
-    if (!changed) {
+    if (!removed)
         return false;
-    }
-
-    m_pnsAscHistory = nextHistory;
-    m_pnsAscPath = nextCurrent;
-    saveSettings();
-    emit settingsChanged();
+    setSystemProfiles(next);
     return true;
 }
 
 int Settings::removeInvalidPnsAscHistoryPaths()
 {
-    QStringList valid;
-    for (const QString& p : m_pnsAscHistory) {
-        if (QFileInfo::exists(p)) {
-            valid.append(p);
+    QVector<SystemProfile> next;
+    int removed = 0;
+    for (const SystemProfile& profile : m_systemProfiles) {
+        const QString path = profile.ascPath.trimmed();
+        if (!path.isEmpty() && !QFileInfo::exists(path)) {
+            ++removed;
+            continue;
+        }
+        next.append(profile);
+    }
+    if (removed > 0)
+        setSystemProfiles(next);
+    return removed;
+}
+
+QString Settings::normalizeSystemAlias(const QString& alias) const
+{
+    return alias.trimmed();
+}
+
+QString Settings::makeUniqueSystemAlias(const QString& preferredAlias, const QString& currentAlias) const
+{
+    QString base = normalizeSystemAlias(preferredAlias);
+    if (base.isEmpty())
+        base = QStringLiteral("system");
+
+    QSet<QString> used;
+    for (const SystemProfile& profile : m_systemProfiles) {
+        const QString alias = profile.alias.trimmed();
+        if (!alias.isEmpty() && alias.compare(currentAlias, Qt::CaseInsensitive) != 0)
+            used.insert(alias.toCaseFolded());
+    }
+
+    if (base != QStringLiteral("system") && !used.contains(base.toCaseFolded()))
+        return base;
+
+    if (base == QStringLiteral("system")) {
+        for (int i = 1; ; ++i) {
+            const QString candidate = QStringLiteral("system%1").arg(i);
+            if (!used.contains(candidate.toCaseFolded()))
+                return candidate;
         }
     }
-    const int removed = m_pnsAscHistory.size() - valid.size();
-    if (!m_pnsAscPath.isEmpty() && QFileInfo::exists(m_pnsAscPath) && !valid.contains(m_pnsAscPath)) {
-        valid.prepend(m_pnsAscPath);
+
+    for (int i = 2; ; ++i) {
+        const QString candidate = QStringLiteral("%1_%2").arg(base).arg(i);
+        if (!used.contains(candidate.toCaseFolded()))
+            return candidate;
     }
-    QString nextCurrent = m_pnsAscPath;
-    if (!nextCurrent.isEmpty() && !QFileInfo::exists(nextCurrent)) {
-        nextCurrent.clear();
+}
+
+void Settings::sanitizeSystemProfiles()
+{
+    QVector<SystemProfile> sanitized;
+    QSet<QString> seenAliases;
+    for (const SystemProfile& original : m_systemProfiles) {
+        SystemProfile profile = original;
+        profile.ascPath = profile.ascPath.trimmed();
+        profile.alias = normalizeSystemAlias(profile.alias);
+
+        if (!isLimitConfigured(profile.maxGrad))
+            profile.maxGrad = kUnsetLimit;
+        if (!isLimitConfigured(profile.maxSlew))
+            profile.maxSlew = kUnsetLimit;
+        if (!isLimitConfigured(profile.maxB1))
+            profile.maxB1 = kUnsetLimit;
+
+        QString alias = profile.alias;
+        if (alias.isEmpty()) {
+            int idx = 1;
+            QString candidate = QStringLiteral("system%1").arg(idx);
+            while (seenAliases.contains(candidate.toCaseFolded())) {
+                ++idx;
+                candidate = QStringLiteral("system%1").arg(idx);
+            }
+            alias = candidate;
+        } else if (seenAliases.contains(alias.toCaseFolded())) {
+            int idx = 2;
+            QString candidate = QStringLiteral("%1_%2").arg(alias).arg(idx);
+            while (seenAliases.contains(candidate.toCaseFolded())) {
+                ++idx;
+                candidate = QStringLiteral("%1_%2").arg(alias).arg(idx);
+            }
+            alias = candidate;
+        }
+
+        profile.alias = alias;
+        seenAliases.insert(alias.toCaseFolded());
+        sanitized.append(profile);
     }
-    if (removed > 0 || valid != m_pnsAscHistory || nextCurrent != m_pnsAscPath) {
-        m_pnsAscHistory = valid;
-        m_pnsAscPath = nextCurrent;
-        saveSettings();
-        emit settingsChanged();
+
+    m_systemProfiles = sanitized;
+    if (m_systemProfiles.isEmpty()) {
+        m_activeSystemProfileAlias.clear();
+        return;
     }
-    return removed;
+
+    bool activeFound = false;
+    for (const SystemProfile& profile : m_systemProfiles) {
+        if (profile.alias == m_activeSystemProfileAlias) {
+            activeFound = true;
+            break;
+        }
+    }
+    if (!activeFound)
+        m_activeSystemProfileAlias = m_systemProfiles.first().alias;
+}
+
+void Settings::migrateLegacyPnsSettings(const QJsonObject& obj)
+{
+    const QString currentPath = obj.value("pnsAscPath").toString().trimmed();
+    QStringList history;
+    if (obj.value("pnsAscHistory").isArray()) {
+        const QJsonArray arr = obj.value("pnsAscHistory").toArray();
+        for (const QJsonValue& v : arr) {
+            if (!v.isString())
+                continue;
+            const QString path = v.toString().trimmed();
+            if (!path.isEmpty() && !history.contains(path))
+                history.append(path);
+        }
+    }
+    if (!currentPath.isEmpty() && !history.contains(currentPath))
+        history.prepend(currentPath);
+
+    QMap<QString, QString> nicknames;
+    if (obj.value("pnsAscNicknames").isObject()) {
+        const QJsonObject nickObj = obj.value("pnsAscNicknames").toObject();
+        for (auto it = nickObj.constBegin(); it != nickObj.constEnd(); ++it) {
+            if (it.value().isString())
+                nicknames.insert(it.key().trimmed(), it.value().toString().trimmed());
+        }
+    }
+
+    for (const QString& path : history) {
+        SystemProfile profile;
+        profile.alias = nicknames.value(path).trimmed();
+        profile.ascPath = path;
+        profile.maxGrad = kUnsetLimit;
+        profile.maxSlew = kUnsetLimit;
+        profile.maxB1 = kUnsetLimit;
+        m_systemProfiles.append(profile);
+    }
+}
+
+bool Settings::isLimitConfigured(double value)
+{
+    return std::isfinite(value) && value > 0.0;
 }
 
 void Settings::setPnsChannelVisibleX(bool visible)

@@ -39,10 +39,11 @@ private slots:
     void onGammaComboChanged(int index);
     void onZoomModeChanged(int index);
     void onPanWheelToggled(bool checked);
-    void onBrowsePnsAscPath();
-    void onRemovePnsAscPath();
-    void onPnsAscPathComboChanged(int index);
-    void onPnsNicknameEditingFinished();
+    void onSystemProfileChanged(int index);
+    void onAddSystemProfileClicked();
+    void onRemoveSystemProfileClicked();
+    void onBrowseSystemAscPath();
+    void onClearSystemAscPath();
     void onAxisOrderSelectionChanged();
     void onMoveAxisUpClicked();
     void onMoveAxisDownClicked();
@@ -56,13 +57,11 @@ private:
     bool applySettings();
     void showCustomGammaDialog();
     void updateInteractionControlsForExclusivity();
-    QString resolveCurrentPnsAscPath() const;
-    QString resolvePathFromPathComboText(const QString& text) const;
-    QString currentNicknameText() const;
-    QString pnsPathDisplayText(const QString& path, const QString& nickname) const;
-    void selectPathInComboByPath(const QString& path);
-    void persistCurrentPnsPathSelection();
-    bool validatePnsNicknameUniqueness(const QMap<QString, QString>& nickMap, QString* duplicateNickname = nullptr, QString* firstPath = nullptr, QString* secondPath = nullptr) const;
+    void loadCurrentSystemProfileIntoEditor();
+    void syncCurrentSystemProfileDraft(bool updateComboText = true);
+    int currentSystemProfileIndex() const;
+    Settings::SystemProfile buildCurrentSystemProfileFromEditor(bool* ok = nullptr, QString* error = nullptr) const;
+    QString resolvedAliasForInput(const QString& alias, int profileIndex) const;
     void populateAxisOrderList(const QStringList& order);
     QStringList currentAxisOrderFromList() const;
     void moveSelectedAxisItem(int delta);
@@ -96,11 +95,17 @@ private:
     QCheckBox* m_showExtensionTooltipCheck;
     QMap<QString, QCheckBox*> m_extensionLabelCheckboxes;
 
-    // Safety/PNS tab
-    QComboBox* m_pnsAscPathCombo;
-    QPushButton* m_pnsBrowseButton;
-    QPushButton* m_pnsRemoveButton;
-    QLineEdit* m_pnsNicknameEdit;
+    // Safety/System tab
+    QComboBox* m_systemProfileCombo;
+    QPushButton* m_addSystemProfileButton;
+    QPushButton* m_removeSystemProfileButton;
+    QLineEdit* m_systemAliasEdit;
+    QLineEdit* m_systemAscPathEdit;
+    QPushButton* m_systemAscBrowseButton;
+    QPushButton* m_systemAscClearButton;
+    QLineEdit* m_systemMaxGradEdit;
+    QLineEdit* m_systemMaxSlewEdit;
+    QLineEdit* m_systemMaxB1Edit;
     QCheckBox* m_pnsShowXCheck;
     QCheckBox* m_pnsShowYCheck;
     QCheckBox* m_pnsShowZCheck;
@@ -131,9 +136,9 @@ private:
     Settings::LogLevel m_originalLogLevel;
     Settings::ZoomInputMode m_originalZoomInputMode;
     bool m_originalPanWheelEnabled;
-    QString m_originalPnsAscPath;
-    QStringList m_originalPnsAscHistory;
-    QMap<QString, QString> m_originalPnsAscNicknames;
+    QVector<Settings::SystemProfile> m_originalSystemProfiles;
+    QString m_originalActiveSystemProfileAlias;
+    QVector<Settings::SystemProfile> m_systemProfilesDraft;
     bool m_originalPnsShowX {false};
     bool m_originalPnsShowY {false};
     bool m_originalPnsShowZ {true};
