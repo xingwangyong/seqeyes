@@ -187,6 +187,7 @@ public:
     // Echo-time / excitation overlay helpers
     bool hasEchoTimeDefinition() const { return m_hasEchoTimeDefinition; }
     double getTeDurationAxis() const { return m_hasEchoTimeDefinition ? m_teDurationAxis : 0.0; }
+    const QVector<double>& getTeDurationsAxis() const { return m_teDurationsAxis; }
     bool supportsExcitationMetadata() const { return m_supportsRfUseMetadata; }
     const QVector<double>& getExcitationCenters() const { return m_excitationCentersAxis; }
     const QVector<double>& getRefocusingCenters() const { return m_refocusingCentersAxis; }
@@ -376,6 +377,7 @@ private:
     bool m_hasEchoTimeDefinition {false};
     double m_teTime_us {0.0};
     double m_teDurationAxis {0.0};
+    QVector<double> m_teDurationsAxis;
     QVector<double> m_excitationCentersAxis;
     QVector<double> m_refocusingCentersAxis;
     bool m_rfUseGuessed {false};

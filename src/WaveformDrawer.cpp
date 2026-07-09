@@ -2831,19 +2831,32 @@ void WaveformDrawer::updateTeGuides(double visibleStart, double visibleEnd)
     }
 
     const auto& centers = loader->getExcitationCenters();
-    const double teOffset = loader->getTeDurationAxis();
+    const auto& teOffsets = loader->getTeDurationsAxis();
+    const qsizetype teCount = teOffsets.isEmpty() ? 1 : teOffsets.size();
 
     QVector<double> visibleCenters;
     visibleCenters.reserve(centers.size());
     QVector<double> visibleTePositions;
-    visibleTePositions.reserve(centers.size());
+    visibleTePositions.reserve(centers.size() * teCount);
     for (double c : centers)
     {
         if (c >= visibleStart && c <= visibleEnd)
             visibleCenters.append(c);
-        double tePos = c + teOffset;
-        if (tePos >= visibleStart && tePos <= visibleEnd)
-            visibleTePositions.append(tePos);
+        if (teOffsets.isEmpty())
+        {
+            double tePos = c + loader->getTeDurationAxis();
+            if (tePos >= visibleStart && tePos <= visibleEnd)
+                visibleTePositions.append(tePos);
+        }
+        else
+        {
+            for (double teOffset : teOffsets)
+            {
+                double tePos = c + teOffset;
+                if (tePos >= visibleStart && tePos <= visibleEnd)
+                    visibleTePositions.append(tePos);
+            }
+        }
     }
 
     if (!m_mainWindow || !m_mainWindow->ui)

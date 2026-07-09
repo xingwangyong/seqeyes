@@ -196,6 +196,7 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     m_hasEchoTimeDefinition = false;
     m_teTime_us = 0.0;
     m_teDurationAxis = 0.0;
+    m_teDurationsAxis.clear();
     m_excitationCentersAxis.clear();
     m_refocusingCentersAxis.clear();
     m_rfUseGuessed = false;
@@ -1346,6 +1347,7 @@ void PulseqLoader::updateEchoAndExcitationMetadata(int versionMajor, int version
     m_hasEchoTimeDefinition = false;
     m_teTime_us = 0.0;
     m_teDurationAxis = 0.0;
+    m_teDurationsAxis.clear();
     m_supportsRfUseMetadata = (versionMajor > 1) || (versionMajor == 1 && versionMinor >= 5);
     m_rfUseGuessed = false;
     m_rfGuessWarning.clear();
@@ -1359,8 +1361,14 @@ void PulseqLoader::updateEchoAndExcitationMetadata(int versionMajor, int version
     if (!teDef.empty())
     {
         m_hasEchoTimeDefinition = true;
+        m_teDurationsAxis.reserve(static_cast<qsizetype>(teDef.size()));
+        for (double teSec : teDef)
+        {
+            const double teUs = teSec * 1e6;
+            m_teDurationsAxis.append(teUs * tFactor);
+        }
         m_teTime_us = teDef[0] * 1e6;
-        m_teDurationAxis = m_teTime_us * tFactor;
+        m_teDurationAxis = m_teDurationsAxis.first();
     }
 
     if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2)
@@ -2688,6 +2696,8 @@ void PulseqLoader::rescaleTimeUnit()
 
     // Rescale TE overlay data (excitation/refocusing centers are in axis units)
     m_teDurationAxis *= ratio;
+    for (auto& t : m_teDurationsAxis)
+        t *= ratio;
     for (auto& t : m_excitationCentersAxis)
         t *= ratio;
     for (auto& t : m_refocusingCentersAxis)
