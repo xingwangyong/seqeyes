@@ -107,6 +107,60 @@ WaveformDrawer::~WaveformDrawer()
     // All QCustomPlot items are owned by the plot itself.
 }
 
+QPen WaveformDrawer::makeRfChannelPen(int channelIndex) const
+{
+    static const QVector<Qt::PenStyle> styles = {
+        Qt::SolidLine, Qt::DashLine, Qt::DotLine, Qt::DashDotLine, Qt::DashDotDotLine
+    };
+    const QColor base = colors.isEmpty()
+        ? QColor::fromHsv((channelIndex * 47) % 360, 180, 200)
+        : colors[channelIndex % colors.size()];
+    QPen pen(base);
+    pen.setWidthF(1.5);
+    pen.setStyle(styles[channelIndex / qMax(1, colors.size()) % styles.size()]);
+    return pen;
+}
+
+void WaveformDrawer::ensureRfChannelGraphs(int channelCount)
+{
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->customPlot) {
+        return;
+    }
+    QCustomPlot* customPlot = m_mainWindow->ui->customPlot;
+    while (m_graphRFMagChannels.size() < channelCount) {
+        QCPGraph* graph = customPlot->addGraph(m_pRfMagRect->axis(QCPAxis::atBottom), m_pRfMagRect->axis(QCPAxis::atLeft));
+        graph->setLineStyle(QCPGraph::lsLine);
+        graph->setScatterStyle(QCPScatterStyle::ssNone);
+        graph->setAdaptiveSampling(false);
+        graph->setAntialiased(true);
+        m_graphRFMagChannels.append(graph);
+    }
+    while (m_graphRFPhChannels.size() < channelCount) {
+        QCPGraph* graph = customPlot->addGraph(m_pRfADCPhaseRect->axis(QCPAxis::atBottom), m_pRfADCPhaseRect->axis(QCPAxis::atLeft));
+        graph->setLineStyle(QCPGraph::lsLine);
+        graph->setScatterStyle(QCPScatterStyle::ssNone);
+        graph->setAdaptiveSampling(false);
+        graph->setAntialiased(true);
+        m_graphRFPhChannels.append(graph);
+    }
+
+    for (int i = 0; i < m_graphRFMagChannels.size(); ++i) {
+        if (m_graphRFMagChannels[i]) {
+            m_graphRFMagChannels[i]->setPen(makeRfChannelPen(i));
+            m_graphRFMagChannels[i]->setVisible(i < channelCount && m_curveVisibility.value(1, true));
+        }
+    }
+    for (int i = 0; i < m_graphRFPhChannels.size(); ++i) {
+        if (m_graphRFPhChannels[i]) {
+            m_graphRFPhChannels[i]->setPen(makeRfChannelPen(i));
+            m_graphRFPhChannels[i]->setVisible(i < channelCount && m_curveVisibility.value(2, true));
+        }
+    }
+
+    m_graphRFMag = m_graphRFMagChannels.isEmpty() ? nullptr : m_graphRFMagChannels.first();
+    m_graphRFPh = m_graphRFPhChannels.isEmpty() ? nullptr : m_graphRFPhChannels.first();
+}
+
 void WaveformDrawer::InitSequenceFigure()
 {
     QCustomPlot* customPlot = m_mainWindow->ui->customPlot;
@@ -288,32 +342,7 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphADC->setAntialiased(false);
         m_graphADC->setVisible(m_curveVisibility.value(0, true));
     }
-    // RF Mag (rect 1)
-    m_graphRFMag = customPlot->addGraph(m_pRfMagRect->axis(QCPAxis::atBottom), m_pRfMagRect->axis(QCPAxis::atLeft));
-    if (m_graphRFMag)
-    {
-        QPen pen(colors.isEmpty() ? Qt::blue : colors[0 % colors.size()]);
-        pen.setWidthF(1.5);
-        m_graphRFMag->setPen(pen);
-        m_graphRFMag->setLineStyle(QCPGraph::lsLine);
-        m_graphRFMag->setScatterStyle(QCPScatterStyle::ssNone);
-        m_graphRFMag->setAdaptiveSampling(false);
-        m_graphRFMag->setAntialiased(true); // RF needs smoothness to avoid jagged Gaussians
-        m_graphRFMag->setVisible(m_curveVisibility.value(1, true));
-    }
-    // RF Phase (rect 2)
-    m_graphRFPh = customPlot->addGraph(m_pRfADCPhaseRect->axis(QCPAxis::atBottom), m_pRfADCPhaseRect->axis(QCPAxis::atLeft));
-    if (m_graphRFPh)
-    {
-        QPen pen(colors.isEmpty() ? Qt::darkGreen : colors[1 % colors.size()]);
-        pen.setWidthF(1.5);
-        m_graphRFPh->setPen(pen);
-        m_graphRFPh->setLineStyle(QCPGraph::lsLine);
-        m_graphRFPh->setScatterStyle(QCPScatterStyle::ssNone);
-        m_graphRFPh->setAdaptiveSampling(false);
-        m_graphRFPh->setAntialiased(true);
-        m_graphRFPh->setVisible(m_curveVisibility.value(2, true));
-    }
+    ensureRfChannelGraphs(1);
     // ADC Phase (same rect as RF Phase: m_pRfADCPhaseRect)
     // PERF NOTE: Must use lsLine (not scatter ssDisc). QCustomPlot renders scatter dots
     // individually (per-point QPainter::drawEllipse), while line segments are batched into
@@ -1034,373 +1063,88 @@ void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
     updateTeGuides(visibleStart, visibleEnd);
     updateKxKyZeroGuides(visibleStart, visibleEnd);
 
-    // Use simple LOD system
     LODLevel currentLODLevel = getCurrentLODLevel();
+    int pxRF = 0;
+    if (m_vecRects.size() > 1 && m_vecRects[1]) {
+        pxRF = qMax(1, static_cast<int>(qRound(m_vecRects[1]->width() * m_mainWindow->devicePixelRatioF())));
+    }
+    int pxRFEffective = (currentLODLevel == LODLevel::DOWNSAMPLED ? pxRF : qMax(pxRF, 100000));
 
-    // Fast path: RF on-demand viewport rendering via shape cache
-    {
-        int pxRF = 0;
-        if (m_vecRects.size() > 1 && m_vecRects[1])
-            pxRF = qMax(1, static_cast<int>(qRound(m_vecRects[1]->width() * m_mainWindow->devicePixelRatioF())));
-        // If LOD is FULL_DETAIL, force an effectively huge pixel width to disable decimation in loader
-        int pxRFEffective = (currentLODLevel == LODLevel::DOWNSAMPLED ? pxRF : qMax(pxRF, 100000));
+    PulseqLoader::UnifiedRfViewport rfViewport;
+    loader->getUnifiedRfViewport(visibleStart, visibleEnd, pxRFEffective, rfViewport);
+    ensureRfChannelGraphs(rfViewport.ampTimeByChannel.size());
 
-        QVector<double> tAmp, vAmp, tPh, vPh;
-        loader->getRfViewportDecimated(visibleStart, visibleEnd, pxRFEffective, tAmp, vAmp, tPh, vPh);
-        if (m_graphRFMag) { m_graphRFMag->setData(tAmp, vAmp); m_graphRFMag->setVisible(m_curveVisibility.value(1, true)); }
-        if (m_graphRFPh)  { m_graphRFPh->setData(tPh, vPh);   m_graphRFPh->setVisible(m_curveVisibility.value(2, true)); }
-
-        // Added: ADC Phase (pixel-aware decimation like RF)
-        QVector<double> tAdcPh, vAdcPh;
-        int pxADCPh = pxRFEffective; // reuse RF effective pixel width for phase rect
-        if (m_vecRects.size() > 2 && m_vecRects[2])
-            pxADCPh = qMax(1, static_cast<int>(qRound(m_vecRects[2]->width() * m_mainWindow->devicePixelRatioF())));
-        if (currentLODLevel != LODLevel::DOWNSAMPLED)
-            pxADCPh = qMax(pxADCPh, 100000); // full detail mode
-        loader->getAdcPhaseViewport(visibleStart, visibleEnd, pxADCPh, tAdcPh, vAdcPh);
-        if (m_graphADCPh) {
-             m_graphADCPh->setData(tAdcPh, vAdcPh);
-             m_graphADCPh->setVisible(m_curveVisibility.value(2, true)); // controlled by RF Phase visibility checkbox
+    auto computeMinMax = [](const QVector<QVector<double>>& allValues, double& mn, double& mx) {
+        for (const QVector<double>& values : allValues) {
+            for (double value : values) {
+                if (!std::isfinite(value)) continue;
+                mn = std::min(mn, value);
+                mx = std::max(mx, value);
+            }
         }
+    };
 
-        if (!m_lockYAxisRanges)
-        {
-            auto upd = [](const QVector<double>& arr, double& mn, double& mx){ for (double v: arr){ if (std::isnan(v)) continue; if (v<mn) mn=v; if (v>mx) mx=v; } };
-            double minMag = std::numeric_limits<double>::max();
-            double maxMag = -std::numeric_limits<double>::infinity();
-            double minPh  = std::numeric_limits<double>::max();
-            double maxPh  = -std::numeric_limits<double>::infinity();
-            upd(vAmp, minMag, maxMag); upd(vPh, minPh, maxPh);
-            upd(vAdcPh, minPh, maxPh); // Include ADC phase in range computation
-
-            if (maxMag >= minMag && m_vecRects.size() > 1 && m_vecRects[1]){
-                double pad = (maxMag - minMag) * 0.05; if (pad == 0) pad = 1.0;
-                m_vecRects[1]->axis(QCPAxis::atLeft)->setRange(minMag - pad, maxMag + pad);
-            }
-            if (maxPh >= minPh && m_vecRects.size() > 2 && m_vecRects[2]){
-                // Force full [-pi, pi] range coverage to ensure negative values are visible
-                double forceMin = -3.2; // slightly more than -pi
-                double forceMax = 3.2;  // slightly more than pi
-                if (minPh > forceMin) minPh = forceMin;
-                if (maxPh < forceMax) maxPh = forceMax;
-                
-                double pad = (maxPh - minPh) * 0.05; if (pad == 0) pad = 1.0;
-                m_vecRects[2]->axis(QCPAxis::atLeft)->setRange(minPh - pad, maxPh + pad);
-            }
+    for (int i = 0; i < m_graphRFMagChannels.size(); ++i) {
+        QCPGraph* graph = m_graphRFMagChannels[i];
+        if (!graph) continue;
+        if (i < rfViewport.ampTimeByChannel.size()) {
+            graph->setData(rfViewport.ampTimeByChannel[i], rfViewport.ampValueByChannel[i]);
+            graph->setVisible(m_curveVisibility.value(1, true) && !rfViewport.ampTimeByChannel[i].isEmpty());
         } else {
-            if (m_vecRects.size() > 1 && m_vecRects[1]) m_vecRects[1]->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[1].first, m_fixedYRanges[1].second);
-            if (m_vecRects.size() > 2 && m_vecRects[2]) m_vecRects[2]->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[2].first, m_fixedYRanges[2].second);
+            graph->setData(QVector<double>(), QVector<double>());
+            graph->setVisible(false);
         }
-        
-        // DEBUG: Unconditionally force phase Y-axis range to [-3.5, 3.5] to reveal negative values
-        if (m_vecRects.size() > 2 && m_vecRects[2]) {
-             m_vecRects[2]->axis(QCPAxis::atLeft)->setRange(-3.5, 3.5);
+    }
+    for (int i = 0; i < m_graphRFPhChannels.size(); ++i) {
+        QCPGraph* graph = m_graphRFPhChannels[i];
+        if (!graph) continue;
+        if (i < rfViewport.phaseTimeByChannel.size()) {
+            graph->setData(rfViewport.phaseTimeByChannel[i], rfViewport.phaseValueByChannel[i]);
+            graph->setVisible(m_curveVisibility.value(2, true) && !rfViewport.phaseTimeByChannel[i].isEmpty());
+        } else {
+            graph->setData(QVector<double>(), QVector<double>());
+            graph->setVisible(false);
         }
-        return;
     }
 
-    // Visible block range
-    const auto& edges = loader->getBlockEdges();
-    int startBlock = loader->getBlockRangeStart();
-    int endBlock = loader->getBlockRangeEnd();
-    for (int i = startBlock; i <= endBlock; ++i)
-    {
-        if (i + 1 < edges.size() && edges[i + 1] > visibleStart) { startBlock = i; break; }
+    QVector<double> tAdcPh, vAdcPh;
+    int pxADCPh = pxRFEffective;
+    if (m_vecRects.size() > 2 && m_vecRects[2]) {
+        pxADCPh = qMax(1, static_cast<int>(qRound(m_vecRects[2]->width() * m_mainWindow->devicePixelRatioF())));
     }
-    for (int i = endBlock; i >= startBlock; --i)
-    {
-        if (edges[i] < visibleEnd) { endBlock = i; break; }
+    if (currentLODLevel != LODLevel::DOWNSAMPLED) {
+        pxADCPh = qMax(pxADCPh, 100000);
     }
-    if (startBlock > endBlock) return;
-
-    if (startBlock >= edges.size() || startBlock < 0) {
-        qDebug() << "ERROR: startBlock out of bounds - startBlock:" << startBlock << "edges.size():" << edges.size();
-        return;
-    }
-    double t0 = edges[startBlock];
-    int cnt = 0;
-    double min1 = std::numeric_limits<double>::max(), max1 = std::numeric_limits<double>::min();
-    double min2 = std::numeric_limits<double>::max(), max2 = std::numeric_limits<double>::min();
-    double tFactor = loader->getTFactor();
-
-    // Prefer merged RF series built at load-time
-    const QVector<double>& mergedTimeAmp = loader->getRfTimeAmp();
-    const QVector<double>& mergedAmp = loader->getRfAmp();
-
-    // Debug output for RF data
-    // Debug logging removed
-    if (!mergedTimeAmp.isEmpty()) {
-        // Debug logging removed
-    }
-    // Debug logging removed
-
-    if (!mergedTimeAmp.isEmpty() && !mergedAmp.isEmpty()) {
-        // Slice by viewport with small margin
-        const double margin = (visibleEnd - visibleStart) * 0.02;
-        const double x0 = visibleStart - margin;
-        const double x1 = visibleEnd + margin;
-
-        // Compute viewport-aware target points for RF Mag
-        int pxRF = 0;
-        if (m_vecRects.size() > 1 && m_vecRects[1]) {
-            pxRF = qMax(1, static_cast<int>(qRound(m_vecRects[1]->width() * m_mainWindow->devicePixelRatioF())));
-        }
-        const double noDecimThresholdRF = 1.2; // pts/px -> draw 1:1 if below
-        const int smallSegThresholdRF = 64;     // small segments -> pass-through
-        const double lttbFactorRF = 2.0;        // ~2 samples per pixel
-        const int capPointsRF = 10000;          // safety cap
-
-        auto sliceAndProcess = [&](const QVector<double>& tIn, const QVector<double>& vIn, QVector<double>& tOut, QVector<double>& vOut) {
-            tOut.clear(); vOut.clear();
-            QVector<double> segT, segV;
-            segT.reserve(1024); segV.reserve(1024);
-            double minDt = std::numeric_limits<double>::infinity();
-            auto flushSegment = [&]() {
-                if (segT.isEmpty()) return;
-                if (currentLODLevel == LODLevel::DOWNSAMPLED) {
-                    QVector<double> dsT, dsV;
-                    int n = segT.size();
-                    if (pxRF <= 0) { dsT = segT; dsV = segV; }
-                    else {
-                        double ppp = static_cast<double>(n) / static_cast<double>(pxRF);
-                        if (n <= smallSegThresholdRF || ppp <= noDecimThresholdRF) { dsT = segT; dsV = segV; }
-                        else {
-                            // Hybrid: very large ppp uses fast min-max; otherwise LTTB
-                            if (ppp >= 8.0) {
-                                applyMinMaxDownsampling(segT, segV, pxRF, dsT, dsV);
-                            } else {
-                                int target = qMin(static_cast<int>(qRound(pxRF * lttbFactorRF)), capPointsRF);
-                                target = qMin(target, n);
-                                applyLTTBDownsampling(segT, segV, target, dsT, dsV);
-                            }
-                        }
-                    }
-                    // Debug logging removed
-                    tOut += dsT; vOut += dsV;
-                } else {
-                    tOut += segT; vOut += segV;
-                }
-                segT.clear(); segV.clear();
-                minDt = std::numeric_limits<double>::infinity();
-                // keep NaN separator between segments (values only)
-                if (!tOut.isEmpty()) {
-                    // duplicate last valid time to maintain monotonic keys, mark value as NaN to break line
-                    tOut.append(tOut.last());
-                    vOut.append(std::numeric_limits<double>::quiet_NaN());
-                }
-            };
-
-            // Restrict to indices within [x0, x1] using binary search to avoid O(n_total) scans
-            int iStart = 0;
-            int iEnd = tIn.size();
-            if (!tIn.isEmpty()) {
-                auto itL = std::lower_bound(tIn.begin(), tIn.end(), x0);
-                auto itU = std::upper_bound(tIn.begin(), tIn.end(), x1);
-                iStart = std::distance(tIn.begin(), itL);
-                iEnd = std::distance(tIn.begin(), itU);
-                if (iStart > 0) --iStart; // include margin just before
-                if (iEnd < tIn.size()) ++iEnd; // include margin just after
-            }
-            for (int i = iStart; i < iEnd; ++i) {
-                const double tx = tIn[i];
-                const double vy = (i < vIn.size() ? vIn[i] : std::numeric_limits<double>::quiet_NaN());
-                const bool isBreak = std::isnan(vy);
-                if (isBreak) { flushSegment(); continue; }
-                if (!segT.isEmpty()) {
-                    double dt = tx - segT.last();
-                    if (dt > 0) {
-                        if (!std::isfinite(minDt)) minDt = dt; else minDt = std::min(minDt, dt);
-                        // Heuristic: if current gap is much larger than local sampling, start a new segment
-                        if (minDt < std::numeric_limits<double>::infinity() && dt > 10.0 * minDt) {
-                            flushSegment();
-                        }
-                    }
-                }
-                segT.append(tx); segV.append(vy);
-            }
-            flushSegment();
-            // remove trailing NaN in values (time stays finite)
-            if (!vOut.isEmpty() && std::isnan(vOut.last())) { tOut.removeLast(); vOut.removeLast(); }
-
-            // Fallback: if nothing in slice, pick nearest segment around viewport center
-            if (tOut.isEmpty()) {
-                double xc = 0.5 * (visibleStart + visibleEnd);
-                // find nearest index by linear scan (acceptable once at draw time)
-                int best = -1; double bestDist = std::numeric_limits<double>::infinity();
-                for (int i = 0; i < tIn.size(); ++i) {
-                    const double tx = tIn[i];
-                    if (i >= vIn.size() || std::isnan(vIn[i])) continue;
-                    double d = std::abs(tx - xc);
-                    if (d < bestDist) { bestDist = d; best = i; }
-                }
-                if (best != -1) {
-                    // expand to contiguous non-NaN segment around best
-                    int L = best, R = best;
-                    while (L > 0 && !std::isnan(vIn[L-1])) L--;
-                    while (R+1 < tIn.size() && !std::isnan(vIn[R+1])) R++;
-                    segT.clear(); segV.clear();
-                    for (int i = L; i <= R; ++i) { segT.append(tIn[i]); segV.append(vIn[i]); }
-                    if (!segT.isEmpty()) {
-                        if (currentLODLevel == LODLevel::DOWNSAMPLED) {
-                            QVector<double> dsT, dsV; applyLTTBDownsampling(segT, segV, 1000, dsT, dsV); tOut = dsT; vOut = dsV;
-    } else {
-                            tOut = segT; vOut = segV;
-                        }
-                    }
-                }
-            }
-        };
-
-        QVector<double> tAmp, vAmp;
-        sliceAndProcess(mergedTimeAmp, mergedAmp, tAmp, vAmp);
-        
-        // Prepare pen for RF Mag if needed (kept once at graph creation)
-
-        if (m_graphRFMag)
-        {
-            m_graphRFMag->setData(tAmp, vAmp);
-            m_graphRFMag->setVisible(m_curveVisibility.value(1, true));
-        }
-        
-        // Draw RF Phase if visible
-        if (m_curveVisibility[2] && m_vecRects.size() > 2 && m_vecRects[2]) {
-            const QVector<double>& mergedTimePh = loader->getRfTimePh();
-            const QVector<double>& mergedPh = loader->getRfPh();
-            
-            if (!mergedTimePh.isEmpty() && !mergedPh.isEmpty()) {
-                QVector<double> tPh, vPh;
-                
-                // LTTB viewport-aware target for RF Phase
-                int pxPh = 0; if (m_vecRects.size()>2 && m_vecRects[2]) { pxPh = qMax(1, static_cast<int>(qRound(m_vecRects[2]->width() * m_mainWindow->devicePixelRatioF()))); }
-                const double noDecimThresholdPh = 1.2; const int smallSegThresholdPh = 64; const double lttbFactorPh = 2.0; const int capPointsPh = 10000;
-                // Slice merged RF Phase data based on viewport
-                auto itLowerPh = std::lower_bound(mergedTimePh.begin(), mergedTimePh.end(), visibleStart);
-                auto itUpperPh = std::upper_bound(mergedTimePh.begin(), mergedTimePh.end(), visibleEnd);
-                
-                int idxStartPh = std::distance(mergedTimePh.begin(), itLowerPh);
-                int idxEndPh = std::distance(mergedTimePh.begin(), itUpperPh);
-                
-                // Add margin for continuity
-                if (idxStartPh > 0) idxStartPh--;
-                if (idxEndPh < mergedTimePh.size()) idxEndPh++;
-                
-                if (idxStartPh < idxEndPh) {
-                    // Extract visible data
-                    for (int k = idxStartPh; k < idxEndPh; ++k) {
-                        tPh.append(mergedTimePh[k]);
-                        vPh.append(mergedPh[k]);
-                    }
-                    
-                    // Process segments separated by NaN
-                    QVector<double> processedTimePh, processedValuesPh;
-                    int segmentStartIdx = 0;
-                    for (int k = 0; k < vPh.size(); ++k) {
-                        if (std::isnan(vPh[k])) {
-                            if (k > segmentStartIdx) {
-                                QVector<double> currentSegmentTime;
-                                QVector<double> currentSegmentValues;
-                                for (int m = segmentStartIdx; m < k; ++m) {
-                                    currentSegmentTime.append(tPh[m]);
-                                    currentSegmentValues.append(vPh[m]);
-                                }
-                                
-                                if (currentLODLevel == LODLevel::DOWNSAMPLED) {
-                                    QVector<double> downsampledSegmentTime, downsampledSegmentValues;
-                                    int n=currentSegmentTime.size();
-                            if (pxPh <= 0) { downsampledSegmentTime=currentSegmentTime; downsampledSegmentValues=currentSegmentValues; }
-                            else {
-                                double ppp = static_cast<double>(n) / static_cast<double>(pxPh);
-                                if (n <= smallSegThresholdPh || ppp <= noDecimThresholdPh) { downsampledSegmentTime=currentSegmentTime; downsampledSegmentValues=currentSegmentValues; }
-                                else {
-                                    if (ppp >= 8.0) { applyMinMaxDownsampling(currentSegmentTime, currentSegmentValues, pxPh, downsampledSegmentTime, downsampledSegmentValues); }
-                                    else { int target = qMin(static_cast<int>(qRound(pxPh * lttbFactorPh)), capPointsPh); target = qMin(target, n); applyLTTBDownsampling(currentSegmentTime, currentSegmentValues, target, downsampledSegmentTime, downsampledSegmentValues); }
-                                }
-                            }
-                                    processedTimePh.append(downsampledSegmentTime);
-                                    processedValuesPh.append(downsampledSegmentValues);
-                                } else {
-                                    processedTimePh.append(currentSegmentTime);
-                                    processedValuesPh.append(currentSegmentValues);
-                                }
-                                // Add NaN to separate segments
-                                processedTimePh.append(tPh[k]);
-                                processedValuesPh.append(std::numeric_limits<double>::quiet_NaN());
-                            }
-                            segmentStartIdx = k + 1;
-                        }
-                    }
-                    // Process the last segment
-                    if (vPh.size() > segmentStartIdx) {
-                        QVector<double> currentSegmentTime;
-                        QVector<double> currentSegmentValues;
-                        for (int m = segmentStartIdx; m < vPh.size(); ++m) {
-                            currentSegmentTime.append(tPh[m]);
-                            currentSegmentValues.append(vPh[m]);
-                        }
-                        if (currentLODLevel == LODLevel::DOWNSAMPLED) {
-                            QVector<double> downsampledSegmentTime, downsampledSegmentValues;
-                            int n=currentSegmentTime.size();
-                            if (pxPh <= 0) { downsampledSegmentTime=currentSegmentTime; downsampledSegmentValues=currentSegmentValues; }
-                            else {
-                                double ppp = static_cast<double>(n) / static_cast<double>(pxPh);
-                                if (n <= smallSegThresholdPh || ppp <= noDecimThresholdPh) { downsampledSegmentTime=currentSegmentTime; downsampledSegmentValues=currentSegmentValues; }
-                                else {
-                                    if (ppp >= 8.0) { applyMinMaxDownsampling(currentSegmentTime, currentSegmentValues, pxPh, downsampledSegmentTime, downsampledSegmentValues); }
-                                    else { int target = qMin(static_cast<int>(qRound(pxPh * lttbFactorPh)), capPointsPh); target = qMin(target, n); applyLTTBDownsampling(currentSegmentTime, currentSegmentValues, target, downsampledSegmentTime, downsampledSegmentValues); }
-                                }
-                            }
-                            processedTimePh.append(downsampledSegmentTime);
-                            processedValuesPh.append(downsampledSegmentValues);
-                        } else {
-                            processedTimePh.append(currentSegmentTime);
-                            processedValuesPh.append(currentSegmentValues);
-                        }
-                    }
-                    
-                    // Draw RF Phase via persistent graph
-                    if (!processedTimePh.isEmpty() && m_graphRFPh) {
-                        m_graphRFPh->setData(processedTimePh, processedValuesPh);
-                        m_graphRFPh->setVisible(m_curveVisibility.value(2, true));
-                        
-                        // Update Y-axis range for RF Phase
-                        double minPh = std::numeric_limits<double>::max();
-                        double maxPh = std::numeric_limits<double>::min();
-                        for (const auto& val : processedValuesPh) {
-                            if (!std::isnan(val)) {
-                                minPh = std::min(minPh, val);
-                                maxPh = std::max(maxPh, val);
-                            }
-                        }
-                        if (maxPh >= minPh) {
-                            double pad = (maxPh - minPh) * 0.05;
-                            pad = (pad == 0) ? 1.0 : pad;
-                            m_vecRects[2]->axis(QCPAxis::atLeft)->setRange(minPh - pad, maxPh + pad);
-                        }
-                    }
-                }
-            }
-        }
-
-        auto updateMinMax = [&](const QVector<double>& arr, double& mn, double& mx) {
-            for (int i = 0; i < arr.size(); ++i) {
-                const double v = arr[i];
-                if (std::isnan(v)) continue;
-                if (v < mn) mn = v; if (v > mx) mx = v;
-            }
-        };
-        min1 = std::min(min1, std::numeric_limits<double>::max());
-        max1 = std::max(max1, std::numeric_limits<double>::min());
-        min2 = std::min(min2, std::numeric_limits<double>::max());
-        max2 = std::max(max2, std::numeric_limits<double>::min());
-        updateMinMax(vAmp, min1, max1);
-    } else {
-        // Fallback: keep previous per-block path if merged series unavailable (should not happen)
-        // No-op; axes range update below will keep previous values
+    loader->getAdcPhaseViewport(visibleStart, visibleEnd, pxADCPh, tAdcPh, vAdcPh);
+    if (m_graphADCPh) {
+        m_graphADCPh->setData(tAdcPh, vAdcPh);
+        m_graphADCPh->setVisible(m_curveVisibility.value(2, true) && !tAdcPh.isEmpty());
     }
 
     if (!m_lockYAxisRanges) {
-        if (max1 >= min1 && m_vecRects.size() > 1 && m_vecRects[1]) { double pad = (max1 - min1) * 0.05; pad = (pad == 0) ? 1.0 : pad; m_vecRects[1]->axis(QCPAxis::atLeft)->setRange(min1 - pad, max1 + pad); }
-        if (max2 >= min2 && m_vecRects.size() > 2 && m_vecRects[2]) { double pad = (max2 - min2) * 0.05; pad = (pad == 0) ? 1.0 : pad; m_vecRects[2]->axis(QCPAxis::atLeft)->setRange(min2 - pad, max2 + pad); }
+        double minMag = std::numeric_limits<double>::infinity();
+        double maxMag = -std::numeric_limits<double>::infinity();
+        double minPh = std::numeric_limits<double>::infinity();
+        double maxPh = -std::numeric_limits<double>::infinity();
+        computeMinMax(rfViewport.ampValueByChannel, minMag, maxMag);
+        computeMinMax(rfViewport.phaseValueByChannel, minPh, maxPh);
+        for (double value : vAdcPh) {
+            if (!std::isfinite(value)) continue;
+            minPh = std::min(minPh, value);
+            maxPh = std::max(maxPh, value);
+        }
+        if (std::isfinite(minMag) && std::isfinite(maxMag) && m_vecRects.size() > 1 && m_vecRects[1]) {
+            double pad = (maxMag - minMag) * 0.05;
+            if (pad == 0.0) pad = 1.0;
+            m_vecRects[1]->axis(QCPAxis::atLeft)->setRange(minMag - pad, maxMag + pad);
+        }
+        if (std::isfinite(minPh) && std::isfinite(maxPh) && m_vecRects.size() > 2 && m_vecRects[2]) {
+            minPh = std::min(minPh, -3.2);
+            maxPh = std::max(maxPh, 3.2);
+            double pad = (maxPh - minPh) * 0.05;
+            if (pad == 0.0) pad = 1.0;
+            m_vecRects[2]->axis(QCPAxis::atLeft)->setRange(minPh - pad, maxPh + pad);
+        }
     } else {
         if (m_vecRects.size() > 1 && m_vecRects[1]) m_vecRects[1]->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[1].first, m_fixedYRanges[1].second);
         if (m_vecRects.size() > 2 && m_vecRects[2]) m_vecRects[2]->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[2].first, m_fixedYRanges[2].second);
@@ -1419,8 +1163,10 @@ void WaveformDrawer::clearAllWaveformData()
     };
 
     clearGraph(m_graphADC);
-    clearGraph(m_graphRFMag);
-    clearGraph(m_graphRFPh);
+    for (QCPGraph* graph : m_graphRFMagChannels)
+        clearGraph(graph);
+    for (QCPGraph* graph : m_graphRFPhChannels)
+        clearGraph(graph);
     clearGraph(m_graphADCPh);
     clearGraph(m_graphGx);
     clearGraph(m_graphGy);
@@ -2347,10 +2093,12 @@ void WaveformDrawer::updateCurveVisibility()
     // checkboxes truly hides all waveforms, even before the next redraw.
     if (m_graphADC)
         m_graphADC->setVisible(m_curveVisibility.value(0, false));
-    if (m_graphRFMag)
-        m_graphRFMag->setVisible(m_curveVisibility.value(1, false));
-    if (m_graphRFPh)
-        m_graphRFPh->setVisible(m_curveVisibility.value(2, false));
+    for (QCPGraph* graph : m_graphRFMagChannels)
+        if (graph)
+            graph->setVisible(m_curveVisibility.value(1, false));
+    for (QCPGraph* graph : m_graphRFPhChannels)
+        if (graph)
+            graph->setVisible(m_curveVisibility.value(2, false));
     if (m_graphGx)
         m_graphGx->setVisible(m_curveVisibility.value(3, false));
     if (m_graphGy)

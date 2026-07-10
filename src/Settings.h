@@ -150,6 +150,8 @@ public:
     bool getShowTeApproximateDialog() const;
     void setShowTrajectoryApproximateDialog(bool show);
     bool getShowTrajectoryApproximateDialog() const;
+    void setEnableRoosPtxHackAutoDetection(bool enable);
+    bool getEnableRoosPtxHackAutoDetection() const;
     
     // Configuration file locations
     QString getConfigDirPath() const;
@@ -238,6 +240,7 @@ private:
     bool m_showTeApproximateDialog { true }; // Show TE approximate warning for legacy sequences
     bool m_showTrajectoryApproximateDialog { true }; // Show trajectory warning for legacy sequences
     bool m_showExtensionTooltip { false }; // Show extension tooltip on hover
+    bool m_enableRoosPtxHackAutoDetection { true };
     bool m_pnsShowX {false};
     bool m_pnsShowY {false};
     bool m_pnsShowZ {true};

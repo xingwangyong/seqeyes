@@ -192,6 +192,10 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     m_rfAmpCache.clear();
     m_rfPhCache.clear();
     m_gradShapeCache.clear();
+    m_unifiedRfBlocks.clear();
+    m_unifiedRfChannelCount = 1;
+    m_detectedRoosPtxHack = false;
+    m_unifiedRfStatusMessage.clear();
     m_supportsRfUseMetadata = false;
     m_hasEchoTimeDefinition = false;
     m_teTime_us = 0.0;
@@ -618,6 +622,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
 
     // Precompute per-shape scale aggregates for RF/Gradients (single pass over blocks)
     buildShapeScaleAggregates();
+    buildUnifiedRfBlocks();
 
     WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer();
     // Compute fixed Y-axis ranges based on full-sequence data to avoid per-TR/window autoscale jitter.
@@ -3318,210 +3323,306 @@ void PulseqLoader::getRfViewportDecimated(double visibleStart, double visibleEnd
                                           QVector<double>& tAmp, QVector<double>& vAmp,
                                           QVector<double>& tPh, QVector<double>& vPh)
 {
+    UnifiedRfViewport viewport;
+    getUnifiedRfViewport(visibleStart, visibleEnd, pixelWidth, viewport);
     tAmp.clear(); vAmp.clear(); tPh.clear(); vPh.clear();
-    if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.isEmpty() || pixelWidth <= 0) return;
-
-    // Find visible block range
-    int startBlock = 0;
-    int endBlock = int(vecBlockEdges.size()) - 2;
-    for (int i = 0; i < vecBlockEdges.size() - 1; ++i) {
-        if (vecBlockEdges[i + 1] > visibleStart) { startBlock = i; break; }
+    if (!viewport.ampTimeByChannel.isEmpty()) {
+        tAmp = viewport.ampTimeByChannel.first();
+        vAmp = viewport.ampValueByChannel.first();
     }
-    for (int i = int(vecBlockEdges.size()) - 2; i >= startBlock; --i) {
-        if (vecBlockEdges[i] < visibleEnd) { endBlock = i; break; }
+    if (!viewport.phaseTimeByChannel.isEmpty()) {
+        tPh = viewport.phaseTimeByChannel.first();
+        vPh = viewport.phaseValueByChannel.first();
     }
-    if (startBlock > endBlock) return;
+}
 
-    const double window = std::max(1e-9, visibleEnd - visibleStart);
+QString PulseqLoader::rfSourceTypeToString(RfSourceType type) const
+{
+    switch (type) {
+    case RfSourceType::SingleChannel: return QStringLiteral("SingleChannel");
+    case RfSourceType::RfShim: return QStringLiteral("RfShim");
+    case RfSourceType::RoosPtxHack: return QStringLiteral("RoosPtxHack");
+    }
+    return QStringLiteral("SingleChannel");
+}
 
-    bool haveLastAmp = false, haveLastPh = false;
-    double lastTAmp = 0.0, lastVAmp = 0.0;
-    double lastTPh  = 0.0, lastVPh  = 0.0;
+void PulseqLoader::buildUnifiedRfBlocks()
+{
+    m_unifiedRfBlocks.clear();
+    m_unifiedRfChannelCount = 1;
+    m_detectedRoosPtxHack = false;
+    m_unifiedRfStatusMessage.clear();
+    if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.isEmpty()) {
+        return;
+    }
 
-    // Global decimation gating (heavy-only):
-    const int DECIMATE_TOTAL_THRESHOLD_RF = 120000; // conservative; for very large windows
-    long long totalRfSamples = 0;
-    for (int i = startBlock; i <= endBlock; ++i) {
+    const bool enableRoosAutoDetection = Settings::getInstance().getEnableRoosPtxHackAutoDetection();
+    for (int i = 0; i < static_cast<int>(m_vecDecodeSeqBlocks.size()); ++i) {
         SeqBlock* blk = m_vecDecodeSeqBlocks[i];
-        if (!blk || !blk->isRF()) continue;
-        totalRfSamples += std::max(0, blk->GetRFLength());
-    }
-    bool allowDecimateRF = (totalRfSamples > DECIMATE_TOTAL_THRESHOLD_RF);
-    // Zoom-in gating: if overall points-per-pixel is low, render full detail regardless of total
-    if (pixelWidth > 0) {
-        double pppTotal = double(std::max<long long>(1, totalRfSamples)) / double(pixelWidth);
-        if (pppTotal <= 2.0) allowDecimateRF = false;
-    }
+        if (!blk || !blk->isRF()) {
+            continue;
+        }
 
-    for (int i = startBlock; i <= endBlock; ++i) {
-        SeqBlock* blk = m_vecDecodeSeqBlocks[i];
-        if (!blk || !blk->isRF()) continue;
         RFEvent& rf = blk->GetRFEvent();
-        int RFLength = blk->GetRFLength();
-        if (RFLength <= 0) continue;
-        float dwell = blk->GetRFDwellTime();
+        const int rfLength = blk->GetRFLength();
+        if (rfLength <= 0) {
+            continue;
+        }
+
+        UnifiedRfBlock unifiedBlock;
+        unifiedBlock.blockIndex = i;
+        unifiedBlock.rfLength = rfLength;
+        unifiedBlock.startTimeAxis = vecBlockEdges[i] + rf.delay * tFactor;
+        unifiedBlock.dwellAxis = blk->GetRFDwellTime() * tFactor;
+
         float* rfList = blk->GetRFAmplitudePtr();
         float* phaseList = blk->GetRFPhasePtr();
-        const double tStart = vecBlockEdges[i] + rf.delay * tFactor;
-        const double dt = dwell * tFactor;
-        const double duration = RFLength * dt;
-        // Skip blocks entirely outside range
-        if (tStart >= visibleEnd || (tStart + duration) <= visibleStart) continue;
-        // Allocate pixels proportional to duration
-        int pxForBlock = std::max(1, int(std::round(duration / window * pixelWidth)));
+        const RFAmpEntry& ampEntry = ensureRfAmpCached(rfList, rfLength, rf.magShape, rf.timeShape);
+        const RFPhEntry& phEntry = ensureRfPhCached(phaseList, rfLength, rf.phaseShape, rf.timeShape);
 
-        const RFAmpEntry& entryA = ensureRfAmpCached(rfList, RFLength, rf.magShape, rf.timeShape);
-        // Build amplitude block data (prefer LTTB over min-max)
-        QVector<double> tAmpBlk, vAmpBlk;
-        const double ampTol = 1e-6;
-        const bool isFlatAmp = (entryA.length > 0) && (std::abs(entryA.ampMax - entryA.ampMin) <= ampTol);
-        const double flatAmp = double(rf.amplitude) * (entryA.length > 0 ? double(entryA.ampNorm[0]) : 0.0);
-        double ppp = (pxForBlock > 0) ? double(RFLength) / double(pxForBlock) : double(RFLength);
-        if (isFlatAmp) {
-            const double tEnd = tStart + duration;
-            tAmpBlk.reserve(4); vAmpBlk.reserve(4);
-            tAmpBlk.append(tStart); vAmpBlk.append(0.0);
-            tAmpBlk.append(tStart); vAmpBlk.append(flatAmp);
-            tAmpBlk.append(tEnd);   vAmpBlk.append(flatAmp);
-            tAmpBlk.append(tEnd);   vAmpBlk.append(0.0);
-        } else if (!allowDecimateRF || RFLength <= 64 || ppp <= 1.2) {
-            tAmpBlk.reserve(RFLength); vAmpBlk.reserve(RFLength);
-            for (int ii=0;ii<RFLength;++ii){ tAmpBlk.append(tStart + ii*dt); vAmpBlk.append(double(entryA.ampNorm[ii]) * double(rf.amplitude)); }
-        } else {
-            int target = std::min(RFLength, std::min(10000, int(std::round(pxForBlock*2.0))));
-            if (target <= 3 || pxForBlock <= 2) {
-                // Ultra-narrow pulse in pixels: sample around peak to preserve Gaussian shape
-                int iPeak = (entryA.peakIndex >= 0 && entryA.peakIndex < RFLength) ? entryA.peakIndex : RFLength/2;
-                auto clampIndex = [&](int idx){ return std::max(0, std::min(RFLength-1, idx)); };
-                QSet<int> idxs;
-                idxs.insert(0);
-                idxs.insert(clampIndex((int)std::floor(0.25 * (RFLength-1))));
-                idxs.insert(clampIndex(iPeak-1));
-                idxs.insert(clampIndex(iPeak));
-                idxs.insert(clampIndex(iPeak+1));
-                idxs.insert(clampIndex((int)std::floor(0.75 * (RFLength-1))));
-                idxs.insert(RFLength-1);
-                QList<int> sorted = QList<int>(idxs.constBegin(), idxs.constEnd());
-                std::sort(sorted.begin(), sorted.end());
-                tAmpBlk.reserve(sorted.size()); vAmpBlk.reserve(sorted.size());
-                for (int ii : sorted){ tAmpBlk.append(tStart + ii*dt); vAmpBlk.append(double(entryA.ampNorm[ii]) * double(rf.amplitude)); }
-            } else {
-                QVector<double> dT, dV; lttbDownsampleUniform(entryA.ampNorm, tStart, dt, target, dT, dV);
-                tAmpBlk = dT; vAmpBlk.reserve(dV.size()); for (double val : dV){ vAmpBlk.append(val * double(rf.amplitude)); }
-            }
-        }
-        // Continuity handling for amplitude
-        auto appendWithBreakAmp = [&](const QVector<double>& tB, const QVector<double>& vB){
-            if (tB.isEmpty()) return;
-            // Decide if break is needed between last and first (time-gap based)
-            if (haveLastAmp) {
-                double tFirst = tB.first();
-                double dtTol = std::max(1e-9, dt*1.1);
-                bool gap = (tFirst - lastTAmp) > dtTol;
-                if (gap) { tAmp.append(tFirst); vAmp.append(std::numeric_limits<double>::quiet_NaN()); }
-            }
-            tAmp += tB; vAmp += vB;
-            // Update last valid
-            for (int idx = vB.size()-1; idx >= 0; --idx){ if (!std::isnan(vB[idx])) { lastTAmp = tB[idx]; lastVAmp = vB[idx]; haveLastAmp = true; break; } }
-            if (!haveLastAmp) { // all NaN? set to end
-                lastTAmp = tB.last(); lastVAmp = std::numeric_limits<double>::quiet_NaN(); haveLastAmp = true;
-            }
+        auto makeChannel = [&](int channelIndex,
+                               RfSourceType source,
+                               double amplitudeScale,
+                               double phaseOffsetRad) {
+            UnifiedRfChannel channel;
+            channel.channelIndex = channelIndex;
+            channel.source = source;
+            channel.amplitudeScale = amplitudeScale;
+            channel.phaseOffsetRad = phaseOffsetRad;
+            channel.freqOffsetHz = rf.freqOffset + rf.freqPPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla;
+            channel.phaseIsRealLike = phEntry.isRealLike;
+            channel.ampNorm = ampEntry.ampNorm;
+            channel.phaseNorm = phEntry.phNorm;
+            unifiedBlock.channels.append(channel);
         };
-        appendWithBreakAmp(tAmpBlk, vAmpBlk);
-        // Keep block separation with NaN break; duplicate last x to preserve sorted order
-        if (!tAmp.isEmpty()) {
-            double tEnd = isFlatAmp ? (tStart + duration) : (tStart + std::max(0, RFLength-1) * dt);
-            double tBreak = std::nextafter(tEnd, std::numeric_limits<double>::infinity());
-            tAmp.append(tBreak);
-            vAmp.append(std::numeric_limits<double>::quiet_NaN());
-        }
 
-        // Produce phase series similarly
-        // Phase block data + continuity
-        QVector<double> tPhBlk, vPhBlk;
-        const RFPhEntry& entryP = ensureRfPhCached(phaseList, RFLength, rf.phaseShape, rf.timeShape);
-        double pppPh = (pxForBlock > 0) ? double(RFLength) / double(pxForBlock) : double(RFLength);
-        if (!allowDecimateRF || RFLength <= 64 || pppPh <= 1.2) {
-            tPhBlk.reserve(RFLength); vPhBlk.reserve(RFLength);
-            for (int ii=0;ii<RFLength;++ii){ tPhBlk.append(tStart + ii*dt); vPhBlk.append(double(entryP.phNorm[ii])); }
+        if (blk->hasRfShim()) {
+            auto& rfShim = blk->GetRfShim();
+            for (int channelIndex = 0; channelIndex < rfShim.nchan; ++channelIndex) {
+                const double scale = double(rf.amplitude) * double(rfShim.amplitudes[channelIndex]);
+                const double phaseOffset = rf.phaseOffset
+                                         + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla
+                                         + double(rfShim.phases[channelIndex]);
+                makeChannel(channelIndex, RfSourceType::RfShim, scale, phaseOffset);
+            }
         } else {
-            int target = std::min(RFLength, std::min(10000, int(std::round(pxForBlock*2.0))));
-            QVector<double> dT, dV; lttbDownsampleUniform(entryP.phNorm, tStart, dt, target, dT, dV);
-            tPhBlk = dT; vPhBlk = dV;
+            makeChannel(0,
+                        RfSourceType::SingleChannel,
+                        double(rf.amplitude),
+                        rf.phaseOffset + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla);
         }
 
-        // Apply full phase offsets (MATLAB-matching)
-        {
-            double gamma = Settings::getInstance().getGamma();
-            double fullFreqOff = rf.freqOffset + rf.freqPPM * 1e-6 * gamma * m_b0Tesla;
-            double fullPhaseOff = rf.phaseOffset + rf.phasePPM * 1e-6 * gamma * m_b0Tesla;
-            
-            // Check if logic shape is "Real" (only 0 or pi phases, ignoring small numerical noise)
-            // MATLAB uses angle(s * sign(real(s))) which maps pi -> 0 for real pulses (negative lobes).
-            bool isRealLike = entryP.isRealLike;
-
-            // tStart is in display units. We need time in seconds from the start of the pulse for freq offset.
-            // ii * dt -> gives time in display units from start of pulse.
-            // Divide by tFactor to get internal units (us), then * 1e-6 to get seconds.
-            
-            double minPh = 1e9, maxPh = -1e9;
-            for (int k = 0; k < vPhBlk.size(); ++k) {
-                double t_display = tPhBlk[k];
-                // Convert display duration to seconds: (t_display - tStart) / tFactor -> us -> * 1e-6 -> seconds
-                double t_local_sec = ((t_display - tStart) / tFactor) * 1e-6;
-                
-                // If real-like, ignore the shape phase (treat pi as 0, i.e. negative amplitude)
-                // This matches MATLAB's sign(real(s)) correction.
-                double phaseVal = isRealLike ? 0.0 : vPhBlk[k];
-                
-                // Add linear phase evolution: 2*pi * t * freq
-                double totalPhase = phaseVal + fullPhaseOff + 2.0 * M_PI * t_local_sec * fullFreqOff;
-                
-                // Wrap to [-pi, pi]
-                double wrapped = std::atan2(std::sin(totalPhase), std::cos(totalPhase));
-                vPhBlk[k] = wrapped;
-                
-                if (wrapped < minPh) minPh = wrapped;
-                if (wrapped > maxPh) maxPh = wrapped;
-            }
-            // Debug print once per block (throttle maybe?)
-            // Debug print once per block (throttle maybe?)
-            // static int dbgCount = 0; if (dbgCount++ < 20) 
-            // qDebug() << "RF Block" << i << "isRealLike:" << isRealLike << "Offset:" << fullPhaseOff 
-            //          << "Freq:" << fullFreqOff << "MinPh:" << minPh << "MaxPh:" << maxPh << "B0:" << m_b0Tesla;
-
+        if (enableRoosAutoDetection) {
+            // Placeholder for future parser-backed Roos multi-channel decomposition.
+            // Keep explicit state so the rendering/API layer is already unified.
         }
-        auto appendWithBreakPh = [&](const QVector<double>& tB, const QVector<double>& vB){
-            if (tB.isEmpty()) return;
-            if (haveLastPh) {
-                double tFirst = tB.first();
-                double dtTol = std::max(1e-9, dt*1.1);
-                bool gap = (tFirst - lastTPh) > dtTol;
-                if (gap) { tPh.append(tFirst); vPh.append(std::numeric_limits<double>::quiet_NaN()); }
+
+        if (!unifiedBlock.channels.isEmpty()) {
+            m_unifiedRfChannelCount = std::max(m_unifiedRfChannelCount, int(unifiedBlock.channels.size()));
+            m_unifiedRfBlocks.append(unifiedBlock);
+        }
+    }
+
+    if (!enableRoosAutoDetection) {
+        m_unifiedRfStatusMessage = QStringLiteral("RoosPtxHack auto-detection disabled in settings.");
+    }
+}
+
+bool PulseqLoader::appendUnifiedRfChannelSeries(const UnifiedRfBlock& block,
+                                                const UnifiedRfChannel& channel,
+                                                int pixelWidth,
+                                                double window,
+                                                bool allowDecimate,
+                                                QVector<double>& tAmp,
+                                                QVector<double>& vAmp,
+                                                QVector<double>& tPh,
+                                                QVector<double>& vPh) const
+{
+    tAmp.clear();
+    vAmp.clear();
+    tPh.clear();
+    vPh.clear();
+    if (block.rfLength <= 0 || channel.ampNorm.isEmpty() || channel.phaseNorm.isEmpty()) {
+        return false;
+    }
+
+    const double tStart = block.startTimeAxis;
+    const double dt = block.dwellAxis;
+    const double duration = block.rfLength * dt;
+    const int pxForBlock = std::max(1, int(std::round(duration / std::max(1e-9, window) * pixelWidth)));
+    const double ampTol = 1e-6;
+
+    double ampMin = std::numeric_limits<double>::infinity();
+    double ampMax = -std::numeric_limits<double>::infinity();
+    int peakIndex = 0;
+    for (int i = 0; i < channel.ampNorm.size(); ++i) {
+        const double value = double(channel.ampNorm[i]);
+        if (value < ampMin) ampMin = value;
+        if (value > ampMax) {
+            ampMax = value;
+            peakIndex = i;
+        }
+    }
+    const bool isFlatAmp = std::abs(ampMax - ampMin) <= ampTol;
+    const double ppp = (pxForBlock > 0) ? double(block.rfLength) / double(pxForBlock) : double(block.rfLength);
+    if (isFlatAmp) {
+        const double flatAmp = channel.amplitudeScale * (channel.ampNorm.isEmpty() ? 0.0 : double(channel.ampNorm[0]));
+        const double tEnd = tStart + duration;
+        tAmp = {tStart, tStart, tEnd, tEnd};
+        vAmp = {0.0, flatAmp, flatAmp, 0.0};
+    } else if (!allowDecimate || block.rfLength <= 64 || ppp <= 1.2) {
+        tAmp.reserve(block.rfLength);
+        vAmp.reserve(block.rfLength);
+        for (int i = 0; i < block.rfLength; ++i) {
+            tAmp.append(tStart + i * dt);
+            vAmp.append(double(channel.ampNorm[i]) * channel.amplitudeScale);
+        }
+    } else {
+        int target = std::min(block.rfLength, std::min(10000, int(std::round(pxForBlock * 2.0))));
+        if (target <= 3 || pxForBlock <= 2) {
+            auto clampIndex = [&](int idx) { return std::max(0, std::min(block.rfLength - 1, idx)); };
+            QSet<int> idxs;
+            idxs.insert(0);
+            idxs.insert(clampIndex(int(std::floor(0.25 * (block.rfLength - 1)))));
+            idxs.insert(clampIndex(peakIndex - 1));
+            idxs.insert(clampIndex(peakIndex));
+            idxs.insert(clampIndex(peakIndex + 1));
+            idxs.insert(clampIndex(int(std::floor(0.75 * (block.rfLength - 1)))));
+            idxs.insert(block.rfLength - 1);
+            QList<int> sorted = QList<int>(idxs.constBegin(), idxs.constEnd());
+            std::sort(sorted.begin(), sorted.end());
+            for (int idx : sorted) {
+                tAmp.append(tStart + idx * dt);
+                vAmp.append(double(channel.ampNorm[idx]) * channel.amplitudeScale);
             }
-            tPh += tB; vPh += vB;
-            for (int idx = vB.size()-1; idx >= 0; --idx){ if (!std::isnan(vB[idx])) { lastTPh = tB[idx]; lastVPh = vB[idx]; haveLastPh = true; break; } }
-            if (!haveLastPh) { lastTPh = tB.last(); lastVPh = std::numeric_limits<double>::quiet_NaN(); haveLastPh = true; }
+        } else {
+            lttbDownsampleUniform(channel.ampNorm, tStart, dt, target, tAmp, vAmp);
+            for (double& value : vAmp) {
+                value *= channel.amplitudeScale;
+            }
+        }
+    }
+
+    const double pppPh = (pxForBlock > 0) ? double(block.rfLength) / double(pxForBlock) : double(block.rfLength);
+    if (!allowDecimate || block.rfLength <= 64 || pppPh <= 1.2) {
+        tPh.reserve(block.rfLength);
+        vPh.reserve(block.rfLength);
+        for (int i = 0; i < block.rfLength; ++i) {
+            tPh.append(tStart + i * dt);
+            vPh.append(double(channel.phaseNorm[i]));
+        }
+    } else {
+        int target = std::min(block.rfLength, std::min(10000, int(std::round(pxForBlock * 2.0))));
+        lttbDownsampleUniform(channel.phaseNorm, tStart, dt, target, tPh, vPh);
+    }
+
+    applyRfPhaseOffsets(block, channel, tPh, vPh);
+    return !tAmp.isEmpty() || !tPh.isEmpty();
+}
+
+void PulseqLoader::applyRfPhaseOffsets(const UnifiedRfBlock& block,
+                                       const UnifiedRfChannel& channel,
+                                       QVector<double>& tPh,
+                                       QVector<double>& vPh) const
+{
+    for (int i = 0; i < vPh.size() && i < tPh.size(); ++i) {
+        const double tLocalSec = ((tPh[i] - block.startTimeAxis) / tFactor) * 1e-6;
+        const double phaseVal = channel.phaseIsRealLike ? 0.0 : vPh[i];
+        const double totalPhase = phaseVal + channel.phaseOffsetRad + 2.0 * M_PI * tLocalSec * channel.freqOffsetHz;
+        vPh[i] = std::atan2(std::sin(totalPhase), std::cos(totalPhase));
+    }
+}
+
+void PulseqLoader::appendUnifiedRfBlockSeries(const UnifiedRfBlock& block,
+                                              int pixelWidth,
+                                              double window,
+                                              bool allowDecimate,
+                                              UnifiedRfViewport& viewport) const
+{
+    for (const UnifiedRfChannel& channel : block.channels) {
+        const int index = channel.channelIndex;
+        if (index < 0
+            || index >= viewport.ampTimeByChannel.size()
+            || index >= viewport.ampValueByChannel.size()
+            || index >= viewport.phaseTimeByChannel.size()
+            || index >= viewport.phaseValueByChannel.size()) {
+            continue;
+        }
+
+        QVector<double> tAmpBlk, vAmpBlk, tPhBlk, vPhBlk;
+        if (!appendUnifiedRfChannelSeries(block, channel, pixelWidth, window, allowDecimate, tAmpBlk, vAmpBlk, tPhBlk, vPhBlk)) {
+            continue;
+        }
+
+        auto appendWithBreak = [](QVector<double>& dstT, QVector<double>& dstV,
+                                  const QVector<double>& srcT, const QVector<double>& srcV) {
+            if (srcT.isEmpty() || srcV.isEmpty()) {
+                return;
+            }
+            if (!dstT.isEmpty()) {
+                dstT.append(srcT.first());
+                dstV.append(std::numeric_limits<double>::quiet_NaN());
+            }
+            dstT += srcT;
+            dstV += srcV;
         };
-        appendWithBreakPh(tPhBlk, vPhBlk);
+
+        appendWithBreak(viewport.ampTimeByChannel[index], viewport.ampValueByChannel[index], tAmpBlk, vAmpBlk);
+        appendWithBreak(viewport.phaseTimeByChannel[index], viewport.phaseValueByChannel[index], tPhBlk, vPhBlk);
+    }
+}
+
+void PulseqLoader::getUnifiedRfViewport(double visibleStart, double visibleEnd, int pixelWidth,
+                                        UnifiedRfViewport& viewport)
+{
+    viewport.ampTimeByChannel = QVector<QVector<double>>(m_unifiedRfChannelCount);
+    viewport.ampValueByChannel = QVector<QVector<double>>(m_unifiedRfChannelCount);
+    viewport.phaseTimeByChannel = QVector<QVector<double>>(m_unifiedRfChannelCount);
+    viewport.phaseValueByChannel = QVector<QVector<double>>(m_unifiedRfChannelCount);
+    if (m_unifiedRfBlocks.isEmpty() || pixelWidth <= 0) {
+        return;
+    }
+
+    const double window = std::max(1e-9, visibleEnd - visibleStart);
+    long long totalRfSamples = 0;
+    for (const UnifiedRfBlock& block : m_unifiedRfBlocks) {
+        const double duration = block.rfLength * block.dwellAxis;
+        if (block.startTimeAxis >= visibleEnd || (block.startTimeAxis + duration) <= visibleStart) {
+            continue;
+        }
+        totalRfSamples += std::max(1, block.rfLength * std::max(1, int(block.channels.size())));
+    }
+
+    bool allowDecimate = totalRfSamples > 120000;
+    if (pixelWidth > 0) {
+        const double pppTotal = double(std::max<long long>(1, totalRfSamples)) / double(pixelWidth);
+        if (pppTotal <= 2.0) {
+            allowDecimate = false;
+        }
+    }
+
+    for (const UnifiedRfBlock& block : m_unifiedRfBlocks) {
+        const double duration = block.rfLength * block.dwellAxis;
+        if (block.startTimeAxis >= visibleEnd || (block.startTimeAxis + duration) <= visibleStart) {
+            continue;
+        }
+        appendUnifiedRfBlockSeries(block, pixelWidth, window, allowDecimate, viewport);
     }
 }
 
 QPair<double,double> PulseqLoader::getRfGlobalRangeAmp()
 {
-    // Use precomputed per-shape aggregates to avoid re-scanning blocks
     double mn = std::numeric_limits<double>::infinity();
     double mx = -std::numeric_limits<double>::infinity();
-    for (auto it = m_rfAgg.constBegin(); it != m_rfAgg.constEnd(); ++it) {
-        const ScaleAgg& ag = it.value();
-        if (!ag.hasShape) continue;
-        double candidates[4] = {
-            ag.shapeMin * ag.maxPosScale,
-            ag.shapeMax * ag.maxPosScale,
-            ag.shapeMin * ag.minNegScale,
-            ag.shapeMax * ag.minNegScale
-        };
-        for (double c : candidates) { if (std::isfinite(c)) { if (c < mn) mn = c; if (c > mx) mx = c; } }
+    for (const UnifiedRfBlock& block : m_unifiedRfBlocks) {
+        for (const UnifiedRfChannel& channel : block.channels) {
+            for (float sample : channel.ampNorm) {
+                const double value = double(sample) * channel.amplitudeScale;
+                if (!std::isfinite(value)) continue;
+                mn = std::min(mn, value);
+                mx = std::max(mx, value);
+            }
+        }
     }
     if (!std::isfinite(mn) || !std::isfinite(mx)) { mn = -1.0; mx = 1.0; }
     return qMakePair(mn, mx);
@@ -3531,17 +3632,23 @@ QPair<double,double> PulseqLoader::getRfGlobalRangePh()
 {
     double mn = std::numeric_limits<double>::infinity();
     double mx = -std::numeric_limits<double>::infinity();
-    QSet<QString> seen;
-    for (SeqBlock* blk : m_vecDecodeSeqBlocks) {
-        if (!blk || !blk->isRF()) continue;
-        RFEvent& rf = blk->GetRFEvent();
-        int RFLength = blk->GetRFLength(); if (RFLength <= 0) continue;
-        float* rfList = blk->GetRFAmplitudePtr();
-        float* phaseList = blk->GetRFPhasePtr();
-        QString key = rfPhKey(rf.phaseShape, rf.timeShape, RFLength);
-        if (seen.contains(key)) continue; seen.insert(key);
-        const RFPhEntry& eP = ensureRfPhCached(phaseList, RFLength, rf.phaseShape, rf.timeShape);
-        if (eP.phMin < mn) mn = eP.phMin; if (eP.phMax > mx) mx = eP.phMax;
+    for (const UnifiedRfBlock& block : m_unifiedRfBlocks) {
+        for (const UnifiedRfChannel& channel : block.channels) {
+            QVector<double> tPh;
+            QVector<double> vPh;
+            tPh.reserve(block.rfLength);
+            vPh.reserve(block.rfLength);
+            for (int i = 0; i < block.rfLength; ++i) {
+                tPh.append(block.startTimeAxis + i * block.dwellAxis);
+                vPh.append(double(channel.phaseNorm.value(i)));
+            }
+            applyRfPhaseOffsets(block, channel, tPh, vPh);
+            for (double value : vPh) {
+                if (!std::isfinite(value)) continue;
+                mn = std::min(mn, value);
+                mx = std::max(mx, value);
+            }
+        }
     }
     if (!std::isfinite(mn) || !std::isfinite(mx)) { mn = -1.0; mx = 1.0; }
     return qMakePair(mn, mx);

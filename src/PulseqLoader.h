@@ -29,6 +29,11 @@ class PulseqLoader : public QObject
     Q_OBJECT
 
 public:
+    enum class RfSourceType {
+        SingleChannel,
+        RfShim,
+        RoosPtxHack
+    };
     enum class SequenceLoadState {
         Blank,
         Loading,
@@ -75,6 +80,32 @@ public:
         bool hasViolation {false};
         QString summary;
         QString warningMessage;
+    };
+    struct UnifiedRfChannel
+    {
+        int channelIndex {0};
+        RfSourceType source {RfSourceType::SingleChannel};
+        double amplitudeScale {1.0};
+        double phaseOffsetRad {0.0};
+        double freqOffsetHz {0.0};
+        bool phaseIsRealLike {false};
+        QVector<float> ampNorm;
+        QVector<float> phaseNorm;
+    };
+    struct UnifiedRfBlock
+    {
+        int blockIndex {-1};
+        int rfLength {0};
+        double startTimeAxis {0.0};
+        double dwellAxis {0.0};
+        QVector<UnifiedRfChannel> channels;
+    };
+    struct UnifiedRfViewport
+    {
+        QVector<QVector<double>> ampTimeByChannel;
+        QVector<QVector<double>> ampValueByChannel;
+        QVector<QVector<double>> phaseTimeByChannel;
+        QVector<QVector<double>> phaseValueByChannel;
     };
 
     explicit PulseqLoader(MainWindow* mainWindow);
@@ -147,6 +178,11 @@ public:
     void getRfViewportDecimated(double visibleStart, double visibleEnd, int pixelWidth,
                                 QVector<double>& tAmp, QVector<double>& vAmp,
                                 QVector<double>& tPh, QVector<double>& vPh);
+    void getUnifiedRfViewport(double visibleStart, double visibleEnd, int pixelWidth,
+                              UnifiedRfViewport& viewport);
+    int getUnifiedRfChannelCount() const { return m_unifiedRfChannelCount; }
+    bool hasDetectedRoosPtxHack() const { return m_detectedRoosPtxHack; }
+    QString getUnifiedRfStatusMessage() const { return m_unifiedRfStatusMessage; }
 
     // Global RF ranges without materializing merged arrays
     QPair<double,double> getRfGlobalRangeAmp();
@@ -277,6 +313,26 @@ private:
     QString formatExtensionLabelLine(const QString& label, int value, bool isFlag) const;
 
     void buildShapeScaleAggregates();
+    void buildUnifiedRfBlocks();
+    void appendUnifiedRfBlockSeries(const UnifiedRfBlock& block,
+                                    int pixelWidth,
+                                    double window,
+                                    bool allowDecimate,
+                                    UnifiedRfViewport& viewport) const;
+    bool appendUnifiedRfChannelSeries(const UnifiedRfBlock& block,
+                                      const UnifiedRfChannel& channel,
+                                      int pixelWidth,
+                                      double window,
+                                      bool allowDecimate,
+                                      QVector<double>& tAmp,
+                                      QVector<double>& vAmp,
+                                      QVector<double>& tPh,
+                                      QVector<double>& vPh) const;
+    void applyRfPhaseOffsets(const UnifiedRfBlock& block,
+                             const UnifiedRfChannel& channel,
+                             QVector<double>& tPh,
+                             QVector<double>& vPh) const;
+    QString rfSourceTypeToString(RfSourceType type) const;
     void ClearPulseqCache(bool withUi = true);
     bool IsBlockRf(const float* fAmp, const float* fPhase, const int& iSamples);
     void updateEchoAndExcitationMetadata(int versionMajor, int versionMinor);
@@ -343,6 +399,10 @@ private:
     // Merged series storage
     QVector<double> m_rfTimeAmp, m_rfAmp;
     QVector<double> m_rfTimePh, m_rfPh;
+    QVector<UnifiedRfBlock> m_unifiedRfBlocks;
+    int m_unifiedRfChannelCount {1};
+    bool m_detectedRoosPtxHack {false};
+    QString m_unifiedRfStatusMessage;
     
     // Gradient merged series storage
     QVector<double> m_gxTime, m_gxValues;

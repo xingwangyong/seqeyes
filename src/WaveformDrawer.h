@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QVector>
 #include <QColor>
+#include <QPen>
 #include <QHash>
 #include <QDateTime>
 #include <QString>
@@ -131,6 +132,8 @@ public slots:
     void DrawTriggerOverlay();
 
 private:
+    void ensureRfChannelGraphs(int channelCount);
+    QPen makeRfChannelPen(int channelIndex) const;
     void rebindVerticalLinesToRects();
     // Old time-based LOD functions removed - replaced with complexity-based LOD system
 
@@ -157,6 +160,8 @@ private:
     QCPGraph* m_graphADC {nullptr};
     QCPGraph* m_graphRFMag {nullptr};
     QCPGraph* m_graphRFPh {nullptr};
+    QVector<QCPGraph*> m_graphRFMagChannels;
+    QVector<QCPGraph*> m_graphRFPhChannels;
     QCPGraph* m_graphGx {nullptr};
     QCPGraph* m_graphGy {nullptr};
     QCPGraph* m_graphGz {nullptr};

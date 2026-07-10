@@ -93,6 +93,7 @@ private:
 
     // Extension tab - label visibility controls
     QCheckBox* m_showExtensionTooltipCheck;
+    QCheckBox* m_enableRoosPtxHackAutoDetectionCheck;
     QMap<QString, QCheckBox*> m_extensionLabelCheckboxes;
 
     // Safety/System tab
@@ -131,6 +132,7 @@ private:
     Settings::TrajectoryUnit m_originalTrajectoryUnit;
     Settings::TrajectoryColormap m_originalTrajectoryColormap;
     bool m_originalShowExtensionTooltip;
+    bool m_originalEnableRoosPtxHackAutoDetection {true};
     QMap<QString, bool> m_originalExtensionLabelStates;
     double m_originalGamma;
     Settings::LogLevel m_originalLogLevel;

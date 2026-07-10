@@ -36,6 +36,7 @@ Settings::Settings(QObject* parent)
     , m_gamma(42.576e6) // Hz/T for hydrogen
     , m_logLevel(LogLevel::Warning) // Default to Warning level
     , m_showExtensionTooltip(false)
+    , m_enableRoosPtxHackAutoDetection(true)
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
 {
     // Place settings in per-user home directory: ~/.seqeyes/settings.json
@@ -308,6 +309,20 @@ bool Settings::getShowTeApproximateDialog() const
     return m_showTeApproximateDialog;
 }
 
+void Settings::setEnableRoosPtxHackAutoDetection(bool enable)
+{
+    if (m_enableRoosPtxHackAutoDetection != enable) {
+        m_enableRoosPtxHackAutoDetection = enable;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+bool Settings::getEnableRoosPtxHackAutoDetection() const
+{
+    return m_enableRoosPtxHackAutoDetection;
+}
+
 void Settings::setShowTrajectoryApproximateDialog(bool show)
 {
     if (m_showTrajectoryApproximateDialog != show) {
@@ -415,6 +430,7 @@ void Settings::saveSettings()
     obj["showTeApproximateDialog"] = m_showTeApproximateDialog;
     obj["showTrajectoryApproximateDialog"] = m_showTrajectoryApproximateDialog;
     obj["showExtensionTooltip"] = m_showExtensionTooltip;
+    obj["enableRoosPtxHackAutoDetection"] = m_enableRoosPtxHackAutoDetection;
     {
         QJsonArray arr;
         for (const SystemProfile& profile : m_systemProfiles) {
@@ -558,6 +574,7 @@ void Settings::loadSettings()
     m_showTeApproximateDialog = obj.value("showTeApproximateDialog").toBool(true);
     m_showTrajectoryApproximateDialog = obj.value("showTrajectoryApproximateDialog").toBool(true);
     m_showExtensionTooltip = obj.value("showExtensionTooltip").toBool(false);
+    m_enableRoosPtxHackAutoDetection = obj.value("enableRoosPtxHackAutoDetection").toBool(true);
     m_systemProfiles.clear();
     m_activeSystemProfileAlias = obj.value("activeSystemProfileAlias").toString().trimmed();
     if (obj.value("systemProfiles").isArray()) {
@@ -621,6 +638,7 @@ void Settings::resetToDefaults()
     m_showTeApproximateDialog = true;
     m_showTrajectoryApproximateDialog = true;
     m_showExtensionTooltip = false;
+    m_enableRoosPtxHackAutoDetection = true;
     m_systemProfiles.clear();
     m_activeSystemProfileAlias.clear();
     m_pnsShowX = false;

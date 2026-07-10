@@ -37,6 +37,7 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_panDragCheck(nullptr)
     , m_panWheelCheck(nullptr)
     , m_showExtensionTooltipCheck(nullptr)
+    , m_enableRoosPtxHackAutoDetectionCheck(nullptr)
     , m_systemProfileCombo(nullptr)
     , m_addSystemProfileButton(nullptr)
     , m_removeSystemProfileButton(nullptr)
@@ -302,6 +303,9 @@ void SettingsDialog::setupUI()
     // Checkbox for extension tooltip
     m_showExtensionTooltipCheck = new QCheckBox("Show extension tooltip", extensionsTab);
     extensionsLayout->addWidget(m_showExtensionTooltipCheck);
+    m_enableRoosPtxHackAutoDetectionCheck = new QCheckBox("Enable RoosPtxHack auto-detection", extensionsTab);
+    m_enableRoosPtxHackAutoDetectionCheck->setChecked(true);
+    extensionsLayout->addWidget(m_enableRoosPtxHackAutoDetectionCheck);
 
     QGroupBox* labelsGroup = new QGroupBox("Plot the following extension labels", extensionsTab);
     QGridLayout* labelsLayout = new QGridLayout(labelsGroup);
@@ -489,6 +493,7 @@ void SettingsDialog::loadCurrentSettings()
     m_originalZoomInputMode = settings.getZoomInputMode();
     m_originalPanWheelEnabled = settings.getPanWheelEnabled();
     m_originalShowExtensionTooltip = settings.getShowExtensionTooltip();
+    m_originalEnableRoosPtxHackAutoDetection = settings.getEnableRoosPtxHackAutoDetection();
     m_originalSystemProfiles = settings.getSystemProfiles();
     m_originalActiveSystemProfileAlias = settings.getActiveSystemProfileAlias();
     m_systemProfilesDraft = m_originalSystemProfiles;
@@ -537,6 +542,8 @@ void SettingsDialog::loadCurrentSettings()
     // Extensions: sync checkboxes from settings
     if (m_showExtensionTooltipCheck)
         m_showExtensionTooltipCheck->setChecked(settings.getShowExtensionTooltip());
+    if (m_enableRoosPtxHackAutoDetectionCheck)
+        m_enableRoosPtxHackAutoDetectionCheck->setChecked(settings.getEnableRoosPtxHackAutoDetection());
 
     for (auto it = m_extensionLabelCheckboxes.begin(); it != m_extensionLabelCheckboxes.end(); ++it)
     {
@@ -644,6 +651,8 @@ bool SettingsDialog::applySettings()
     // Apply extension tooltip setting
     if (m_showExtensionTooltipCheck)
         settings.setShowExtensionTooltip(m_showExtensionTooltipCheck->isChecked());
+    if (m_enableRoosPtxHackAutoDetectionCheck)
+        settings.setEnableRoosPtxHackAutoDetection(m_enableRoosPtxHackAutoDetectionCheck->isChecked());
 
     // Apply extension label visibility
     for (auto it = m_extensionLabelCheckboxes.begin(); it != m_extensionLabelCheckboxes.end(); ++it)
@@ -760,6 +769,7 @@ void SettingsDialog::onCancelClicked()
     settings.setGamma(m_originalGamma);
     settings.setLogLevel(m_originalLogLevel);
     settings.setShowExtensionTooltip(m_originalShowExtensionTooltip);
+    settings.setEnableRoosPtxHackAutoDetection(m_originalEnableRoosPtxHackAutoDetection);
     settings.setSystemProfiles(m_originalSystemProfiles);
     settings.setActiveSystemProfileAlias(m_originalActiveSystemProfileAlias);
     settings.setPnsChannelVisibleX(m_originalPnsShowX);
