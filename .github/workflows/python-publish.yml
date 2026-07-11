@@ -92,11 +92,12 @@ jobs:
         run: >
           cmake -S . -B _cmake_build
           -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_VERBOSE_MAKEFILE=ON
           -DSEQEYES_BUILD_TESTS=OFF
           -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/python"
 
       - name: Build (CMake)
-        run: cmake --build _cmake_build --config Release
+        run: cmake --build _cmake_build --config Release --verbose
 
       - name: Install binary into package tree
         run: cmake --install _cmake_build --config Release

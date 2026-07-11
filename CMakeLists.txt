@@ -73,6 +73,53 @@ find_package(Qt6 COMPONENTS
     REQUIRED
 )
 
+if(APPLE)
+    function(seqeyes_remove_agl_framework target_name)
+        if(NOT TARGET "${target_name}")
+            return()
+        endif()
+
+        foreach(property_name IN ITEMS INTERFACE_LINK_LIBRARIES INTERFACE_LINK_OPTIONS)
+            get_target_property(property_value "${target_name}" "${property_name}")
+            if(NOT property_value)
+                continue()
+            endif()
+
+            set(filtered_value "")
+            set(skip_next_if_agl FALSE)
+            foreach(item IN LISTS property_value)
+                if(item STREQUAL "-framework")
+                    set(skip_next_if_agl TRUE)
+                    continue()
+                endif()
+
+                if(skip_next_if_agl)
+                    set(skip_next_if_agl FALSE)
+                    if(item STREQUAL "AGL")
+                        continue()
+                    endif()
+                    list(APPEND filtered_value "-framework")
+                endif()
+
+                if(item MATCHES "(^|/)AGL\\.framework$|^-framework[ ]+AGL$|^-Wl,-framework,AGL$|^AGL$")
+                    continue()
+                endif()
+                list(APPEND filtered_value "${item}")
+            endforeach()
+            if(skip_next_if_agl)
+                list(APPEND filtered_value "-framework")
+            endif()
+
+            set_target_properties("${target_name}" PROPERTIES "${property_name}" "${filtered_value}")
+        endforeach()
+    endfunction()
+
+    # Newer macOS SDKs no longer ship the legacy AGL framework. Some Qt macOS
+    # packages still expose it through Qt6::Gui, although SeqEyes does not use
+    # QCustomPlot's optional OpenGL path.
+    seqeyes_remove_agl_framework(Qt6::Gui)
+endif()
+
 set(UI_LIST
     ${PROJECT_ROOT}/src/mainwindow.ui
 )
