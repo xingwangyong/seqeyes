@@ -34,6 +34,25 @@ def detect_exe(bin_dir: Path) -> Path:
     raise FileNotFoundError(f"ReopenEquivalenceTest not found under {bin_dir}")
 
 
+def detect_platform_plugin(bin_dir: Path, qt_bin: Path) -> tuple[str, list[Path]]:
+    platform_dirs = [
+        bin_dir / "platforms",
+        qt_bin / "platforms",
+        qt_bin.parent / "plugins" / "platforms",
+    ]
+    plugins: list[Path] = []
+    for d in platform_dirs:
+        if d.exists():
+            plugins.extend(sorted(d.glob("q*.dll")))
+
+    names = {p.name.lower() for p in plugins}
+    if "qminimal.dll" in names:
+        return "minimal", plugins
+    if "qwindows.dll" in names:
+        return "windows", plugins
+    return "windows", plugins
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bin-dir", type=Path, default=REPO / "out" / "build" / "x64-Release")
@@ -56,11 +75,11 @@ def main():
     env["QT_ENABLE_HIGHDPI_SCALING"] = "0"
     env["QT_SCALE_FACTOR"] = "1"
     env["QT_AUTO_SCREEN_SCALE_FACTOR"] = "0"
-    # Hosted Windows runners are flaky with native desktop-backed Qt windows.
-    # Prefer the minimal platform plugin in automation so hangs show up as
-    # explicit plugin/init failures instead of silent stalls before test logs.
-    env.setdefault("QT_QPA_PLATFORM", "minimal")
-    env.setdefault("QT_DEBUG_PLUGINS", "1")
+    # Prefer minimal when it is actually deployed, but windeployqt usually ships
+    # qwindows.dll only. Forcing a missing platform plugin can block in
+    # QApplication startup on hosted Windows before QtTest prints anything.
+    platform, platform_plugins = detect_platform_plugin(args.bin_dir, args.qt_bin)
+    env.setdefault("QT_QPA_PLATFORM", platform)
     path_entries = []
     if args.bin_dir.exists():
         path_entries.append(str(args.bin_dir.resolve()))
@@ -75,6 +94,11 @@ def main():
     print(f"[TEST reopen] exe={exe}")
     print(f"[TEST reopen] file_a={env['REOPEN_SEQ_A']}")
     print(f"[TEST reopen] file_b={env['REOPEN_SEQ_B']}")
+    print(f"[TEST reopen] QT_QPA_PLATFORM={env.get('QT_QPA_PLATFORM', '')}")
+    if platform_plugins:
+        print("[TEST reopen] platform_plugins=" + ";".join(str(p) for p in platform_plugins))
+    else:
+        print("[TEST reopen] platform_plugins=<none>")
     proc = subprocess.Popen(
         [str(exe), "-o", "-,txt", "-v1"],
         env=env,

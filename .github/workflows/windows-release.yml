@@ -89,7 +89,7 @@ jobs:
 
   qt_cpp_tests:
     needs: build_windows
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: read
 
