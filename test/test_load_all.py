@@ -39,18 +39,21 @@ def main():
 
     exe = detect_seqeye(args.bin_dir)
     seq_dir = Path(__file__).resolve().parents[0] / "seq_files"
-    files = sorted(seq_dir.glob("*.seq"))
+    # Recurse so versioned fixtures under subfolders like seq_files/v142 also
+    # participate in CI load coverage.
+    files = sorted(seq_dir.rglob("*.seq"))
     passed = 0
     failed = 0
     for f in files:
-        print(f"[RUN] {f}")
+        rel = f.relative_to(seq_dir)
+        print(f"[RUN] {rel}")
         cp = subprocess.run([exe, "--headless", "--exit-after-load", str(f)], text=True)
 
         if cp.returncode == 0:
-            print(f"[PASS] {f}")
+            print(f"[PASS] {rel}")
             passed += 1
         else:
-            print(f"[FAIL] {f} (exit={cp.returncode})")
+            print(f"[FAIL] {rel} (exit={cp.returncode})")
             failed += 1
     print(f"Summary: {passed} passed, {failed} failed")
     sys.exit(0 if failed == 0 else 1)
