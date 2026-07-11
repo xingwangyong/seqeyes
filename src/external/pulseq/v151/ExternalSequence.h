@@ -974,6 +974,7 @@ class ExternalSequence
 
 	bool usesRfShimExtension();
     bool getRfShimEventByID(int id, RfShimmingEvent& rfse); 
+    bool getDecompressedShapeByID(int shapeId, std::vector<float>& shape);
 	
   private:
 
@@ -1177,6 +1178,17 @@ inline bool ExternalSequence::getRfShimEventByID(int id, RfShimmingEvent& rfse) 
         return false;
     rfse = it->second;
     return true;
+}
+
+inline bool ExternalSequence::getDecompressedShapeByID(int shapeId, std::vector<float>& shape) {
+    shape.clear();
+    std::map<int, CompressedShape>::iterator it = m_shapeLibrary.find(shapeId);
+    if (it == m_shapeLibrary.end())
+        return false;
+    shape.resize(it->second.numUncompressedSamples);
+    if (shape.empty())
+        return true;
+    return decompressShape(it->second, &shape[0]);
 }
 	
 // optionally close SEQ_NAMESPACE

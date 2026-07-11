@@ -63,6 +63,133 @@ QString fallbackExtensionName(const QString& prefix, int id)
 {
     return QString("%1[%2]").arg(prefix).arg(id).toUpper();
 }
+
+qint64 quantizeKey(double value, double scale)
+{
+    return qRound64(value * scale);
+}
+
+double wrapPhase0ToTau(double phase)
+{
+    const double tau = 2.0 * M_PI;
+    double wrapped = std::fmod(phase, tau);
+    if (wrapped < 0.0) {
+        wrapped += tau;
+    }
+    return wrapped;
+}
+
+qint64 quantizedPhaseKey(double phase)
+{
+    return quantizeKey(wrapPhase0ToTau(phase), 1e6);
+}
+
+QString makeRfRoosTemplateKey(const RFEvent& rf, int rfLength, float dwellUs)
+{
+    return QStringLiteral("rf:%1:%2:%3:%4:%5:%6:%7:%8:%9:%10")
+        .arg(rfLength)
+        .arg(quantizeKey(dwellUs, 1e3))
+        .arg(rf.magShape)
+        .arg(rf.phaseShape)
+        .arg(rf.timeShape)
+        .arg(quantizeKey(rf.amplitude, 1e6))
+        .arg(rf.delay)
+        .arg(quantizeKey(rf.freqOffset, 1e6))
+        .arg(quantizeKey(rf.freqPPM, 1e6))
+        .arg(quantizeKey(rf.phasePPM, 1e6));
+}
+
+QString makeAdcRoosTemplateKey(const ADCEvent& adc)
+{
+    return QStringLiteral("adc:%1:%2:%3:%4:%5:%6:%7")
+        .arg(adc.numSamples)
+        .arg(adc.dwellTime)
+        .arg(adc.delay)
+        .arg(adc.phaseModulationShape)
+        .arg(quantizeKey(adc.freqOffset, 1e6))
+        .arg(quantizeKey(adc.freqPPM, 1e6))
+        .arg(quantizeKey(adc.phasePPM, 1e6));
+}
+
+QVector<int> detectRoosTimeShapeBoundaries(ExternalSequence* seq, int timeShapeId, int expectedLen = -1)
+{
+    QVector<int> boundaries;
+    if (!seq || timeShapeId <= 0 || expectedLen <= 0) {
+        if (!seq || timeShapeId <= 0) {
+            return boundaries;
+        }
+    }
+
+    std::vector<float> timeShape;
+    if (!seq->getDecompressedShapeByID(timeShapeId, timeShape)) {
+        return boundaries;
+    }
+    if (timeShape.empty()) {
+        return boundaries;
+    }
+    if (expectedLen > 0 && int(timeShape.size()) != expectedLen) {
+        return boundaries;
+    }
+
+    boundaries.append(0);
+    const double eps = 1e-6;
+    for (int i = 1; i < int(timeShape.size()); ++i) {
+        if (double(timeShape[i]) + eps < double(timeShape[i - 1])) {
+            boundaries.append(i);
+        }
+    }
+    boundaries.append(int(timeShape.size()));
+    return boundaries;
+}
+
+bool areUniformRoosSegments(const QVector<int>& boundaries, int* segmentLen = nullptr)
+{
+    if (boundaries.size() < 3) {
+        return false;
+    }
+
+    const int len = boundaries[1] - boundaries[0];
+    if (len <= 0) {
+        return false;
+    }
+    for (int i = 1; i + 1 < boundaries.size(); ++i) {
+        if ((boundaries[i + 1] - boundaries[i]) != len) {
+            return false;
+        }
+    }
+    if (segmentLen) {
+        *segmentLen = len;
+    }
+    return true;
+}
+
+bool getRoosRawRfShapes(ExternalSequence* seq,
+                        const RFEvent& rf,
+                        std::vector<float>& amp,
+                        std::vector<float>& phase)
+{
+    amp.clear();
+    phase.clear();
+    if (!seq || rf.magShape <= 0 || rf.phaseShape <= 0) {
+        return false;
+    }
+    if (!seq->getDecompressedShapeByID(rf.magShape, amp)) {
+        return false;
+    }
+    if (!seq->getDecompressedShapeByID(rf.phaseShape, phase)) {
+        amp.clear();
+        return false;
+    }
+    if (amp.size() != phase.size() || amp.empty()) {
+        amp.clear();
+        phase.clear();
+        return false;
+    }
+    for (float& value : phase) {
+        value *= float(2.0 * M_PI);
+    }
+    return true;
+}
 }
 
 PulseqLoader::PulseqLoader(MainWindow* mainWindow)
@@ -622,7 +749,18 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
 
     // Precompute per-shape scale aggregates for RF/Gradients (single pass over blocks)
     buildShapeScaleAggregates();
-    buildUnifiedRfBlocks();
+    {
+        QString unifiedRfError;
+        if (!buildUnifiedRfBlocks(&unifiedRfError))
+        {
+            m_sequenceLoadState = SequenceLoadState::Blank;
+            if (m_silentMode) { qWarning().noquote() << unifiedRfError; }
+            else { QMessageBox::critical(m_mainWindow, "Pulseq Load Error", unifiedRfError); }
+            ClearPulseqCache();
+            m_mainWindow->setEnabled(true);
+            return false;
+        }
+    }
 
     WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer();
     // Compute fixed Y-axis ranges based on full-sequence data to avoid per-TR/window autoscale jitter.
@@ -3346,17 +3484,100 @@ QString PulseqLoader::rfSourceTypeToString(RfSourceType type) const
     return QStringLiteral("SingleChannel");
 }
 
-void PulseqLoader::buildUnifiedRfBlocks()
+PulseqLoader::RoosPtxDetectionResult PulseqLoader::detectRoosPtxHackPattern() const
+{
+    RoosPtxDetectionResult result;
+    if (m_vecDecodeSeqBlocks.empty()) {
+        return result;
+    }
+
+    QHash<int, int> resetCountHits;
+    QHash<int, int> resetCountSegmentLen;
+    int splitCapableRfBlocks = 0;
+    for (SeqBlock* blk : m_vecDecodeSeqBlocks) {
+        if (!blk || !blk->isRF() || blk->hasRfShim()) {
+            continue;
+        }
+
+        const RFEvent& rf = blk->GetRFEvent();
+        std::vector<float> rawAmp;
+        std::vector<float> rawPhase;
+        if (!getRoosRawRfShapes(m_spPulseqSeq.get(), rf, rawAmp, rawPhase)) {
+            continue;
+        }
+        const int rfLength = int(rawAmp.size());
+        const QVector<int> boundaries = detectRoosTimeShapeBoundaries(m_spPulseqSeq.get(), rf.timeShape, rfLength);
+        int segmentLen = 0;
+        if (!areUniformRoosSegments(boundaries, &segmentLen)) {
+            continue;
+        }
+
+        const int channelCount = boundaries.size() - 1;
+        if (channelCount <= 1) {
+            continue;
+        }
+        resetCountHits[channelCount] += 1;
+        resetCountSegmentLen[channelCount] = segmentLen;
+        ++splitCapableRfBlocks;
+    }
+
+    int bestCount = 1;
+    int bestHits = 0;
+    for (auto it = resetCountHits.cbegin(); it != resetCountHits.cend(); ++it) {
+        const int channelCount = it.key();
+        const int hitCount = it.value();
+        if (hitCount > bestHits || (hitCount == bestHits && channelCount > bestCount)) {
+            bestHits = hitCount;
+            bestCount = channelCount;
+        }
+    }
+
+    if (bestCount > 1) {
+        result.inferredChannelCount = bestCount;
+        result.inferredSamplesPerChannel = resetCountSegmentLen.value(bestCount, 0);
+    }
+
+    result.matchedRfGroupCount = splitCapableRfBlocks;
+    result.matchedAdcGroupCount = 0;
+    result.uniqueMatchedPhaseCount = 0;
+    result.matchedBlockPairs = 0;
+    result.detected = splitCapableRfBlocks > 0
+        && result.inferredChannelCount > 1
+        && result.inferredSamplesPerChannel > 0;
+
+    if (result.detected) {
+        LogManager::getInstance().appendStructured(
+            QtInfoMsg,
+            QStringLiteral("PulseqLoader"),
+            QStringLiteral("RoosPtxHack detected from time-shape resets: splitCapableRfBlocks=%1 inferredChannels=%2 samplesPerChannel=%3")
+                .arg(result.matchedRfGroupCount)
+                .arg(result.inferredChannelCount)
+                .arg(result.inferredSamplesPerChannel));
+    } else {
+        LogManager::getInstance().appendStructured(
+            QtInfoMsg,
+            QStringLiteral("PulseqLoader"),
+            QStringLiteral("RoosPtxHack not detected from time-shape resets: splitCapableRfBlocks=%1 inferredChannels=%2 samplesPerChannel=%3")
+                .arg(result.matchedRfGroupCount)
+                .arg(result.inferredChannelCount)
+                .arg(result.inferredSamplesPerChannel));
+    }
+    return result;
+}
+
+bool PulseqLoader::buildUnifiedRfBlocks(QString* errorMessage)
 {
     m_unifiedRfBlocks.clear();
     m_unifiedRfChannelCount = 1;
     m_detectedRoosPtxHack = false;
     m_unifiedRfStatusMessage.clear();
     if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.isEmpty()) {
-        return;
+        return true;
     }
 
     const bool enableRoosAutoDetection = Settings::getInstance().getEnableRoosPtxHackAutoDetection();
+    const RoosPtxDetectionResult roosDetection = detectRoosPtxHackPattern();
+    bool hasExplicitRfShim = false;
     for (int i = 0; i < static_cast<int>(m_vecDecodeSeqBlocks.size()); ++i) {
         SeqBlock* blk = m_vecDecodeSeqBlocks[i];
         if (!blk || !blk->isRF()) {
@@ -3397,6 +3618,7 @@ void PulseqLoader::buildUnifiedRfBlocks()
         };
 
         if (blk->hasRfShim()) {
+            hasExplicitRfShim = true;
             auto& rfShim = blk->GetRfShim();
             for (int channelIndex = 0; channelIndex < rfShim.nchan; ++channelIndex) {
                 const double scale = double(rf.amplitude) * double(rfShim.amplitudes[channelIndex]);
@@ -3405,16 +3627,74 @@ void PulseqLoader::buildUnifiedRfBlocks()
                                          + double(rfShim.phases[channelIndex]);
                 makeChannel(channelIndex, RfSourceType::RfShim, scale, phaseOffset);
             }
+        } else if (enableRoosAutoDetection && roosDetection.detected) {
+            std::vector<float> rawAmp;
+            std::vector<float> rawPhase;
+            const bool hasRawShapes = getRoosRawRfShapes(m_spPulseqSeq.get(), rf, rawAmp, rawPhase);
+            const QVector<int> boundaries = hasRawShapes
+                ? detectRoosTimeShapeBoundaries(m_spPulseqSeq.get(), rf.timeShape, int(rawAmp.size()))
+                : QVector<int>();
+            int samplesPerChannel = 0;
+            if (hasRawShapes
+                && areUniformRoosSegments(boundaries, &samplesPerChannel)
+                && (boundaries.size() - 1) == roosDetection.inferredChannelCount) {
+                const RFAmpEntry& rawAmpEntry = ensureRfAmpCached(rawAmp.data(), int(rawAmp.size()), rf.magShape, rf.timeShape);
+                const RFPhEntry& rawPhEntry = ensureRfPhCached(rawPhase.data(), int(rawPhase.size()), rf.phaseShape, rf.timeShape);
+                unifiedBlock.rfLength = samplesPerChannel;
+
+                for (int channelIndex = 0; channelIndex + 1 < boundaries.size(); ++channelIndex) {
+                    const int start = boundaries[channelIndex];
+                    const int stop = boundaries[channelIndex + 1];
+                    if (start < 0 || stop <= start
+                        || stop > rawAmpEntry.ampNorm.size()
+                        || stop > rawPhEntry.phNorm.size()) {
+                        unifiedBlock.channels.clear();
+                        break;
+                    }
+
+                    UnifiedRfChannel channel;
+                    channel.channelIndex = channelIndex;
+                    channel.source = RfSourceType::RoosPtxHack;
+                    channel.amplitudeScale = double(rf.amplitude);
+                    channel.phaseOffsetRad = rf.phaseOffset
+                        + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla;
+                    channel.freqOffsetHz = rf.freqOffset + rf.freqPPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla;
+                    channel.phaseIsRealLike = rawPhEntry.isRealLike;
+                    channel.ampNorm = rawAmpEntry.ampNorm.mid(start, stop - start);
+                    channel.phaseNorm = rawPhEntry.phNorm.mid(start, stop - start);
+                    unifiedBlock.channels.append(channel);
+                }
+
+                LogManager::getInstance().appendStructured(
+                    QtInfoMsg,
+                    QStringLiteral("PulseqLoader"),
+                    QStringLiteral("RoosPtxHack split RF block %1: rawLen=%2 boundaries=%3 samplesPerChannel=%4 channels=%5")
+                        .arg(i)
+                        .arg(int(rawAmp.size()))
+                        .arg(boundaries.size() - 1)
+                        .arg(samplesPerChannel)
+                        .arg(unifiedBlock.channels.size()));
+            }
+
+            if (unifiedBlock.channels.isEmpty()) {
+                LogManager::getInstance().appendStructured(
+                    QtWarningMsg,
+                    QStringLiteral("PulseqLoader"),
+                    QStringLiteral("RoosPtxHack fallback to single-channel for RF block %1: decodedLen=%2 rawShapeOk=%3 timeShapeId=%4")
+                        .arg(i)
+                        .arg(rfLength)
+                        .arg(hasRawShapes ? QStringLiteral("true") : QStringLiteral("false"))
+                        .arg(rf.timeShape));
+                makeChannel(0,
+                            RfSourceType::RoosPtxHack,
+                            double(rf.amplitude),
+                            rf.phaseOffset + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla);
+            }
         } else {
             makeChannel(0,
-                        RfSourceType::SingleChannel,
+                        roosDetection.detected ? RfSourceType::RoosPtxHack : RfSourceType::SingleChannel,
                         double(rf.amplitude),
                         rf.phaseOffset + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla);
-        }
-
-        if (enableRoosAutoDetection) {
-            // Placeholder for future parser-backed Roos multi-channel decomposition.
-            // Keep explicit state so the rendering/API layer is already unified.
         }
 
         if (!unifiedBlock.channels.isEmpty()) {
@@ -3423,9 +3703,38 @@ void PulseqLoader::buildUnifiedRfBlocks()
         }
     }
 
-    if (!enableRoosAutoDetection) {
+    if (hasExplicitRfShim && roosDetection.detected) {
+        const QString message = QStringLiteral(
+            "Illegal RF multi-channel combination detected: the sequence contains explicit RF_SHIMS and "
+            "also matches the RoosPtxHack RF/ADC phase-table pattern (%1 RF groups, %2 ADC groups, %3 matched phases). "
+            "Mixing both encodings in one file is not supported.")
+            .arg(roosDetection.matchedRfGroupCount)
+            .arg(roosDetection.matchedAdcGroupCount)
+            .arg(roosDetection.uniqueMatchedPhaseCount);
+        if (errorMessage) {
+            *errorMessage = message;
+        }
+        return false;
+    }
+
+    m_detectedRoosPtxHack = roosDetection.detected;
+    if (roosDetection.detected) {
+        if (enableRoosAutoDetection) {
+            m_unifiedRfStatusMessage = QStringLiteral(
+                "Detected RoosPtxHack-style RF/ADC phase tables (%1 RF groups, %2 ADC groups, %3 matched phases, inferred %4 channels x %5 samples).")
+                .arg(roosDetection.matchedRfGroupCount)
+                .arg(roosDetection.matchedAdcGroupCount)
+                .arg(roosDetection.uniqueMatchedPhaseCount)
+                .arg(roosDetection.inferredChannelCount)
+                .arg(roosDetection.inferredSamplesPerChannel);
+        } else {
+            m_unifiedRfStatusMessage = QStringLiteral(
+                "Detected RoosPtxHack-style RF/ADC phase tables, but auto-detection is disabled in settings.");
+        }
+    } else if (!enableRoosAutoDetection) {
         m_unifiedRfStatusMessage = QStringLiteral("RoosPtxHack auto-detection disabled in settings.");
     }
+    return true;
 }
 
 bool PulseqLoader::appendUnifiedRfChannelSeries(const UnifiedRfBlock& block,

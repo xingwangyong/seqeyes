@@ -313,7 +313,17 @@ private:
     QString formatExtensionLabelLine(const QString& label, int value, bool isFlag) const;
 
     void buildShapeScaleAggregates();
-    void buildUnifiedRfBlocks();
+    struct RoosPtxDetectionResult {
+        bool detected {false};
+        int matchedRfGroupCount {0};
+        int matchedAdcGroupCount {0};
+        int uniqueMatchedPhaseCount {0};
+        int matchedBlockPairs {0};
+        int inferredChannelCount {1};
+        int inferredSamplesPerChannel {0};
+    };
+    bool buildUnifiedRfBlocks(QString* errorMessage = nullptr);
+    RoosPtxDetectionResult detectRoosPtxHackPattern() const;
     void appendUnifiedRfBlockSeries(const UnifiedRfBlock& block,
                                     int pixelWidth,
                                     double window,

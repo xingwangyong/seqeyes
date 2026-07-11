@@ -319,7 +319,7 @@ void WaveformDrawer::InitSequenceFigure()
         QColor::fromRgbF(0,0.447,0.741), QColor::fromRgbF(0.85,0.325,0.098),
         QColor::fromRgbF(0.929,0.694,0.125), QColor::fromRgbF(0.494,0.184,0.556),
         QColor::fromRgbF(0.466,0.674,0.188), QColor::fromRgbF(0.301,0.745,0.933),
-        QColor::fromRgbF(0.635,0.078,0.184)
+        QColor::fromRgbF(0.635,0.078,0.184), QColor::fromRgbF(0.25,0.25,0.25)
     });
     
     // Set initial layout based on curve visibility
