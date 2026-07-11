@@ -56,6 +56,11 @@ def main():
     env["QT_ENABLE_HIGHDPI_SCALING"] = "0"
     env["QT_SCALE_FACTOR"] = "1"
     env["QT_AUTO_SCREEN_SCALE_FACTOR"] = "0"
+    # Hosted Windows runners are flaky with native desktop-backed Qt windows.
+    # Prefer the minimal platform plugin in automation so hangs show up as
+    # explicit plugin/init failures instead of silent stalls before test logs.
+    env.setdefault("QT_QPA_PLATFORM", "minimal")
+    env.setdefault("QT_DEBUG_PLUGINS", "1")
     path_entries = []
     if args.bin_dir.exists():
         path_entries.append(str(args.bin_dir.resolve()))
