@@ -87,6 +87,53 @@ jobs:
       - name: Run Headless Load Test
         run: python test/test_load_all.py --bin-dir runtime/seqeyes
 
+  qt_cpp_tests:
+    needs: build_windows
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Runtime Zip
+        uses: actions/download-artifact@v4
+        with:
+          name: seqeyes-ci-runtime
+          path: .
+
+      - name: Extract Runtime
+        shell: pwsh
+        run: |
+          Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath runtime -Force
+
+      - name: Run TimeSliderSyncTest
+        run: python test/test_zoom_pan.py --bin-dir runtime/seqeyes
+
+      - name: Run ReopenEquivalenceTest
+        run: python test/test_reopen.py --bin-dir runtime/seqeyes --qt-bin runtime/seqeyes
+
+      - name: Run RfMultichannelDetectionTest
+        shell: pwsh
+        run: |
+          $root = (Resolve-Path "runtime/seqeyes").Path
+          $candidates = @(
+            (Join-Path $root "RfMultichannelDetectionTest.exe"),
+            (Join-Path $root "test/RfMultichannelDetectionTest.exe"),
+            (Join-Path $root "test/Release/RfMultichannelDetectionTest.exe")
+          )
+          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "RfMultichannelDetectionTest.exe not found under $root"
+            exit 1
+          }
+          $env:PATH = "$root;$env:PATH"
+          & $exe
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
   performance:
     needs: build_windows
     runs-on: windows-latest
@@ -130,7 +177,7 @@ jobs:
           benchmark-data-dir-path: dev/benchmarks
 
   package_release:
-    needs: [visual_regression, headless_load, performance]
+    needs: [visual_regression, headless_load, qt_cpp_tests, performance]
     runs-on: windows-latest
     permissions:
       contents: write
@@ -171,7 +218,7 @@ jobs:
 
   cleanup_internal_artifacts:
     if: ${{ always() }}
-    needs: [build_windows, visual_regression, headless_load, performance, package_release]
+    needs: [build_windows, visual_regression, headless_load, qt_cpp_tests, performance, package_release]
     runs-on: windows-latest
     permissions:
       actions: write

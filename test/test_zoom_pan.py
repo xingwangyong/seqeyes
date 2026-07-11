@@ -36,12 +36,15 @@ def main():
     args = ap.parse_args()
 
     test_exe = detect_test_exe(args.bin_dir)
+    env = os.environ.copy()
+    if args.bin_dir:
+        env["PATH"] = str(Path(args.bin_dir).resolve()) + os.pathsep + env.get("PATH", "")
     seq_dir = Path(__file__).resolve().parents[0] / "seq_files"
     files = sorted(seq_dir.glob("*.seq"))
     rc = 0
     for f in files:
         print(f"[TEST zoom/pan] {f}")
-        cp = subprocess.run([test_exe, "--file", str(f)], text=True)
+        cp = subprocess.run([test_exe, "--file", str(f)], text=True, env=env)
         if cp.returncode != 0:
             rc = cp.returncode
     sys.exit(rc)
