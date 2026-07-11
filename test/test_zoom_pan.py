@@ -44,9 +44,20 @@ def main():
     rc = 0
     for f in files:
         print(f"[TEST zoom/pan] {f}")
-        cp = subprocess.run([test_exe, "--file", str(f)], text=True, env=env)
+        cp = subprocess.run(
+            [test_exe, "-o", "-,txt", "--file", str(f)],
+            text=True,
+            env=env,
+            capture_output=True,
+        )
+        if cp.stdout:
+            print(cp.stdout, end="" if cp.stdout.endswith("\n") else "\n")
+        if cp.stderr:
+            print(cp.stderr, file=sys.stderr, end="" if cp.stderr.endswith("\n") else "\n")
         if cp.returncode != 0:
+            print(f"[FAIL zoom/pan] {f} (exit={cp.returncode})", file=sys.stderr)
             rc = cp.returncode
+            break
     sys.exit(rc)
 
 if __name__ == "__main__":
