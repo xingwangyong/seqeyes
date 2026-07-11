@@ -52,6 +52,17 @@ jobs:
           cd build
           windeployqt seqeyes.exe
 
+      - name: Copy Qt Test Runtime For Test Executables
+        shell: pwsh
+        run: |
+          $qtBin = Split-Path ((Get-Command windeployqt).Source)
+          $qtTestDll = Join-Path $qtBin "Qt6Test.dll"
+          if (-not (Test-Path $qtTestDll)) {
+            Write-Error "Qt6Test.dll not found under $qtBin"
+            exit 1
+          }
+          Copy-Item -Path $qtTestDll -Destination build -Force
+
       - name: Pack Runtime Zip
         shell: pwsh
         run: |

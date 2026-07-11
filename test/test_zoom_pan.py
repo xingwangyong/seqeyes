@@ -56,6 +56,9 @@ def main():
             print(cp.stderr, file=sys.stderr, end="" if cp.stderr.endswith("\n") else "\n")
         if cp.returncode != 0:
             print(f"[FAIL zoom/pan] {f} (exit={cp.returncode})", file=sys.stderr)
+            if cp.returncode == 3221225781:
+                print("[FAIL zoom/pan] Windows status 0xC0000135: process could not start, likely missing DLL such as Qt6Test.dll.",
+                      file=sys.stderr)
             rc = cp.returncode
             break
     sys.exit(rc)
