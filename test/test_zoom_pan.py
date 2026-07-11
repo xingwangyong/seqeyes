@@ -62,8 +62,10 @@ def main():
         # against many fixtures, but are intentionally not the CI default.
         files = sorted(seq_dir.glob("*.seq"))
     else:
-        # Keep CI focused on representative interaction cases. Headless load
-        # coverage is handled separately by test_load_all.py across all seqs.
+        # Keep this runner focused on representative interaction cases.
+        # In practice this Qt GUI test is more reliable as a local check than as
+        # a cloud CI gate; broad sequence-open coverage is handled separately by
+        # test_load_all.py across all seqs.
         files = [seq_dir / name for name in DEFAULT_CASES]
     missing = [str(f) for f in files if not f.exists()]
     if missing:

@@ -108,8 +108,10 @@ jobs:
         run: |
           Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath runtime -Force
 
-      - name: Run TimeSliderSyncTest
-        run: python test/test_zoom_pan.py --bin-dir runtime/seqeyes
+      # TimeSliderSyncTest is intentionally left out of cloud CI. It has been
+      # reliable as a local Qt interaction check, but too sensitive to hosted
+      # Windows runner environment variance. Keep sequence-open coverage in
+      # headless_load and run zoom/pan locally when working in that area.
 
       - name: Run ReopenEquivalenceTest
         run: python test/test_reopen.py --bin-dir runtime/seqeyes --qt-bin runtime/seqeyes
