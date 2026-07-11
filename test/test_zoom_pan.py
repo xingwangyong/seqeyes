@@ -78,9 +78,10 @@ def main():
     rc = 0
     for f in files:
         print(f"[TEST zoom/pan] {f}")
+        env["TIME_SLIDER_TEST_SEQ"] = str(f.resolve())
         try:
             cp = subprocess.run(
-                [test_exe, "-o", "-,txt", "--file", str(f)],
+                [test_exe, "-o", "-,txt"],
                 text=True,
                 env=env,
                 capture_output=True,

@@ -21,10 +21,13 @@ private slots:
         // Nothing
     }
 
-    void test_zoom_pan_updates_time_slider_silently_TRMode()
+private:
+    static QString resolveSeqPath()
     {
-        MainWindow w; // do not show GUI
-        // Resolve test file: prefer --file arg or default to writeEpi.seq
+        const QString envSeq = qEnvironmentVariable("TIME_SLIDER_TEST_SEQ");
+        if (!envSeq.isEmpty())
+            return envSeq;
+
         QString seqPath;
         QStringList args = QCoreApplication::arguments();
         for (int i = 1; i < args.size(); ++i) {
@@ -37,6 +40,15 @@ private slots:
                 seqPath = QDir(QCoreApplication::applicationDirPath() + "/../../").absoluteFilePath("test/seq_files/writeEpi.seq");
             }
         }
+        return seqPath;
+    }
+
+private slots:
+
+    void test_zoom_pan_updates_time_slider_silently_TRMode()
+    {
+        MainWindow w; // do not show GUI
+        QString seqPath = resolveSeqPath();
         QVERIFY2(QFile::exists(seqPath), "Test sequence file not found");
 
         w.getPulseqLoader()->setSilentMode(true);
@@ -111,19 +123,7 @@ private slots:
     void test_slider_sync_no_signal_on_tr_changes()
     {
         MainWindow w;
-        // Resolve test file (same logic as previous test)
-        QString seqPath;
-        QStringList args = QCoreApplication::arguments();
-        for (int i = 1; i < args.size(); ++i) {
-            if (args[i].endsWith(".seq", Qt::CaseInsensitive)) { seqPath = args[i]; break; }
-            if (args[i] == "--file" && i+1 < args.size()) { seqPath = args[i+1]; break; }
-        }
-        if (seqPath.isEmpty()) {
-            seqPath = QCoreApplication::applicationDirPath() + "/../test/seq_files/writeEpi.seq";
-            if (!QFile::exists(seqPath)) {
-                seqPath = QDir(QCoreApplication::applicationDirPath() + "/../../").absoluteFilePath("test/seq_files/writeEpi.seq");
-            }
-        }
+        QString seqPath = resolveSeqPath();
         QVERIFY2(QFile::exists(seqPath), "Test sequence file not found");
 
         w.getPulseqLoader()->setSilentMode(true);
@@ -150,19 +150,7 @@ private slots:
     void test_pan_respects_boundaries_whole_sequence()
     {
         MainWindow w;
-        // Load
-        QString seqPath;
-        QStringList args = QCoreApplication::arguments();
-        for (int i = 1; i < args.size(); ++i) {
-            if (args[i].endsWith(".seq", Qt::CaseInsensitive)) { seqPath = args[i]; break; }
-            if (args[i] == "--file" && i+1 < args.size()) { seqPath = args[i+1]; break; }
-        }
-        if (seqPath.isEmpty()) {
-            seqPath = QCoreApplication::applicationDirPath() + "/../test/seq_files/writeEpi.seq";
-            if (!QFile::exists(seqPath)) {
-                seqPath = QDir(QCoreApplication::applicationDirPath() + "/../../").absoluteFilePath("test/seq_files/writeEpi.seq");
-            }
-        }
+        QString seqPath = resolveSeqPath();
         QVERIFY2(QFile::exists(seqPath), "Test sequence file not found");
         w.getPulseqLoader()->setSilentMode(true);
         w.show(); QTest::qWait(50);
@@ -207,19 +195,7 @@ private slots:
     void test_tr_toggle_preserves_relative_window()
     {
         MainWindow w;
-        // Resolve file
-        QString seqPath;
-        QStringList args = QCoreApplication::arguments();
-        for (int i = 1; i < args.size(); ++i) {
-            if (args[i].endsWith(".seq", Qt::CaseInsensitive)) { seqPath = args[i]; break; }
-            if (args[i] == "--file" && i+1 < args.size()) { seqPath = args[i+1]; break; }
-        }
-        if (seqPath.isEmpty()) {
-            seqPath = QCoreApplication::applicationDirPath() + "/../test/seq_files/writeEpi.seq";
-            if (!QFile::exists(seqPath)) {
-                seqPath = QDir(QCoreApplication::applicationDirPath() + "/../../").absoluteFilePath("test/seq_files/writeEpi.seq");
-            }
-        }
+        QString seqPath = resolveSeqPath();
         QVERIFY2(QFile::exists(seqPath), "Test sequence file not found");
 
         w.getPulseqLoader()->setSilentMode(true);

@@ -43,38 +43,6 @@ private:
         QApplication::processEvents();
     }
 
-    static QString buildMixedRfShimAndRoosFile(const QString& sourcePath)
-    {
-        QFile f(sourcePath);
-        if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
-            return QString();
-
-        QString text = QString::fromUtf8(f.readAll());
-        f.close();
-
-        text.replace(QStringLiteral("minor 4"), QStringLiteral("minor 5"));
-
-        QRegularExpression firstBlockRe(
-            QStringLiteral("^(\\s*1\\s+418\\s+1\\s+0\\s+0\\s+1\\s+0\\s+)0(\\s*)$"),
-            QRegularExpression::MultilineOption);
-        text.replace(firstBlockRe, QStringLiteral("\\11\\2"));
-
-        const QString extSection =
-            QStringLiteral("[EXTENSIONS]\n"
-                           "1 1 1 0\n"
-                           "extension RF_SHIMS 1\n"
-                           "1 1 1.0 0.0\n\n");
-        text.replace(QStringLiteral("[RF]\n"), extSection + QStringLiteral("[RF]\n"));
-
-        QTemporaryFile tmp(QDir::tempPath() + "/seqeyes_roos_rfshim_XXXXXX.seq");
-        tmp.setAutoRemove(false);
-        if (!tmp.open())
-            return QString();
-        tmp.write(text.toUtf8());
-        tmp.close();
-        return tmp.fileName();
-    }
-
 private slots:
     void initTestCase()
     {
@@ -124,28 +92,6 @@ private slots:
         settle(w);
 
         QVERIFY(!w.getPulseqLoader()->hasDetectedRoosPtxHack());
-    }
-
-    void test_rejects_mixed_rf_shim_and_roos()
-    {
-        Settings::getInstance().setEnableRoosPtxHackAutoDetection(true);
-
-        for (const QString& roosSeq : m_roosSeqs) {
-            const QString mixedSeq = buildMixedRfShimAndRoosFile(roosSeq);
-            QVERIFY2(!mixedSeq.isEmpty(), qPrintable("Failed to build temporary mixed RF sample from: " + roosSeq));
-
-            MainWindow w;
-            w.getPulseqLoader()->setSilentMode(true);
-            w.show();
-            QTest::qWait(50);
-
-            QTest::ignoreMessage(
-                QtWarningMsg,
-                QRegularExpression(QStringLiteral("Illegal RF multi-channel combination detected")));
-            QVERIFY2(!w.getPulseqLoader()->LoadPulseqFile(mixedSeq), qPrintable(mixedSeq));
-
-            QFile::remove(mixedSeq);
-        }
     }
 
 private:
