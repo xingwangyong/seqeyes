@@ -28,6 +28,7 @@ set(PROJECT_ROOT ${CMAKE_SOURCE_DIR})
 set(EXTERNAL_DIR ${CMAKE_SOURCE_DIR}/src/external)
 set(PULSEQ_DIR ${CMAKE_SOURCE_DIR}/src/external/pulseq)
 set(QCUSTOM_PLOT_DIR ${CMAKE_SOURCE_DIR}/src/external/qcustomplot)
+list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # --- Git version info header generated at build time (not configure time) ---
 include_directories(${CMAKE_BINARY_DIR}/generated)

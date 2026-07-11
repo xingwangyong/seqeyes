@@ -70,11 +70,11 @@ jobs:
           arch: ${{ matrix.qt_arch }}
           cache: true
 
-      - name: Install Qt 6.8 LTS (macOS)
+      - name: Install Qt 6.9.2 (macOS)
         if: runner.os == 'macOS'
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.*'
+          version: '6.9.2'
           cache: true
 
       # ---- MSVC (Windows only) ----
@@ -92,11 +92,12 @@ jobs:
         run: >
           cmake -S . -B _cmake_build
           -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_VERBOSE_MAKEFILE=ON
           -DSEQEYES_BUILD_TESTS=OFF
           -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/python"
 
       - name: Build (CMake)
-        run: cmake --build _cmake_build --config Release
+        run: cmake --build _cmake_build --config Release --verbose
 
       - name: Install binary into package tree
         run: cmake --install _cmake_build --config Release
