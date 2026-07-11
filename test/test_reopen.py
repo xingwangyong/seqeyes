@@ -51,6 +51,8 @@ def detect_platform_plugin(bin_dir: Path, qt_bin: Path) -> tuple[str, list[Path]
                     plugins.append(plugin)
 
     names = {p.name.lower() for p in plugins}
+    if "qoffscreen.dll" in names:
+        return "offscreen", plugins
     if "qminimal.dll" in names:
         return "minimal", plugins
     if "qwindows.dll" in names:

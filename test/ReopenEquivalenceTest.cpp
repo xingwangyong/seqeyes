@@ -30,6 +30,9 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
+#include <chrono>
+#include <thread>
 #include <QElapsedTimer>
 
 class ReopenEquivalenceTest : public QObject
@@ -376,5 +379,38 @@ private:
     QString m_fileB;
 };
 
-QTEST_MAIN(ReopenEquivalenceTest)
+static void reopenRawLog(const char* msg)
+{
+    std::fwrite(msg, 1, std::strlen(msg), stderr);
+    std::fwrite("\n", 1, 1, stderr);
+    std::fflush(stderr);
+}
+
+static int reopenInternalTimeoutMs()
+{
+    const QByteArray value = qgetenv("REOPEN_TEST_INTERNAL_TIMEOUT_MS");
+    bool ok = false;
+    const int parsed = value.toInt(&ok);
+    return ok && parsed > 0 ? parsed : 210000;
+}
+
+int main(int argc, char** argv)
+{
+    std::thread([timeoutMs = reopenInternalTimeoutMs()] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(timeoutMs));
+        reopenRawLog("[reopen-main] internal timeout before normal QtTest exit");
+        std::_Exit(124);
+    }).detach();
+
+    reopenRawLog("[reopen-main] before QApplication");
+    QApplication app(argc, argv);
+    reopenRawLog("[reopen-main] after QApplication");
+
+    ReopenEquivalenceTest tc;
+    reopenRawLog("[reopen-main] before qExec");
+    const int rc = QTest::qExec(&tc, argc, argv);
+    reopenRawLog("[reopen-main] after qExec");
+    return rc;
+}
+
 #include "ReopenEquivalenceTest.moc"
