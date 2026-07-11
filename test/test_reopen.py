@@ -34,7 +34,7 @@ def detect_exe(bin_dir: Path) -> Path:
     raise FileNotFoundError(f"ReopenEquivalenceTest not found under {bin_dir}")
 
 
-def detect_platform_plugin(bin_dir: Path, qt_bin: Path) -> tuple[str, list[Path]]:
+def detect_platform_plugin(bin_dir: Path, qt_bin: Path) -> tuple[str, Path | None, list[Path]]:
     platform_dirs = [
         bin_dir / "platforms",
         qt_bin / "platforms",
@@ -50,14 +50,14 @@ def detect_platform_plugin(bin_dir: Path, qt_bin: Path) -> tuple[str, list[Path]
                     seen.add(key)
                     plugins.append(plugin)
 
-    names = {p.name.lower() for p in plugins}
-    if "qoffscreen.dll" in names:
-        return "offscreen", plugins
-    if "qminimal.dll" in names:
-        return "minimal", plugins
-    if "qwindows.dll" in names:
-        return "windows", plugins
-    return "windows", plugins
+    by_name = {p.name.lower(): p for p in plugins}
+    if "qoffscreen.dll" in by_name:
+        return "offscreen", by_name["qoffscreen.dll"], plugins
+    if "qminimal.dll" in by_name:
+        return "minimal", by_name["qminimal.dll"], plugins
+    if "qwindows.dll" in by_name:
+        return "windows", by_name["qwindows.dll"], plugins
+    return "windows", None, plugins
 
 
 def main():
@@ -85,8 +85,10 @@ def main():
     # Prefer minimal when it is actually deployed, but windeployqt usually ships
     # qwindows.dll only. Forcing a missing platform plugin can block in
     # QApplication startup on hosted Windows before QtTest prints anything.
-    platform, platform_plugins = detect_platform_plugin(args.bin_dir, args.qt_bin)
+    platform, platform_plugin, platform_plugins = detect_platform_plugin(args.bin_dir, args.qt_bin)
     env.setdefault("QT_QPA_PLATFORM", platform)
+    if platform_plugin is not None:
+        env["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(platform_plugin.parent.resolve())
     path_entries = []
     if args.bin_dir.exists():
         path_entries.append(str(args.bin_dir.resolve()))
@@ -102,6 +104,7 @@ def main():
     print(f"[TEST reopen] file_a={env['REOPEN_SEQ_A']}", flush=True)
     print(f"[TEST reopen] file_b={env['REOPEN_SEQ_B']}", flush=True)
     print(f"[TEST reopen] QT_QPA_PLATFORM={env.get('QT_QPA_PLATFORM', '')}", flush=True)
+    print(f"[TEST reopen] QT_QPA_PLATFORM_PLUGIN_PATH={env.get('QT_QPA_PLATFORM_PLUGIN_PATH', '')}", flush=True)
     if platform_plugins:
         print("[TEST reopen] platform_plugins=" + ";".join(str(p) for p in platform_plugins), flush=True)
     else:

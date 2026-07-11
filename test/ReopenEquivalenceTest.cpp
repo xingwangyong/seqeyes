@@ -386,6 +386,15 @@ static void reopenRawLog(const char* msg)
     std::fflush(stderr);
 }
 
+static void reopenRawLogEnv(const char* name)
+{
+    const QByteArray value = qgetenv(name);
+    const QByteArray line = QByteArray("[reopen-main] ") + name + "=" + value;
+    std::fwrite(line.constData(), 1, static_cast<size_t>(line.size()), stderr);
+    std::fwrite("\n", 1, 1, stderr);
+    std::fflush(stderr);
+}
+
 static int reopenInternalTimeoutMs()
 {
     const QByteArray value = qgetenv("REOPEN_TEST_INTERNAL_TIMEOUT_MS");
@@ -402,6 +411,8 @@ int main(int argc, char** argv)
         std::_Exit(124);
     }).detach();
 
+    reopenRawLogEnv("QT_QPA_PLATFORM");
+    reopenRawLogEnv("QT_QPA_PLATFORM_PLUGIN_PATH");
     reopenRawLog("[reopen-main] before QApplication");
     QApplication app(argc, argv);
     reopenRawLog("[reopen-main] after QApplication");
