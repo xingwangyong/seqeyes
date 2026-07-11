@@ -2,11 +2,21 @@ import argparse
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SEQ_DIR = REPO / "test" / "seq_files"
 QT_BIN_DEFAULT = Path(r"C:\Qt\6.5.3\msvc2019_64\bin")
+
+
+def _pump(stream, sink):
+    try:
+        for line in iter(stream.readline, ""):
+            sink.write(line)
+            sink.flush()
+    finally:
+        stream.close()
 
 
 def detect_exe(bin_dir: Path) -> Path:
@@ -60,29 +70,34 @@ def main():
     print(f"[TEST reopen] exe={exe}")
     print(f"[TEST reopen] file_a={env['REOPEN_SEQ_A']}")
     print(f"[TEST reopen] file_b={env['REOPEN_SEQ_B']}")
+    proc = subprocess.Popen(
+        [str(exe), "-o", "-,txt", "-v1"],
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    t_out = threading.Thread(target=_pump, args=(proc.stdout, sys.stdout), daemon=True)
+    t_err = threading.Thread(target=_pump, args=(proc.stderr, sys.stderr), daemon=True)
+    t_out.start()
+    t_err.start()
     try:
-        cp = subprocess.run(
-            [str(exe), "-o", "-,txt", "-v1"],
-            env=env,
-            text=True,
-            capture_output=True,
-            timeout=args.timeout,
-        )
-    except subprocess.TimeoutExpired as exc:
-        if exc.stdout:
-            print(exc.stdout, end="" if exc.stdout.endswith("\n") else "\n")
-        if exc.stderr:
-            print(exc.stderr, file=sys.stderr, end="" if exc.stderr.endswith("\n") else "\n")
+        rc = proc.wait(timeout=args.timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        t_out.join(timeout=5)
+        t_err.join(timeout=5)
         print(f"[TIMEOUT reopen] exceeded {args.timeout}s", file=sys.stderr)
         sys.exit(124)
-
-    if cp.stdout:
-        print(cp.stdout, end="" if cp.stdout.endswith("\n") else "\n")
-    if cp.stderr:
-        print(cp.stderr, file=sys.stderr, end="" if cp.stderr.endswith("\n") else "\n")
-    if cp.returncode != 0:
-        print(f"[FAIL reopen] exit={cp.returncode}", file=sys.stderr)
-    sys.exit(cp.returncode)
+    t_out.join(timeout=5)
+    t_err.join(timeout=5)
+    if rc != 0:
+        print(f"[FAIL reopen] exit={rc}", file=sys.stderr)
+    sys.exit(rc)
 
 
 if __name__ == "__main__":
