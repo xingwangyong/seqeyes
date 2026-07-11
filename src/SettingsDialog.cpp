@@ -295,20 +295,24 @@ void SettingsDialog::setupUI()
     m_tabWidget->addTab(layoutTab, "Layout");
 
     // ============================================================================
-    // Extensions Tab (Pulseq labels)
+    // Extensions Tab
     // ============================================================================
     QWidget* extensionsTab = new QWidget();
     QVBoxLayout* extensionsLayout = new QVBoxLayout(extensionsTab);
 
-    // Checkbox for extension tooltip
-    m_showExtensionTooltipCheck = new QCheckBox("Show extension tooltip", extensionsTab);
-    extensionsLayout->addWidget(m_showExtensionTooltipCheck);
-    m_enableRoosPtxHackAutoDetectionCheck = new QCheckBox("Enable RoosPtxHack auto-detection", extensionsTab);
-    m_enableRoosPtxHackAutoDetectionCheck->setChecked(true);
-    extensionsLayout->addWidget(m_enableRoosPtxHackAutoDetectionCheck);
+    QGroupBox* labelsGroup = new QGroupBox("Label", extensionsTab);
+    QVBoxLayout* labelsGroupLayout = new QVBoxLayout(labelsGroup);
 
-    QGroupBox* labelsGroup = new QGroupBox("Plot the following extension labels", extensionsTab);
-    QGridLayout* labelsLayout = new QGridLayout(labelsGroup);
+    m_showExtensionTooltipCheck = new QCheckBox("Show label tooltip", labelsGroup);
+    labelsGroupLayout->addWidget(m_showExtensionTooltipCheck);
+
+    QLabel* labelsHint = new QLabel(
+        "Select which labels should be plotted.",
+        labelsGroup);
+    labelsHint->setWordWrap(true);
+    labelsGroupLayout->addWidget(labelsHint);
+
+    QGridLayout* labelsLayout = new QGridLayout();
 
     // Build checkboxes for all supported labels (three columns for compact layout)
     const QStringList labels = Settings::getSupportedExtensionLabels();
@@ -324,10 +328,43 @@ void SettingsDialog::setupUI()
         m_extensionLabelCheckboxes.insert(lab, cb);
     }
 
+    labelsGroupLayout->addLayout(labelsLayout);
+
     extensionsLayout->addWidget(labelsGroup);
     extensionsLayout->addStretch();
 
     m_tabWidget->addTab(extensionsTab, "Extensions");
+
+    // ============================================================================
+    // Experimental Tab
+    // ============================================================================
+    QWidget* experimentalTab = new QWidget();
+    QVBoxLayout* experimentalLayout = new QVBoxLayout(experimentalTab);
+
+    QGroupBox* roosGroup = new QGroupBox("", experimentalTab);
+    QVBoxLayout* roosLayout = new QVBoxLayout(roosGroup);
+    QWidget* roosOptionRow = new QWidget(roosGroup);
+    QHBoxLayout* roosOptionLayout = new QHBoxLayout(roosOptionRow);
+    roosOptionLayout->setContentsMargins(0, 0, 0, 0);
+    roosOptionLayout->setSpacing(6);
+
+    m_enableRoosPtxHackAutoDetectionCheck = new QCheckBox("Use pTx format proposed by Thomas H. M. Roos", roosOptionRow);
+    m_enableRoosPtxHackAutoDetectionCheck->setChecked(true);
+    roosOptionLayout->addWidget(m_enableRoosPtxHackAutoDetectionCheck);
+
+    QLabel* roosHint = new QLabel(
+        "<a href=\"https://onlinelibrary.wiley.com/doi/full/10.1002/mrm.30601\">Paper</a>",
+        roosOptionRow);
+    roosHint->setTextFormat(Qt::RichText);
+    roosHint->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    roosHint->setOpenExternalLinks(true);
+    roosOptionLayout->addWidget(roosHint);
+    roosOptionLayout->addStretch();
+
+    roosLayout->addWidget(roosOptionRow);
+
+    experimentalLayout->addWidget(roosGroup);
+    experimentalLayout->addStretch();
 
     // ============================================================================
     // Safety Tab (System Profiles)
@@ -407,6 +444,7 @@ void SettingsDialog::setupUI()
     safetyLayout->addStretch();
 
     m_tabWidget->addTab(safetyTab, "Safety");
+    m_tabWidget->addTab(experimentalTab, "Experimental");
     
     // Add tab widget to main layout
     mainLayout->addWidget(m_tabWidget);
