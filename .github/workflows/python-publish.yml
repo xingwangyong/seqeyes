@@ -205,7 +205,7 @@ jobs:
       - build-linux-wheel-from-appimage
     runs-on: ubuntu-latest
     environment:
-      name: ${{ github.event_name == 'release' && 'pypi' || (github.event_name == 'workflow_dispatch' && inputs.publish_target || 'testpypi') }}
+      name: pypi
       url: ${{ (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish_target == 'pypi')) && 'https://pypi.org/project/seqeyes/' || 'https://test.pypi.org/project/seqeyes/' }}
     permissions:
       id-token: write
