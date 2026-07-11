@@ -29,12 +29,28 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
+#include <QElapsedTimer>
 
 class ReopenEquivalenceTest : public QObject
 {
     Q_OBJECT
 
 private:
+    static bool verboseLogs()
+    {
+        return qEnvironmentVariableIsSet("REOPEN_TEST_VERBOSE");
+    }
+
+    static void logStep(const QString& msg)
+    {
+        if (!verboseLogs())
+            return;
+        const QByteArray line = QStringLiteral("[reopen] %1\n").arg(msg).toLocal8Bit();
+        std::fwrite(line.constData(), 1, static_cast<size_t>(line.size()), stderr);
+        std::fflush(stderr);
+    }
+
     // Pick a seq file. The runner (test_reopen.py) passes absolute paths via
     // environment variables, so switching test files never needs a recompile.
     // When the env var is unset (e.g. running the exe directly), fall back to a
@@ -73,6 +89,9 @@ private:
     static void settle(MainWindow& w)
     {
         PulseqLoader* loader = w.getPulseqLoader();
+        QElapsedTimer timer;
+        timer.start();
+        logStep(QStringLiteral("settle: waiting for background computations"));
         loader->waitForBackgroundComputations(60000);
         // Normalize the viewport identically before every snapshot so that the
         // decimated waveform graphs are a function of the file only, not of
@@ -82,6 +101,17 @@ private:
         QApplication::processEvents();
         QTest::qWait(150);
         QApplication::processEvents();
+        logStep(QStringLiteral("settle: done in %1 ms").arg(timer.elapsed()));
+    }
+
+    static bool loadAndSettle(MainWindow& w, const QString& seqPath, const QString& phase)
+    {
+        logStep(QStringLiteral("%1: loading %2").arg(phase, seqPath));
+        if (!w.getPulseqLoader()->LoadPulseqFile(seqPath))
+            return false;
+        settle(w);
+        logStep(QStringLiteral("%1: load complete").arg(phase));
+        return true;
     }
 
     static QString hashSeries(const QVector<double>& a, const QVector<double>& b)
@@ -221,11 +251,61 @@ private:
         return out;
     }
 
+    static void failSnapshotMismatch(const QString& label,
+                                     const QStringList& actual,
+                                     const QStringList& expected)
+    {
+        logStep(QStringLiteral("%1: snapshot mismatch actual=%2 expected=%3")
+                    .arg(label)
+                    .arg(actual.size())
+                    .arg(expected.size()));
+
+        const int shared = std::min(actual.size(), expected.size());
+        for (int i = 0; i < shared; ++i)
+        {
+            if (actual[i] != expected[i])
+            {
+                logStep(QStringLiteral("%1: first diff at index %2").arg(label).arg(i));
+                logStep(QStringLiteral("%1: actual   %2").arg(label, actual[i]));
+                logStep(QStringLiteral("%1: expected %2").arg(label, expected[i]));
+                QFAIL(qPrintable(QStringLiteral("%1: snapshot mismatch at index %2").arg(label).arg(i)));
+            }
+        }
+
+        if (actual.size() != expected.size())
+        {
+            if (shared < actual.size())
+                logStep(QStringLiteral("%1: first extra actual line %2").arg(label, actual[shared]));
+            if (shared < expected.size())
+                logStep(QStringLiteral("%1: first missing actual line expected=%2").arg(label, expected[shared]));
+            QFAIL(qPrintable(QStringLiteral("%1: snapshot size mismatch actual=%2 expected=%3")
+                                 .arg(label)
+                                 .arg(actual.size())
+                                 .arg(expected.size())));
+        }
+
+        QFAIL(qPrintable(QStringLiteral("%1: snapshot mismatch").arg(label)));
+    }
+
+    static void assertSnapshotsEqual(const QString& label,
+                                     const QStringList& actual,
+                                     const QStringList& expected)
+    {
+        if (actual == expected)
+        {
+            logStep(QStringLiteral("%1: snapshots match").arg(label));
+            return;
+        }
+        failSnapshotMismatch(label, actual, expected);
+    }
+
 private slots:
     void initTestCase()
     {
         m_fileA = seqFromEnv("REOPEN_SEQ_A", QStringLiteral("writeGradientEcho_label.seq"));
         m_fileB = seqFromEnv("REOPEN_SEQ_B", QStringLiteral("writeFid.seq"));
+        logStep(QStringLiteral("initTestCase: fileA=%1").arg(m_fileA));
+        logStep(QStringLiteral("initTestCase: fileB=%1").arg(m_fileB));
         QVERIFY2(QFile::exists(m_fileA), qPrintable("Missing test file A: " + m_fileA));
         QVERIFY2(QFile::exists(m_fileB), qPrintable("Missing test file B: " + m_fileB));
     }
@@ -238,18 +318,17 @@ private slots:
         w.show();
         QTest::qWait(50);
 
-        QVERIFY(w.getPulseqLoader()->LoadPulseqFile(m_fileB));
-        settle(w);
+        QVERIFY2(loadAndSettle(w, m_fileB, QStringLiteral("A_then_B/cold_B")), qPrintable(m_fileB));
         const QStringList coldB = captureSnapshot(w);
+        logStep(QStringLiteral("A_then_B: cold_B snapshot lines=%1").arg(coldB.size()));
 
-        QVERIFY(w.getPulseqLoader()->LoadPulseqFile(m_fileA));
-        settle(w);
+        QVERIFY2(loadAndSettle(w, m_fileA, QStringLiteral("A_then_B/open_A")), qPrintable(m_fileA));
 
-        QVERIFY(w.getPulseqLoader()->LoadPulseqFile(m_fileB));
-        settle(w);
+        QVERIFY2(loadAndSettle(w, m_fileB, QStringLiteral("A_then_B/reopen_B")), qPrintable(m_fileB));
         const QStringList reopenB = captureSnapshot(w);
+        logStep(QStringLiteral("A_then_B: reopen_B snapshot lines=%1").arg(reopenB.size()));
 
-        QCOMPARE(reopenB, coldB);
+        assertSnapshotsEqual(QStringLiteral("A_then_B"), reopenB, coldB);
     }
 
     // open(B) cold  ==  open(B); open(B)   (same-file reopen)
@@ -260,15 +339,15 @@ private slots:
         w.show();
         QTest::qWait(50);
 
-        QVERIFY(w.getPulseqLoader()->LoadPulseqFile(m_fileB));
-        settle(w);
+        QVERIFY2(loadAndSettle(w, m_fileB, QStringLiteral("same_file/first_B")), qPrintable(m_fileB));
         const QStringList first = captureSnapshot(w);
+        logStep(QStringLiteral("same_file: first snapshot lines=%1").arg(first.size()));
 
-        QVERIFY(w.getPulseqLoader()->LoadPulseqFile(m_fileB));
-        settle(w);
+        QVERIFY2(loadAndSettle(w, m_fileB, QStringLiteral("same_file/second_B")), qPrintable(m_fileB));
         const QStringList second = captureSnapshot(w);
+        logStep(QStringLiteral("same_file: second snapshot lines=%1").arg(second.size()));
 
-        QCOMPARE(second, first);
+        assertSnapshotsEqual(QStringLiteral("same_file"), second, first);
     }
 
     // Symmetric direction: open(A) cold  ==  open(B); open(A)
@@ -279,18 +358,17 @@ private slots:
         w.show();
         QTest::qWait(50);
 
-        QVERIFY(w.getPulseqLoader()->LoadPulseqFile(m_fileA));
-        settle(w);
+        QVERIFY2(loadAndSettle(w, m_fileA, QStringLiteral("B_then_A/cold_A")), qPrintable(m_fileA));
         const QStringList coldA = captureSnapshot(w);
+        logStep(QStringLiteral("B_then_A: cold_A snapshot lines=%1").arg(coldA.size()));
 
-        QVERIFY(w.getPulseqLoader()->LoadPulseqFile(m_fileB));
-        settle(w);
+        QVERIFY2(loadAndSettle(w, m_fileB, QStringLiteral("B_then_A/open_B")), qPrintable(m_fileB));
 
-        QVERIFY(w.getPulseqLoader()->LoadPulseqFile(m_fileA));
-        settle(w);
+        QVERIFY2(loadAndSettle(w, m_fileA, QStringLiteral("B_then_A/reopen_A")), qPrintable(m_fileA));
         const QStringList reopenA = captureSnapshot(w);
+        logStep(QStringLiteral("B_then_A: reopen_A snapshot lines=%1").arg(reopenA.size()));
 
-        QCOMPARE(reopenA, coldA);
+        assertSnapshotsEqual(QStringLiteral("B_then_A"), reopenA, coldA);
     }
 
 private:

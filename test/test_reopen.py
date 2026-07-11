@@ -14,6 +14,8 @@ def detect_exe(bin_dir: Path) -> Path:
         bin_dir / "ReopenEquivalenceTest.exe",
         bin_dir / "test" / "ReopenEquivalenceTest.exe",
         bin_dir / "test" / "Release" / "ReopenEquivalenceTest.exe",
+        bin_dir.parent / "test" / "Release" / "ReopenEquivalenceTest.exe",
+        bin_dir.parent / "test" / "Debug" / "ReopenEquivalenceTest.exe",
         bin_dir / "ReopenEquivalenceTest",
         bin_dir / "test" / "ReopenEquivalenceTest",
     ]:
@@ -31,6 +33,8 @@ def main():
                     help="First sequence (the one opened earlier)")
     ap.add_argument("--file-b", type=Path, default=SEQ_DIR / "writeFid.seq",
                     help="Second sequence (must not inherit A's state)")
+    ap.add_argument("--timeout", type=int, default=240,
+                    help="Whole-test timeout in seconds")
     args = ap.parse_args()
 
     exe = detect_exe(args.bin_dir)
@@ -51,8 +55,34 @@ def main():
         env["PATH"] = os.pathsep.join(path_entries + [env.get("PATH", "")])
     env["REOPEN_SEQ_A"] = str(args.file_a.resolve())
     env["REOPEN_SEQ_B"] = str(args.file_b.resolve())
+    env["REOPEN_TEST_VERBOSE"] = "1"
 
-    sys.exit(subprocess.run([str(exe)], env=env).returncode)
+    print(f"[TEST reopen] exe={exe}")
+    print(f"[TEST reopen] file_a={env['REOPEN_SEQ_A']}")
+    print(f"[TEST reopen] file_b={env['REOPEN_SEQ_B']}")
+    try:
+        cp = subprocess.run(
+            [str(exe), "-o", "-,txt", "-v1"],
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=args.timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        if exc.stdout:
+            print(exc.stdout, end="" if exc.stdout.endswith("\n") else "\n")
+        if exc.stderr:
+            print(exc.stderr, file=sys.stderr, end="" if exc.stderr.endswith("\n") else "\n")
+        print(f"[TIMEOUT reopen] exceeded {args.timeout}s", file=sys.stderr)
+        sys.exit(124)
+
+    if cp.stdout:
+        print(cp.stdout, end="" if cp.stdout.endswith("\n") else "\n")
+    if cp.stderr:
+        print(cp.stderr, file=sys.stderr, end="" if cp.stderr.endswith("\n") else "\n")
+    if cp.returncode != 0:
+        print(f"[FAIL reopen] exit={cp.returncode}", file=sys.stderr)
+    sys.exit(cp.returncode)
 
 
 if __name__ == "__main__":
