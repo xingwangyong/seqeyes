@@ -39,6 +39,9 @@ def main():
 
     exe = detect_seqeye(args.bin_dir)
     seq_dir = Path(__file__).resolve().parents[0] / "seq_files"
+    # This is the broad smoke-test entry point: every checked-in sequence should
+    # be opened once in headless mode so CI catches parser/load regressions even
+    # when they only affect less common fixtures or older format folders.
     # Recurse so versioned fixtures under subfolders like seq_files/v142 also
     # participate in CI load coverage.
     files = sorted(seq_dir.rglob("*.seq"))

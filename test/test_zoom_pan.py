@@ -5,6 +5,12 @@ import sys
 import argparse
 import os
 
+DEFAULT_CASES = [
+    "writeEpi.seq",
+    "writeGradientEcho.seq",
+    "gre2d_pTxSingleChan_8Tx.seq",
+]
+
 def detect_test_exe(bin_dir: str | None = None) -> str:
     exe_name = "TimeSliderSyncTest.exe" if os.name == "nt" else "TimeSliderSyncTest"
     if bin_dir:
@@ -33,6 +39,17 @@ def detect_test_exe(bin_dir: str | None = None) -> str:
 def main():
     ap = argparse.ArgumentParser(description="Zoom/Pan QtTest runner")
     ap.add_argument("--bin-dir", help="Directory containing built executables (TimeSliderSyncTest)")
+    ap.add_argument(
+        "--all",
+        action="store_true",
+        help="Run against every top-level .seq under test/seq_files instead of the curated CI subset",
+    )
+    ap.add_argument(
+        "--timeout",
+        type=int,
+        default=120,
+        help="Per-sequence timeout in seconds",
+    )
     args = ap.parse_args()
 
     test_exe = detect_test_exe(args.bin_dir)
@@ -40,16 +57,37 @@ def main():
     if args.bin_dir:
         env["PATH"] = str(Path(args.bin_dir).resolve()) + os.pathsep + env.get("PATH", "")
     seq_dir = Path(__file__).resolve().parents[0] / "seq_files"
-    files = sorted(seq_dir.glob("*.seq"))
+    if args.all:
+        # Full sweeps are useful locally when debugging interaction behavior
+        # against many fixtures, but are intentionally not the CI default.
+        files = sorted(seq_dir.glob("*.seq"))
+    else:
+        # Keep CI focused on representative interaction cases. Headless load
+        # coverage is handled separately by test_load_all.py across all seqs.
+        files = [seq_dir / name for name in DEFAULT_CASES]
+    missing = [str(f) for f in files if not f.exists()]
+    if missing:
+        for f in missing:
+            print(f"[MISSING zoom/pan] {f}", file=sys.stderr)
+        sys.exit(2)
     rc = 0
     for f in files:
         print(f"[TEST zoom/pan] {f}")
-        cp = subprocess.run(
-            [test_exe, "-o", "-,txt", "--file", str(f)],
-            text=True,
-            env=env,
-            capture_output=True,
-        )
+        try:
+            cp = subprocess.run(
+                [test_exe, "-o", "-,txt", "--file", str(f)],
+                text=True,
+                env=env,
+                capture_output=True,
+                timeout=args.timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            if exc.stdout:
+                print(exc.stdout, end="" if exc.stdout.endswith("\n") else "\n")
+            if exc.stderr:
+                print(exc.stderr, file=sys.stderr, end="" if exc.stderr.endswith("\n") else "\n")
+            print(f"[TIMEOUT zoom/pan] {f} exceeded {args.timeout}s", file=sys.stderr)
+            sys.exit(124)
         if cp.stdout:
             print(cp.stdout, end="" if cp.stdout.endswith("\n") else "\n")
         if cp.stderr:
