@@ -30,15 +30,13 @@ jobs:
         include:
           - name: windows-amd64
             os: windows-2022
-            qt_arch: win64_msvc2019_64
+            qt_arch: win64_msvc2022_64
             plat_name: win_amd64
           - name: macos-arm64
             os: macos-latest
-            qt_arch: clang_64
             plat_name: macosx_11_0_arm64
           - name: macos-x86_64
             os: macos-15-intel # github will deprecate this in Fall 2027, https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/
-            qt_arch: clang_64
             plat_name: macosx_11_0_x86_64
 
     steps:
@@ -64,11 +62,19 @@ jobs:
           python-version: "3.11"
 
       # ---- Qt ----
-      - name: Install Qt 6.5.3
-        uses: jurplel/install-qt-action@v3
+      - name: Install Qt 6.8 LTS (Windows)
+        if: runner.os == 'Windows'
+        uses: jurplel/install-qt-action@v4
         with:
-          version: '6.5.3'
+          version: '6.8.*'
           arch: ${{ matrix.qt_arch }}
+          cache: true
+
+      - name: Install Qt 6.8 LTS (macOS)
+        if: runner.os == 'macOS'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
           cache: true
 
       # ---- MSVC (Windows only) ----
