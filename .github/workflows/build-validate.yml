@@ -180,8 +180,14 @@ jobs:
 
       - name: Run RfMultichannelDetectionTest
         shell: pwsh
+        timeout-minutes: 5
         run: |
           $root = (Resolve-Path "runtime/seqeyes").Path
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $platformDir = Join-Path $root "platforms"
+          if (Test-Path $platformDir) {
+            $env:QT_QPA_PLATFORM_PLUGIN_PATH = $platformDir
+          }
           $candidates = @(
             (Join-Path $root "RfMultichannelDetectionTest.exe"),
             (Join-Path $root "test/RfMultichannelDetectionTest.exe"),
