@@ -69,6 +69,11 @@ def main():
     if missing:
         for f in missing:
             print(f"[MISSING zoom/pan] {f}", file=sys.stderr)
+        print(
+            "[MISSING zoom/pan] One or more representative fixtures are absent in this checkout. "
+            "If the file exists locally but not in CI, it is likely untracked or not committed.",
+            file=sys.stderr,
+        )
         sys.exit(2)
     rc = 0
     for f in files:
