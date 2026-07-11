@@ -1,6 +1,7 @@
 name: Python Publish
 
 on:
+  push:
   release:
     types: [published]
   workflow_dispatch:
@@ -45,7 +46,7 @@ jobs:
           fetch-depth: 0
 
       - name: Derive TestPyPI version
-        if: github.event_name == 'workflow_dispatch' && inputs.publish_target == 'testpypi'
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_target == 'testpypi')
         shell: bash
         run: |
           latest_tag="$(git describe --tags --abbrev=0 --match 'v*')"
@@ -169,6 +170,18 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Derive TestPyPI version
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_target == 'testpypi')
+        shell: bash
+        run: |
+          latest_tag="$(git describe --tags --abbrev=0 --match 'v*')"
+          base_version="${latest_tag#v}"
+          IFS='.' read -r major minor patch <<< "$base_version"
+          next_patch=$((patch + 1))
+          pretend_version="${major}.${minor}.${next_patch}.dev${GITHUB_RUN_NUMBER}"
+          echo "SETUPTOOLS_SCM_PRETEND_VERSION=${pretend_version}" >> "$GITHUB_ENV"
+          echo "Using TestPyPI version: ${pretend_version}"
+
       - name: Build Linux wheel (AppImage wrapper)
         shell: bash
         run: |
@@ -186,18 +199,18 @@ jobs:
           path: dist/*.whl
 
   publish:
-    name: Publish to PyPI
+    name: Publish wheels
     needs:
       - build-wheels
       - build-linux-wheel-from-appimage
     runs-on: ubuntu-latest
     environment:
-      name: pypi
-      url: https://pypi.org/project/seqeyes/
+      name: ${{ github.event_name == 'release' && 'pypi' || (github.event_name == 'workflow_dispatch' && inputs.publish_target || 'testpypi') }}
+      url: ${{ (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish_target == 'pypi')) && 'https://pypi.org/project/seqeyes/' || 'https://test.pypi.org/project/seqeyes/' }}
     permissions:
       id-token: write
     env:
-      PUBLISH_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_target || 'pypi' }}
+      PUBLISH_TARGET: ${{ github.event_name == 'release' && 'pypi' || (github.event_name == 'workflow_dispatch' && inputs.publish_target || 'testpypi') }}
 
     steps:
       - name: Download all wheel artifacts
@@ -207,7 +220,7 @@ jobs:
           path: dist/
           merge-multiple: true
 
-      - name: Publish to PyPI
+      - name: Publish wheels
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: ${{ env.PUBLISH_TARGET == 'testpypi' && 'https://test.pypi.org/legacy/' || 'https://upload.pypi.org/legacy/' }}
