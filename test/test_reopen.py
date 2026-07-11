@@ -41,9 +41,14 @@ def detect_platform_plugin(bin_dir: Path, qt_bin: Path) -> tuple[str, list[Path]
         qt_bin.parent / "plugins" / "platforms",
     ]
     plugins: list[Path] = []
+    seen: set[str] = set()
     for d in platform_dirs:
         if d.exists():
-            plugins.extend(sorted(d.glob("q*.dll")))
+            for plugin in sorted(d.glob("q*.dll")):
+                key = str(plugin.resolve()).lower()
+                if key not in seen:
+                    seen.add(key)
+                    plugins.append(plugin)
 
     names = {p.name.lower() for p in plugins}
     if "qminimal.dll" in names:
@@ -91,14 +96,14 @@ def main():
     env["REOPEN_SEQ_B"] = str(args.file_b.resolve())
     env["REOPEN_TEST_VERBOSE"] = "1"
 
-    print(f"[TEST reopen] exe={exe}")
-    print(f"[TEST reopen] file_a={env['REOPEN_SEQ_A']}")
-    print(f"[TEST reopen] file_b={env['REOPEN_SEQ_B']}")
-    print(f"[TEST reopen] QT_QPA_PLATFORM={env.get('QT_QPA_PLATFORM', '')}")
+    print(f"[TEST reopen] exe={exe}", flush=True)
+    print(f"[TEST reopen] file_a={env['REOPEN_SEQ_A']}", flush=True)
+    print(f"[TEST reopen] file_b={env['REOPEN_SEQ_B']}", flush=True)
+    print(f"[TEST reopen] QT_QPA_PLATFORM={env.get('QT_QPA_PLATFORM', '')}", flush=True)
     if platform_plugins:
-        print("[TEST reopen] platform_plugins=" + ";".join(str(p) for p in platform_plugins))
+        print("[TEST reopen] platform_plugins=" + ";".join(str(p) for p in platform_plugins), flush=True)
     else:
-        print("[TEST reopen] platform_plugins=<none>")
+        print("[TEST reopen] platform_plugins=<none>", flush=True)
     proc = subprocess.Popen(
         [str(exe), "-o", "-,txt", "-v1"],
         env=env,

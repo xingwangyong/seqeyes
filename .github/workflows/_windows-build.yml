@@ -62,6 +62,14 @@ jobs:
             exit 1
           }
           Copy-Item -Path $qtTestDll -Destination build -Force
+          $qtPlugins = Join-Path (Split-Path $qtBin) "plugins"
+          $qtMinimalPlatform = Join-Path $qtPlugins "platforms/qminimal.dll"
+          if (-not (Test-Path $qtMinimalPlatform)) {
+            Write-Error "qminimal.dll not found under $qtPlugins"
+            exit 1
+          }
+          New-Item -ItemType Directory -Path build/platforms -Force | Out-Null
+          Copy-Item -Path $qtMinimalPlatform -Destination build/platforms -Force
 
       - name: Pack Runtime Zip
         shell: pwsh
