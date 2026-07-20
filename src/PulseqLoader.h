@@ -112,7 +112,7 @@ public:
     ~PulseqLoader();
 
     // Public API for other classes
-    bool LoadPulseqFile(const QString& sPulseqFilePath);
+    bool LoadPulseqFile(QString sPulseqFilePath);
     void setBlockInfoContent(EventBlockInfoDialog* dialog, int currentBlock);
     void setRawBlockInfoContent(EventBlockInfoDialog* dialog, int currentBlock);
 

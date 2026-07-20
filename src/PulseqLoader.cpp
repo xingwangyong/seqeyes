@@ -245,7 +245,7 @@ void PulseqLoader::OpenPulseqFile()
 #ifdef Q_OS_MAC
     parentForDialog = nullptr;
 #endif
-    m_sPulseqFilePath = QFileDialog::getOpenFileName(
+    const QString selectedPath = QFileDialog::getOpenFileName(
         parentForDialog,
         "Select a Pulseq File",
         startDir,
@@ -255,20 +255,20 @@ void PulseqLoader::OpenPulseqFile()
     );
 
 #ifdef Q_OS_MAC
-    if (!m_sPulseqFilePath.isEmpty())
-        qCritical() << "[MENU TRACE] PulseqLoader::OpenPulseqFile accepted" << m_sPulseqFilePath;
+    if (!selectedPath.isEmpty())
+        qCritical() << "[MENU TRACE] PulseqLoader::OpenPulseqFile accepted" << selectedPath;
     else
         qCritical() << "[MENU TRACE] PulseqLoader::OpenPulseqFile canceled";
 #endif
 
-    if (!m_sPulseqFilePath.isEmpty())
+    if (!selectedPath.isEmpty())
     {
         // Save the directory of the selected file
-        QFileInfo fileInfo(m_sPulseqFilePath);
+        QFileInfo fileInfo(selectedPath);
         m_sLastOpenDirectory = fileInfo.absolutePath();
         saveLastOpenDirectory();
         
-        if (!LoadPulseqFile(m_sPulseqFilePath))
+        if (!LoadPulseqFile(selectedPath))
         {
             m_sPulseqFilePath.clear();
             m_sPulseqFilePathCache.clear();
@@ -288,6 +288,8 @@ void PulseqLoader::ReOpenPulseqFile()
 
 void PulseqLoader::ClearPulseqCache(bool withUi)
 {
+    const QString closingPath = m_sPulseqFilePath;
+
     m_sequenceLoadState = SequenceLoadState::Blank;
     ++m_trajectorySequenceGeneration;
     m_activeTrajectoryRequestId = 0;
@@ -391,7 +393,8 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
             }
         }
         m_vecDecodeSeqBlocks.clear();
-        std::cout << m_sPulseqFilePath.toStdString() << " Closed\n";
+        m_spPulseqSeq.reset();
+        std::cout << closingPath.toStdString() << " Closed\n";
     }
     setTrajectoryState(TrajectoryState::NotStarted);
     emit pnsStateChanged();
@@ -486,7 +489,7 @@ std::pair<int, int> PulseqLoader::ReadFileVersion(const std::string& filename)
     return std::make_pair(-1, -1);
 }
 
-bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
+bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
 {
     m_mainWindow->setEnabled(false);
     m_sequenceLoadState = SequenceLoadState::Loading;
@@ -512,9 +515,10 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     if (version.first == -1 || version.second == -1)
     {
         m_sequenceLoadState = SequenceLoadState::Blank;
-        m_mainWindow->setEnabled(true);
         std::stringstream sLog;
         sLog << "Failed to read version information from: " << sPulseqFilePath.toStdString();
+        ClearPulseqCache();
+        m_mainWindow->setEnabled(true);
         if (m_silentMode) { qWarning() << sLog.str().c_str(); }
         else { QMessageBox::critical(m_mainWindow, "Load Error", sLog.str().c_str()); }
         return false;
@@ -528,9 +532,10 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     if (!m_spPulseqSeq)
     {
         m_sequenceLoadState = SequenceLoadState::Blank;
-        m_mainWindow->setEnabled(true);
         std::stringstream sLog;
         sLog << "Unsupported Pulseq file version " << version_major << "." << version_minor << " for: " << sPulseqFilePath.toStdString();
+        ClearPulseqCache();
+        m_mainWindow->setEnabled(true);
         if (m_silentMode) { qWarning() << sLog.str().c_str(); }
         else { QMessageBox::critical(m_mainWindow, "Load Error", sLog.str().c_str()); }
         return false;
@@ -570,7 +575,6 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
     if (!m_spPulseqSeq->load(sPulseqFilePath.toStdString()))
     {
         m_sequenceLoadState = SequenceLoadState::Blank;
-        m_mainWindow->setEnabled(true);
         std::stringstream sLog;
         sLog << "Failed to load Pulseq file: " << sPulseqFilePath.toStdString() << "\n\n";
         sLog << "Possible causes:\n";
@@ -583,6 +587,8 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
         sLog << "3. Unsupported Pulseq version\n\n";
         sLog << "Please check the console output for detailed error messages.";
         
+        ClearPulseqCache();
+        m_mainWindow->setEnabled(true);
         if (m_silentMode) { qWarning() << sLog.str().c_str(); }
         else { QMessageBox::critical(m_mainWindow, "Pulseq Load Error", sLog.str().c_str()); }
         return false;
@@ -1017,7 +1023,6 @@ void PulseqLoader::updateRecentFilesMenu()
                 const QString selectedPath = recentAction->data().toString();
                 if (selectedPath.isEmpty())
                     return;
-                m_sPulseqFilePath = selectedPath;
                 QFileInfo fi(selectedPath);
                 m_sLastOpenDirectory = fi.absolutePath();
                 saveLastOpenDirectory();
