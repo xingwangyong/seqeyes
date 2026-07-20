@@ -601,7 +601,7 @@ bool PulseqLoader::LoadPulseqFile(const QString& sPulseqFilePath)
             m_mainWindow->setEnabled(true);
             const char* msg = "Missing required definition: GradientRasterTime (seconds)\n\n"
                               "The sequence lacks GradientRasterTime in [DEFINITIONS].\n"
-                              "Please add e.g. 'GradientRasterTime = 1e-5' and reload.";
+                              "Please add e.g. 'GradientRasterTime 1e-05' and reload.";
             if (m_silentMode) { qWarning() << msg; }
             else { QMessageBox::critical(m_mainWindow, "Missing Definition", msg); }
             ClearPulseqCache();

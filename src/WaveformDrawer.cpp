@@ -2613,6 +2613,8 @@ void WaveformDrawer::updateTeGuides(double visibleStart, double visibleEnd)
 
     auto syncPool = [&](QVector<QVector<QCPItemStraightLine*>>& pool,
                         const QVector<double>& positions,
+                        const QColor& color,
+                        Qt::PenStyle style,
                         double penWidth)
     {
         for (int axisIdx = 0; axisIdx < pool.size(); ++axisIdx)
@@ -2630,9 +2632,10 @@ void WaveformDrawer::updateTeGuides(double visibleStart, double visibleEnd)
             while (axisPool.size() < positions.size())
             {
                 auto* line = new QCPItemStraightLine(plot);
-                QPen pen(Qt::black);
-                pen.setStyle(Qt::DashLine);
+                QPen pen(color);
+                pen.setStyle(style);
                 pen.setWidthF(penWidth);
+                pen.setCapStyle(Qt::FlatCap);
                 line->setPen(pen);
                 line->setClipToAxisRect(true);
                 line->setClipAxisRect(rect);
@@ -2647,6 +2650,11 @@ void WaveformDrawer::updateTeGuides(double visibleStart, double visibleEnd)
                 QCPItemStraightLine* line = axisPool[idx];
                 if (!line)
                     continue;
+                QPen pen(color);
+                pen.setStyle(style);
+                pen.setWidthF(penWidth);
+                pen.setCapStyle(Qt::FlatCap);
+                line->setPen(pen);
                 if (idx < positions.size())
                 {
                     double x = positions[idx];
@@ -2664,8 +2672,8 @@ void WaveformDrawer::updateTeGuides(double visibleStart, double visibleEnd)
         }
     };
 
-    syncPool(m_excitationGuideLines, visibleCenters, 0.8);
-    syncPool(m_teEchoGuideLines, visibleTePositions, 1.0);
+    syncPool(m_excitationGuideLines, visibleCenters, QColor(0, 0, 0, 190), Qt::DashLine, 1.0);
+    syncPool(m_teEchoGuideLines, visibleTePositions, QColor(0, 0, 0, 220), Qt::DashLine, 1.1);
 }
 
 void WaveformDrawer::ensureKxKyZeroGuideCapacity()
@@ -2757,9 +2765,7 @@ void WaveformDrawer::updateKxKyZeroGuides(double visibleStart, double visibleEnd
         return;
     QCustomPlot* plot = m_mainWindow->ui->customPlot;
 
-    // Use a different style than TE guides to ensure visibility
-    // TE uses: black dashed lines (DashLine)
-    // kx=ky=0 uses: blue solid lines (SolidLine) - this ensures they won't be covered
+    // Use sparse blue dots so overlapping TE/excitation dashed guides remain visible in the gaps.
     for (int axisIdx = 0; axisIdx < m_kxKyZeroGuideLines.size(); ++axisIdx)
     {
         auto& axisPool = m_kxKyZeroGuideLines[axisIdx];
@@ -2775,10 +2781,13 @@ void WaveformDrawer::updateKxKyZeroGuides(double visibleStart, double visibleEnd
         while (axisPool.size() < visibleKxKyZeroPositions.size())
         {
             auto* line = new QCPItemStraightLine(plot);
-            QPen pen(QColor(0, 100, 200)); // Blue color (RGB: 0, 100, 200)
-            pen.setStyle(Qt::SolidLine);    // Solid line (different from TE's DashLine)
-            pen.setWidthF(1.2);             // Slightly thicker than TE lines to ensure visibility
+            QPen pen(QColor(0, 90, 255, 230)); // High-contrast blue
+            pen.setStyle(Qt::CustomDashLine);
+            pen.setDashPattern({0.8, 5.0});
+            pen.setWidthF(2.2);
+            pen.setCapStyle(Qt::RoundCap);
             line->setPen(pen);
+            line->setLayer("overlay");
             line->setClipToAxisRect(true);
             line->setClipAxisRect(rect);
             line->point1->setAxes(rect->axis(QCPAxis::atBottom), rect->axis(QCPAxis::atLeft));
@@ -2792,6 +2801,13 @@ void WaveformDrawer::updateKxKyZeroGuides(double visibleStart, double visibleEnd
             QCPItemStraightLine* line = axisPool[idx];
             if (!line)
                 continue;
+            QPen pen(QColor(0, 90, 255, 230));
+            pen.setStyle(Qt::CustomDashLine);
+            pen.setDashPattern({0.8, 5.0});
+            pen.setWidthF(2.2);
+            pen.setCapStyle(Qt::RoundCap);
+            line->setPen(pen);
+            line->setLayer("overlay");
             if (idx < visibleKxKyZeroPositions.size())
             {
                 double x = visibleKxKyZeroPositions[idx];
