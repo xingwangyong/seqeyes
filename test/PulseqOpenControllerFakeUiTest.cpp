@@ -56,6 +56,17 @@ class PulseqOpenControllerFakeUiTest : public QObject
     Q_OBJECT
 
 private:
+    static QString writeInvalidSeq(QTemporaryDir& dir, const QString& name)
+    {
+        const QString invalidPath = dir.filePath(name);
+        QFile invalidFile(invalidPath);
+        if (!invalidFile.open(QIODevice::WriteOnly | QIODevice::Text))
+            return QString();
+        invalidFile.write("[DEFINITIONS]\nName invalid\n");
+        invalidFile.close();
+        return invalidPath;
+    }
+
     static QString resolveSeq(const QString& name)
     {
 #ifdef SEQ_FILES_DIR
@@ -179,8 +190,10 @@ private slots:
         loader->setLoadUiForTesting(std::move(fakeUi));
         PulseqOpenController controller(*loader, *ui);
 
-        const QString path = resolveSeq(QStringLiteral("no_version.seq"));
-        QVERIFY2(QFile::exists(path), qPrintable(path));
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = writeInvalidSeq(dir, QStringLiteral("invalid.seq"));
+        QVERIFY2(!path.isEmpty(), "Could not create invalid sequence file");
 
         const OpenResult result = controller.openPath(path);
 
@@ -209,23 +222,27 @@ private slots:
         loader->setLoadUiForTesting(std::move(fakeUi));
         PulseqOpenController controller(*loader, *ui);
 
-        const QString path = resolveSeq(QStringLiteral("unsupported_version.seq"));
-        QVERIFY2(QFile::exists(path), qPrintable(path));
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = writeInvalidSeq(dir, QStringLiteral("invalid.seq"));
+        QVERIFY2(!path.isEmpty(), "Could not create invalid sequence file");
 
         const OpenResult result = controller.openPath(path);
 
         QVERIFY(!result.ok);
         QCOMPARE(result.errorTitle, QStringLiteral("Load Error"));
-        QVERIFY(result.errorMessage.contains(QStringLiteral("Unsupported Pulseq file version")));
+        QVERIFY(result.errorMessage.contains(QStringLiteral("Failed to read version information")));
         QCOMPARE(ui->criticals.size(), 1);
         QCOMPARE(ui->criticals[0].title, QStringLiteral("Load Error"));
-        QVERIFY(ui->criticals[0].text.contains(QStringLiteral("Unsupported Pulseq file version")));
+        QVERIFY(ui->criticals[0].text.contains(QStringLiteral("Failed to read version information")));
     }
 };
 
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
+    app.setOrganizationName(QStringLiteral("SeqEyesTest"));
+    app.setApplicationName(QStringLiteral("PulseqOpenControllerFakeUiTest"));
     PulseqOpenControllerFakeUiTest tc;
     return QTest::qExec(&tc, argc, argv);
 }

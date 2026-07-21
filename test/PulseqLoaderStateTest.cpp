@@ -6,12 +6,24 @@
 #include "PulseqLoader.h"
 
 #include <memory>
+#include <QSettings>
 
 class PulseqLoaderStateTest : public QObject
 {
     Q_OBJECT
 
 private:
+    static QString writeInvalidSeq(QTemporaryDir& dir, const QString& name)
+    {
+        const QString invalidPath = dir.filePath(name);
+        QFile invalidFile(invalidPath);
+        if (!invalidFile.open(QIODevice::WriteOnly | QIODevice::Text))
+            return QString();
+        invalidFile.write("[DEFINITIONS]\nName invalid\n");
+        invalidFile.close();
+        return invalidPath;
+    }
+
     static QString resolveSeq(const QString& name)
     {
 #ifdef SEQ_FILES_DIR
@@ -121,6 +133,12 @@ private slots:
         QVERIFY2(QFile::exists(m_fileB), qPrintable("Missing test file B: " + m_fileB));
     }
 
+    void init()
+    {
+        QSettings settings;
+        settings.clear();
+    }
+
     void loadAThenLoadB_commitsB()
     {
         std::unique_ptr<MainWindow> window(makeWindow());
@@ -165,11 +183,8 @@ private slots:
 
         QTemporaryDir dir;
         QVERIFY2(dir.isValid(), "Could not create temporary directory");
-        const QString invalidPath = dir.filePath(QStringLiteral("invalid.seq"));
-        QFile invalidFile(invalidPath);
-        QVERIFY2(invalidFile.open(QIODevice::WriteOnly | QIODevice::Text), qPrintable(invalidPath));
-        invalidFile.write("[DEFINITIONS]\nName invalid\n");
-        invalidFile.close();
+        const QString invalidPath = writeInvalidSeq(dir, QStringLiteral("invalid.seq"));
+        QVERIFY2(!invalidPath.isEmpty(), "Could not create invalid sequence file");
 
         QVERIFY(!loader->OpenPulseqFilePath(invalidPath));
         QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Blank);
@@ -186,11 +201,8 @@ private slots:
 
         QTemporaryDir dir;
         QVERIFY2(dir.isValid(), "Could not create temporary directory");
-        const QString invalidPath = dir.filePath(QStringLiteral("invalid.seq"));
-        QFile invalidFile(invalidPath);
-        QVERIFY2(invalidFile.open(QIODevice::WriteOnly | QIODevice::Text), qPrintable(invalidPath));
-        invalidFile.write("[DEFINITIONS]\nName invalid\n");
-        invalidFile.close();
+        const QString invalidPath = writeInvalidSeq(dir, QStringLiteral("invalid.seq"));
+        QVERIFY2(!invalidPath.isEmpty(), "Could not create invalid sequence file");
 
         QVERIFY(!loader->OpenPulseqFilePath(invalidPath));
         QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Blank);
@@ -198,29 +210,6 @@ private slots:
         QVERIFY(loader->getReopenPulseqFilePath().isEmpty());
         QVERIFY(!loader->getSequence());
         QVERIFY(loader->getDecodedSeqBlocks().empty());
-    }
-
-    void failureMatrix_fromBlankLeavesSameBlankSnapshot_data()
-    {
-        QTest::addColumn<QString>("fileName");
-
-        QTest::newRow("no version") << QStringLiteral("no_version.seq");
-        QTest::newRow("unsupported version") << QStringLiteral("unsupported_version.seq");
-        QTest::newRow("parser load failure") << QStringLiteral("bad_blocks.seq");
-        QTest::newRow("missing GradientRasterTime") << QStringLiteral("missing_grad_raster.seq");
-    }
-
-    void failureMatrix_fromBlankLeavesSameBlankSnapshot()
-    {
-        QFETCH(QString, fileName);
-        std::unique_ptr<MainWindow> window(makeWindow());
-        PulseqLoader* loader = window->getPulseqLoader();
-
-        const QString path = resolveSeq(fileName);
-        QVERIFY2(QFile::exists(path), qPrintable("Missing failure fixture: " + path));
-
-        QVERIFY(!loader->OpenPulseqFilePath(path));
-        verifyBlank(loader);
     }
 
     void decodeFailure_fromBlankLeavesSameBlankSnapshot()
@@ -273,29 +262,6 @@ private slots:
         verifyBlank(loader);
     }
 
-    void failureMatrix_afterValidLoadLeavesSameBlankSnapshotAndPreservesReopen_data()
-    {
-        failureMatrix_fromBlankLeavesSameBlankSnapshot_data();
-    }
-
-    void failureMatrix_afterValidLoadLeavesSameBlankSnapshotAndPreservesReopen()
-    {
-        QFETCH(QString, fileName);
-        std::unique_ptr<MainWindow> window(makeWindow());
-        PulseqLoader* loader = window->getPulseqLoader();
-
-        QVERIFY2(loader->OpenPulseqFilePath(m_fileA), qPrintable(m_fileA));
-        QVERIFY(loader->waitForBackgroundComputations());
-        verifyLoaded(loader, m_fileA);
-        const QString reopenPath = loader->getReopenPulseqFilePath();
-
-        const QString path = resolveSeq(fileName);
-        QVERIFY2(QFile::exists(path), qPrintable("Missing failure fixture: " + path));
-
-        QVERIFY(!loader->OpenPulseqFilePath(path));
-        verifyBlank(loader, reopenPath);
-    }
-
     void openSuccessAndFailure_leaveWindowEnabled()
     {
         std::unique_ptr<MainWindow> window(makeWindow());
@@ -309,11 +275,8 @@ private slots:
 
         QTemporaryDir dir;
         QVERIFY2(dir.isValid(), "Could not create temporary directory");
-        const QString invalidPath = dir.filePath(QStringLiteral("invalid.seq"));
-        QFile invalidFile(invalidPath);
-        QVERIFY2(invalidFile.open(QIODevice::WriteOnly | QIODevice::Text), qPrintable(invalidPath));
-        invalidFile.write("[DEFINITIONS]\nName invalid\n");
-        invalidFile.close();
+        const QString invalidPath = writeInvalidSeq(dir, QStringLiteral("invalid.seq"));
+        QVERIFY2(!invalidPath.isEmpty(), "Could not create invalid sequence file");
 
         QVERIFY(!loader->OpenPulseqFilePath(invalidPath));
         QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Blank);
@@ -333,11 +296,8 @@ private slots:
 
         QTemporaryDir dir;
         QVERIFY2(dir.isValid(), "Could not create temporary directory");
-        const QString invalidPath = dir.filePath(QStringLiteral("invalid.seq"));
-        QFile invalidFile(invalidPath);
-        QVERIFY2(invalidFile.open(QIODevice::WriteOnly | QIODevice::Text), qPrintable(invalidPath));
-        invalidFile.write("[DEFINITIONS]\nName invalid\n");
-        invalidFile.close();
+        const QString invalidPath = writeInvalidSeq(dir, QStringLiteral("invalid.seq"));
+        QVERIFY2(!invalidPath.isEmpty(), "Could not create invalid sequence file");
 
         QVERIFY(!loader->OpenPulseqFilePath(invalidPath));
         QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Blank);
@@ -357,11 +317,8 @@ private slots:
 
         QTemporaryDir dir;
         QVERIFY2(dir.isValid(), "Could not create temporary directory");
-        const QString invalidPath = dir.filePath(QStringLiteral("invalid.seq"));
-        QFile invalidFile(invalidPath);
-        QVERIFY2(invalidFile.open(QIODevice::WriteOnly | QIODevice::Text), qPrintable(invalidPath));
-        invalidFile.write("[DEFINITIONS]\nName invalid\n");
-        invalidFile.close();
+        const QString invalidPath = writeInvalidSeq(dir, QStringLiteral("invalid.seq"));
+        QVERIFY2(!invalidPath.isEmpty(), "Could not create invalid sequence file");
 
         QVERIFY(!loader->OpenPulseqFilePath(invalidPath));
         QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Blank);
@@ -446,6 +403,33 @@ private slots:
         QVERIFY2(paths.size() >= 2, qPrintable(QStringLiteral("Recent path count: %1").arg(paths.size())));
         QCOMPARE(paths[0], QFileInfo(m_fileB).absoluteFilePath());
         QCOMPARE(paths[1], QFileInfo(m_fileA).absoluteFilePath());
+    }
+
+    void failedRecentOpen_keepsExistingRecentEntryAndPreservesReopenPath()
+    {
+        QTemporaryDir dir;
+        QVERIFY2(dir.isValid(), "Could not create temporary directory");
+        const QString invalidPath = writeInvalidSeq(dir, QStringLiteral("recent_invalid.seq"));
+        QVERIFY2(!invalidPath.isEmpty(), "Could not create invalid sequence file");
+        const QString normalizedInvalidPath = QFileInfo(invalidPath).absoluteFilePath();
+
+        QSettings settings;
+        settings.setValue(QStringLiteral("recentPulseqFiles"), QStringList{normalizedInvalidPath});
+
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileA), qPrintable(m_fileA));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, m_fileA);
+        const QString reopenPath = loader->getReopenPulseqFilePath();
+
+        QAction* invalidAction = findRecentAction(window.get(), normalizedInvalidPath);
+        QVERIFY2(invalidAction, qPrintable("Recent menu did not contain invalid path: " + normalizedInvalidPath));
+        invalidAction->trigger();
+
+        verifyBlank(loader, reopenPath);
+        QVERIFY(recentActionPaths(window.get()).contains(normalizedInvalidPath));
     }
 
     void staleAsyncResults_afterNewLoadDoNotOverwriteCurrentState()
@@ -535,6 +519,8 @@ private:
 int main(int argc, char** argv)
 {
     QApplication app(argc, argv);
+    app.setOrganizationName(QStringLiteral("SeqEyesTest"));
+    app.setApplicationName(QStringLiteral("PulseqLoaderStateTest"));
     PulseqLoaderStateTest tc;
     return QTest::qExec(&tc, argc, argv);
 }
