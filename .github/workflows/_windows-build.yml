@@ -47,37 +47,54 @@ jobs:
       - name: Print sccache stats
         run: sccache --show-stats
 
-      - name: Run windeployqt
-        run: |
-          cd build
-          windeployqt seqeyes.exe
-
-      - name: Copy Qt Test Runtime For Test Executables
+      - name: Pack Runtime Zip
         shell: pwsh
         run: |
+          cmake --install build --config Release --prefix install-stage
+
+          $runtimeRoot = "runtime\seqeyes"
+          New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
+          Copy-Item -Path "install-stage\seqeyes\bin\*" -Destination $runtimeRoot -Recurse -Force
+
           $qtBin = Split-Path ((Get-Command windeployqt).Source)
           $qtTestDll = Join-Path $qtBin "Qt6Test.dll"
           if (-not (Test-Path $qtTestDll)) {
             Write-Error "Qt6Test.dll not found under $qtBin"
             exit 1
           }
-          Copy-Item -Path $qtTestDll -Destination build -Force
+          Copy-Item -Path $qtTestDll -Destination $runtimeRoot -Force
           $qtPlugins = Join-Path (Split-Path $qtBin) "plugins"
-          New-Item -ItemType Directory -Path build/platforms -Force | Out-Null
+          New-Item -ItemType Directory -Path "$runtimeRoot\platforms" -Force | Out-Null
           foreach ($platformPlugin in @("qminimal.dll", "qoffscreen.dll")) {
             $pluginPath = Join-Path $qtPlugins "platforms/$platformPlugin"
             if (-not (Test-Path $pluginPath)) {
               Write-Error "$platformPlugin not found under $qtPlugins"
               exit 1
             }
-            Copy-Item -Path $pluginPath -Destination build/platforms -Force
+            Copy-Item -Path $pluginPath -Destination "$runtimeRoot\platforms" -Force
           }
 
-      - name: Pack Runtime Zip
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path runtime -Force | Out-Null
-          xcopy build runtime\seqeyes /E /I
+          $testRoot = "$runtimeRoot\test"
+          New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
+          $testExecutables = @(
+            "ReopenEquivalenceTest.exe",
+            "PulseqLoaderStateTest.exe",
+            "RfMultichannelDetectionTest.exe",
+            "PerfZoomTest.exe"
+          )
+          foreach ($testExe in $testExecutables) {
+            $match = Get-ChildItem -Path build -Recurse -Filter $testExe -File | Select-Object -First 1
+            if ($match) {
+              Copy-Item -Path $match.FullName -Destination $testRoot -Force
+            } else {
+              Write-Warning "$testExe was not found under build."
+            }
+          }
+
+          if (-not (Test-Path "$runtimeRoot\seqeyes.exe")) {
+            Write-Error "Packaged runtime is missing seqeyes.exe"
+            exit 1
+          }
           Compress-Archive -Path runtime\seqeyes -DestinationPath seqeyes-ci-runtime.zip -Force
 
       - name: Set artifact name

@@ -209,7 +209,12 @@ jobs:
           } else {
             $zipName = "seqeyes-latest-win64.zip"
           }
-          Copy-Item -Path seqeyes-ci-runtime.zip -Destination $zipName -Force
+          Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath release-runtime -Force
+          Remove-Item -Path release-runtime\seqeyes\test -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path release-runtime\seqeyes\Qt6Test.dll -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path release-runtime\seqeyes\platforms\qminimal.dll -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path release-runtime\seqeyes\platforms\qoffscreen.dll -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path release-runtime\seqeyes -DestinationPath $zipName -Force
           "zip_name=$zipName" >> $env:GITHUB_OUTPUT
 
       - name: Upload to GitHub Release

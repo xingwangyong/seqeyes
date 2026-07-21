@@ -248,7 +248,12 @@ jobs:
       - name: Create CI Windows Package
         shell: pwsh
         run: |
-          Copy-Item -Path seqeyes-ci-runtime.zip -Destination seqeyes-latest-win64.zip -Force
+          Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath package-runtime -Force
+          Remove-Item -Path package-runtime\seqeyes\test -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path package-runtime\seqeyes\Qt6Test.dll -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path package-runtime\seqeyes\platforms\qminimal.dll -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path package-runtime\seqeyes\platforms\qoffscreen.dll -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path package-runtime\seqeyes -DestinationPath seqeyes-latest-win64.zip -Force
 
       - name: Upload Windows CI Artifact
         uses: actions/upload-artifact@v4
