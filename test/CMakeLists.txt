@@ -12,6 +12,27 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS ${PROJECT_SOURCE_DIR}/src)
 
 find_package(Qt6 COMPONENTS Test Core Gui Widgets PrintSupport REQUIRED)
 
+function(seqeyes_configure_qt_app_test TEST_NAME TARGET_NAME)
+    set(_qt_prefix "${CMAKE_PREFIX_PATH}")
+    if(_qt_prefix)
+        list(GET _qt_prefix 0 _qt_prefix)
+    elseif(Qt6Core_DIR)
+        get_filename_component(_qt_prefix "${Qt6Core_DIR}/../../.." ABSOLUTE)
+    endif()
+
+    if(WIN32 AND _qt_prefix)
+        set_tests_properties(${TEST_NAME} PROPERTIES
+            ENVIRONMENT
+                "QT_ENABLE_HIGHDPI_SCALING=0;QT_SCALE_FACTOR=1;QT_AUTO_SCREEN_SCALE_FACTOR=0;QT_QPA_PLATFORM=offscreen;QT_QPA_PLATFORM_PLUGIN_PATH=${_qt_prefix}/plugins/platforms;PATH=$<TARGET_FILE_DIR:${TARGET_NAME}>\\;${_qt_prefix}/bin\\;$ENV{PATH}"
+        )
+    else()
+        set_tests_properties(${TEST_NAME} PROPERTIES
+            ENVIRONMENT
+                "QT_ENABLE_HIGHDPI_SCALING=0;QT_SCALE_FACTOR=1;QT_AUTO_SCREEN_SCALE_FACTOR=0;QT_QPA_PLATFORM=offscreen"
+        )
+    endif()
+endfunction()
+
 # External libraries from the main project
 set(EXTERNAL_PULSEQ_DIR ${PROJECT_SOURCE_DIR}/src/external/pulseq)
 set(EXTERNAL_QCP_DIR ${PROJECT_SOURCE_DIR}/src/external/qcustomplot)
@@ -70,6 +91,7 @@ target_link_libraries(${TEST_NAME} PRIVATE
 )
 
 add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+seqeyes_configure_qt_app_test(${TEST_NAME} ${TEST_NAME})
 
 
 # ReopenEquivalenceTest: history-independence of reopen (no stale state leaks
@@ -102,6 +124,7 @@ target_link_libraries(${REOPEN_TEST_NAME} PRIVATE
 )
 
 add_test(NAME ${REOPEN_TEST_NAME} COMMAND ${REOPEN_TEST_NAME})
+seqeyes_configure_qt_app_test(${REOPEN_TEST_NAME} ${REOPEN_TEST_NAME})
 
 
 # PulseqLoaderStateTest: focused path/open-state lifecycle checks.
@@ -130,6 +153,7 @@ target_link_libraries(${PULSEQ_LOADER_STATE_TEST_NAME} PRIVATE
 )
 
 add_test(NAME ${PULSEQ_LOADER_STATE_TEST_NAME} COMMAND ${PULSEQ_LOADER_STATE_TEST_NAME})
+seqeyes_configure_qt_app_test(${PULSEQ_LOADER_STATE_TEST_NAME} ${PULSEQ_LOADER_STATE_TEST_NAME})
 
 
 # PulseqOpenControllerFakeUiTest: structured OpenResult and fake UI warning behavior.
@@ -158,6 +182,7 @@ target_link_libraries(${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME} PRIVATE
 )
 
 add_test(NAME ${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME} COMMAND ${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME})
+seqeyes_configure_qt_app_test(${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME} ${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME})
 
 
 # RfMultichannelDetectionTest: RoosPtxHack detection and RF_SHIMS conflict checks

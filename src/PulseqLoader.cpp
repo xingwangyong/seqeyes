@@ -1268,16 +1268,6 @@ void PulseqLoader::updateRecentFilesMenu()
     QMenu* recentMenu = m_mainWindow->ui->menuRecent_Files;
     recentMenu->clear();
 
-    QStringList validFiles;
-    for (const QString& path : m_listRecentPulseqFilePaths)
-    {
-        if (path.isEmpty())
-            continue;
-        if (QFileInfo::exists(path))
-            validFiles << path;
-    }
-    m_listRecentPulseqFilePaths = validFiles;
-
     if (m_listRecentPulseqFilePaths.isEmpty())
     {
         QAction* emptyAction = recentMenu->addAction("(No recent files)");
@@ -1288,14 +1278,15 @@ void PulseqLoader::updateRecentFilesMenu()
         for (int i = 0; i < m_listRecentPulseqFilePaths.size(); ++i)
         {
             const QString path = m_listRecentPulseqFilePaths[i];
+            if (path.isEmpty())
+                continue;
             QFileInfo fi(path);
             const QString label = QString("%1 %2").arg(i + 1).arg(fi.fileName());
             QAction* recentAction = recentMenu->addAction(label);
             recentAction->setToolTip(path);
             recentAction->setData(path);
-            connect(recentAction, &QAction::triggered, this, [this, recentAction]() {
-                const QString selectedPath = recentAction->data().toString();
-                OpenPulseqFilePath(selectedPath);
+            connect(recentAction, &QAction::triggered, this, [this, path]() {
+                OpenPulseqFilePath(path);
             });
         }
     }
