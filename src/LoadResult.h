@@ -46,8 +46,14 @@ struct LoadBlockBundle
 struct LoadedSequenceState
 {
     std::shared_ptr<ExternalSequence> sequence;
+
+    // Non-owning view into blockBundle->blocks. Any code that stores or copies
+    // decodedBlocks must also keep blockBundle alive for at least as long.
     std::vector<SeqBlock*> decodedBlocks;
+
+    // Owns the SeqBlock* entries exposed through decodedBlocks.
     std::shared_ptr<LoadBlockBundle> blockBundle;
+
     QVector<double> blockEdges;
     double totalDuration_us = 0.0;
     QString versionString;

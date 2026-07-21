@@ -8,10 +8,12 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QProgressBar>
+#include <QtGlobal>
 
 PulseqLoadUiAdapter::PulseqLoadUiAdapter(MainWindow* mainWindow)
     : m_mainWindow(mainWindow)
 {
+    Q_ASSERT(mainWindow != nullptr);
 }
 
 QWidget* PulseqLoadUiAdapter::dialogParent() const
@@ -76,12 +78,12 @@ void PulseqLoadUiAdapter::hideProgress()
 
 void PulseqLoadUiAdapter::showWarning(const QString& title, const QString& message)
 {
-    QMessageBox::warning(m_mainWindow, title, message);
+    QMessageBox::warning(dialogParent(), title, message);
 }
 
 void PulseqLoadUiAdapter::showCritical(const QString& title, const QString& message)
 {
-    QMessageBox::critical(m_mainWindow, title, message);
+    QMessageBox::critical(dialogParent(), title, message);
 }
 
 void PulseqLoadUiAdapter::setLoadedTitle(const QString& path)
