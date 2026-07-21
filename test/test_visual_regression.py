@@ -56,6 +56,18 @@ def load_visual_targets(config_path: Path):
 
     return parsed
 
+
+def find_baseline_image(baseline_dir: Path, filename: str) -> Path:
+    direct = baseline_dir / filename
+    if direct.exists():
+        return direct
+
+    matches = sorted(path for path in baseline_dir.rglob(filename) if path.is_file())
+    if matches:
+        return matches[0]
+    return direct
+
+
 def compare_images(
     baseline_path,
     snapshot_path,
@@ -273,7 +285,7 @@ def main():
         for suffix in ["_seq", "_traj"]:
             filename = f"{base_name}{suffix}.png"
             snap_path = out_dir / filename
-            base_path = baseline_dir / filename
+            base_path = find_baseline_image(baseline_dir, filename)
             diff_path = out_dir / f"{base_name}{suffix}_diff.png"
             
             if snap_path.exists():

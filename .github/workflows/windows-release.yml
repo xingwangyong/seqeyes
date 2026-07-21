@@ -56,6 +56,12 @@ jobs:
           }
           Copy-Item -Path $visual.FullName -Destination test/visual-baselines.zip -Force
           python -c "import zipfile; zipfile.ZipFile('test/visual-baselines.zip').extractall('test/baselines')"
+          $pngCount = (Get-ChildItem -Path test/baselines -Recurse -File -Filter *.png).Count
+          Write-Host "Extracted visual baseline PNG count: $pngCount"
+          if ($pngCount -eq 0) {
+            Write-Error "Visual baseline zip extracted no PNG files."
+            exit 1
+          }
 
       - name: Run Visual Regression Test
         id: visual_test
