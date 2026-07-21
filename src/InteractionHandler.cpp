@@ -109,13 +109,7 @@ void InteractionHandler::dropEvent(QDropEvent* event)
         QString sPulseqFilePath = urlList.at(0).toLocalFile();
 
         // Delegate to PulseqLoader
-        if (!m_mainWindow->getPulseqLoader()->LoadPulseqFile(sPulseqFilePath))
-        {
-            std::stringstream sLog;
-            sLog << "Load " << sPulseqFilePath.toStdString() << " failed!";
-            QMessageBox::critical(m_mainWindow, "File Error", sLog.str().c_str());
-            return;
-        }
+        m_mainWindow->getPulseqLoader()->OpenPulseqFilePath(sPulseqFilePath);
     }
 }
 

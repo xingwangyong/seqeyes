@@ -81,7 +81,10 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
         if (auto* loader = window.getPulseqLoader()) {
             loader->setSilentMode(true);
         }
-        window.openFileFromCommandLine(p);
+        if (!window.openFileFromCommandLine(p)) {
+            qWarning() << "[AUTOMATION] open_file: failed to open" << p;
+            return 21;
+        }
         if (auto* loader = window.getPulseqLoader()) {
             if (!loader->waitForBackgroundComputations()) {
                 qWarning() << "[AUTOMATION] open_file: timed out waiting for post-load computations";

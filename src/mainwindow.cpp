@@ -2442,41 +2442,14 @@ void MainWindow::onShowFullDetailToggled(bool checked)
     }
 }
 
-void MainWindow::openFileFromCommandLine(const QString& filePath)
+bool MainWindow::openFileFromCommandLine(const QString& filePath)
 {
-    // Validate file path
-    if (filePath.isEmpty()) {
-        qWarning() << "Empty file path provided";
-        return;
-    }
-    
-    // Check if file exists
-    QFileInfo fileInfo(filePath);
-    if (!fileInfo.exists()) {
-        qWarning() << "File does not exist:" << filePath;
-        QMessageBox::warning(this, "File Error", 
-            QString("File does not exist:\n%1").arg(filePath));
-        return;
-    }
-    
-    // Check if it's a .seq file
-    if (!filePath.endsWith(".seq", Qt::CaseInsensitive)) {
-        qWarning() << "File is not a .seq file:" << filePath;
-        QMessageBox::warning(this, "File Error", 
-            QString("Please select a .seq file:\n%1").arg(filePath));
-        return;
-    }
-    
-    // Use PulseqLoader to open the file
     if (m_pulseqLoader) {
         qDebug() << "Opening file from command line:" << filePath;
-        if (!m_pulseqLoader->LoadPulseqFile(filePath)) {
-            qWarning() << "Failed to load file:" << filePath;
-            QMessageBox::critical(this, "File Error", 
-                QString("Failed to load file:\n%1").arg(filePath));
-        }
+        return m_pulseqLoader->OpenPulseqFilePath(filePath);
     } else {
         qWarning() << "PulseqLoader not available";
+        return false;
     }
 }
 

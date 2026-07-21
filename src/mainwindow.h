@@ -162,7 +162,7 @@ private slots:
     void onTimeUnitChanged();
 
 public:
-    void openFileFromCommandLine(const QString& filePath);
+    bool openFileFromCommandLine(const QString& filePath);
     void applyCommandLineOptions(const QCommandLineParser& parser);
     void captureSnapshotsAndExit(const QString& outDir);
     bool exportTrajectoryToDirectory(const QString& exportDir, QString* error = nullptr);

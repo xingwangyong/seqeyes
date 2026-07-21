@@ -110,7 +110,7 @@ private:
     static bool loadAndSettle(MainWindow& w, const QString& seqPath, const QString& phase)
     {
         logStep(QStringLiteral("%1: loading %2").arg(phase, seqPath));
-        if (!w.getPulseqLoader()->LoadPulseqFile(seqPath))
+        if (!w.getPulseqLoader()->OpenPulseqFilePath(seqPath))
             return false;
         settle(w);
         logStep(QStringLiteral("%1: load complete").arg(phase));
@@ -372,6 +372,34 @@ private slots:
         logStep(QStringLiteral("B_then_A: reopen_A snapshot lines=%1").arg(reopenA.size()));
 
         assertSnapshotsEqual(QStringLiteral("B_then_A"), reopenA, coldA);
+    }
+
+    void test_failed_open_blanks_loaded_state_preserves_reopen_path()
+    {
+        MainWindow w;
+        PulseqLoader* loader = w.getPulseqLoader();
+        loader->setSilentMode(true);
+        w.show();
+        QTest::qWait(50);
+
+        QVERIFY2(loadAndSettle(w, m_fileA, QStringLiteral("failed_open/open_A")), qPrintable(m_fileA));
+        const QString reopenPath = loader->getReopenPulseqFilePath();
+        QVERIFY2(!reopenPath.isEmpty(), "Successful open should set reopen path");
+        QCOMPARE(loader->getLoadedPulseqFilePath(), reopenPath);
+
+        QTemporaryDir dir;
+        QVERIFY2(dir.isValid(), "Could not create temporary directory for invalid .seq");
+        const QString invalidSeqPath = dir.filePath(QStringLiteral("invalid.seq"));
+        QFile invalidSeq(invalidSeqPath);
+        QVERIFY2(invalidSeq.open(QIODevice::WriteOnly | QIODevice::Text), qPrintable(invalidSeqPath));
+        invalidSeq.write("[DEFINITIONS]\nName invalid\n");
+        invalidSeq.close();
+
+        QVERIFY2(!loader->OpenPulseqFilePath(invalidSeqPath), "Invalid .seq should fail to open");
+        QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Blank);
+        QVERIFY(loader->getLoadedPulseqFilePath().isEmpty());
+        QVERIFY(!loader->getSequence());
+        QCOMPARE(loader->getReopenPulseqFilePath(), reopenPath);
     }
 
 private:

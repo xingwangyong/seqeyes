@@ -338,11 +338,13 @@ int main(int argc, char *argv[])
 
         // Open file if specified
         if (!fileToOpen.isEmpty()) {
-            window.openFileFromCommandLine(fileToOpen);
+            const bool opened = window.openFileFromCommandLine(fileToOpen);
             // Re-apply options that depend on loaded data (ranges)
             window.applyCommandLineOptions(parser);
 
-            if (parser.isSet("capture-snapshots")) {
+            if (!opened) {
+                exitCode = 4;
+            } else if (parser.isSet("capture-snapshots")) {
                 QString outDir = parser.value("capture-snapshots");
                 window.captureSnapshotsAndExit(outDir);
                 // We do NOT return here, we let app.exec() run the singleShot timer inside captureSnapshotsAndExit

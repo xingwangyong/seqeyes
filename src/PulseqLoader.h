@@ -2,6 +2,7 @@
 #define PULSEQLOADER_H
 
 #include <QObject>
+#include <QPair>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -112,6 +113,7 @@ public:
     ~PulseqLoader();
 
     // Public API for other classes
+    bool OpenPulseqFilePath(QString candidatePath);
     bool LoadPulseqFile(QString sPulseqFilePath);
     void setBlockInfoContent(EventBlockInfoDialog* dialog, int currentBlock);
     void setRawBlockInfoContent(EventBlockInfoDialog* dialog, int currentBlock);
@@ -140,6 +142,8 @@ public:
     int getTrCount() const { return m_nTrCount; }
     double getTFactor() const { return tFactor; }
     void setPulseqFilePathCache(const QString& path) { m_sPulseqFilePathCache = path; }
+    const QString& getLoadedPulseqFilePath() const { return m_sPulseqFilePath; }
+    const QString& getReopenPulseqFilePath() const { return m_sPulseqFilePathCache; }
     std::shared_ptr<ExternalSequence> getSequence(){ return m_spPulseqSeq; }
     SequenceLoadState getSequenceLoadState() const { return m_sequenceLoadState; }
     bool isSequenceLoading() const { return m_sequenceLoadState == SequenceLoadState::Loading; }
@@ -300,6 +304,12 @@ signals:
     void trajectoryDataUpdated();
 
 private:
+    struct LoadError
+    {
+        QString title;
+        QString message;
+    };
+
     struct LabelSnapshot
     {
         QVector<int>  counters; // size NUM_LABELS (known counters only)
@@ -343,6 +353,16 @@ private:
                              QVector<double>& tPh,
                              QVector<double>& vPh) const;
     QString rfSourceTypeToString(RfSourceType type) const;
+    void beginLoad(const QString& path);
+    bool readAndCreateVersionedLoader(const QString& path, LoadError* error);
+    bool loadParserFile(const QString& path, LoadError* error);
+    bool validateRequiredDefinitions(LoadError* error) const;
+    bool decodeBlocks(LoadError* error);
+    bool buildLoadedWaveformCaches(LoadError* error);
+    QPair<double, double> configureInitialViewport();
+    void updateRepetitionTimeMetadata();
+    void finishSuccessfulLoad(const QString& path, const QPair<double, double>& initialRange);
+    bool failLoad(const LoadError& error);
     void ClearPulseqCache(bool withUi = true);
     bool IsBlockRf(const float* fAmp, const float* fPhase, const int& iSamples);
     void updateEchoAndExcitationMetadata(int versionMajor, int versionMinor);

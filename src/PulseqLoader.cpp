@@ -261,20 +261,43 @@ void PulseqLoader::OpenPulseqFile()
         qCritical() << "[MENU TRACE] PulseqLoader::OpenPulseqFile canceled";
 #endif
 
-    if (!selectedPath.isEmpty())
+    OpenPulseqFilePath(selectedPath);
+}
+
+bool PulseqLoader::OpenPulseqFilePath(QString candidatePath)
+{
+    candidatePath = candidatePath.trimmed();
+    if (candidatePath.isEmpty())
+        return false;
+
+    QFileInfo fileInfo(candidatePath);
+    const QString normalizedPath = fileInfo.absoluteFilePath();
+
+    if (!fileInfo.exists())
     {
-        // Save the directory of the selected file
-        QFileInfo fileInfo(selectedPath);
-        m_sLastOpenDirectory = fileInfo.absolutePath();
-        saveLastOpenDirectory();
-        
-        if (!LoadPulseqFile(selectedPath))
-        {
-            m_sPulseqFilePath.clear();
-            m_sPulseqFilePathCache.clear();
-            std::cout << "LoadPulseqFile failed!\n";
-        }
+        const QString message = QStringLiteral("File does not exist:\n%1").arg(candidatePath);
+        qWarning().noquote() << message;
+        if (!m_silentMode) { QMessageBox::warning(m_mainWindow, "File Error", message); }
+        return false;
     }
+
+    if (!fileInfo.isFile() || fileInfo.suffix().compare(QStringLiteral("seq"), Qt::CaseInsensitive) != 0)
+    {
+        const QString message = QStringLiteral("Please select a .seq file:\n%1").arg(candidatePath);
+        qWarning().noquote() << message;
+        if (!m_silentMode) { QMessageBox::warning(m_mainWindow, "File Error", message); }
+        return false;
+    }
+
+    m_sLastOpenDirectory = fileInfo.absolutePath();
+    saveLastOpenDirectory();
+
+    const bool loaded = LoadPulseqFile(normalizedPath);
+    if (!loaded)
+    {
+        qWarning() << "Failed to load file:" << normalizedPath;
+    }
+    return loaded;
 }
 
 void PulseqLoader::ReOpenPulseqFile()
@@ -282,7 +305,7 @@ void PulseqLoader::ReOpenPulseqFile()
     if (m_sPulseqFilePathCache.size() > 0)
     {
         // ClearPulseqCache(); Now LoadPulseqFile() already calls ClearPulseqCache()
-        LoadPulseqFile(m_sPulseqFilePathCache);
+        OpenPulseqFilePath(m_sPulseqFilePathCache);
     }
 }
 
@@ -489,7 +512,22 @@ std::pair<int, int> PulseqLoader::ReadFileVersion(const std::string& filename)
     return std::make_pair(-1, -1);
 }
 
-bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
+bool PulseqLoader::failLoad(const LoadError& error)
+{
+    m_sequenceLoadState = SequenceLoadState::Blank;
+    ClearPulseqCache();
+    if (m_mainWindow)
+        m_mainWindow->setEnabled(true);
+
+    if (m_silentMode) {
+        qWarning().noquote() << error.message;
+    } else {
+        QMessageBox::critical(m_mainWindow, error.title, error.message);
+    }
+    return false;
+}
+
+void PulseqLoader::beginLoad(const QString& path)
 {
     m_mainWindow->setEnabled(false);
     m_sequenceLoadState = SequenceLoadState::Loading;
@@ -508,19 +546,21 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
 
     // Keep the canonical loaded path for all loading entry points
     // (file dialog, drag/drop, command line, reopen).
-    m_sPulseqFilePath = sPulseqFilePath;
+    m_sPulseqFilePath = path;
+}
 
+bool PulseqLoader::readAndCreateVersionedLoader(const QString& path, LoadError* error)
+{
     // First, read version information without loading the full file
-    std::pair<int, int> version = ReadFileVersion(sPulseqFilePath.toStdString());
+    std::pair<int, int> version = ReadFileVersion(path.toStdString());
     if (version.first == -1 || version.second == -1)
     {
-        m_sequenceLoadState = SequenceLoadState::Blank;
-        std::stringstream sLog;
-        sLog << "Failed to read version information from: " << sPulseqFilePath.toStdString();
-        ClearPulseqCache();
-        m_mainWindow->setEnabled(true);
-        if (m_silentMode) { qWarning() << sLog.str().c_str(); }
-        else { QMessageBox::critical(m_mainWindow, "Load Error", sLog.str().c_str()); }
+        if (error) {
+            *error = {
+                QStringLiteral("Load Error"),
+                QStringLiteral("Failed to read version information from: %1").arg(path)
+            };
+        }
         return false;
     }
 
@@ -531,16 +571,23 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
     m_spPulseqSeq = CreateLoaderForVersion(version_major, version_minor);
     if (!m_spPulseqSeq)
     {
-        m_sequenceLoadState = SequenceLoadState::Blank;
-        std::stringstream sLog;
-        sLog << "Unsupported Pulseq file version " << version_major << "." << version_minor << " for: " << sPulseqFilePath.toStdString();
-        ClearPulseqCache();
-        m_mainWindow->setEnabled(true);
-        if (m_silentMode) { qWarning() << sLog.str().c_str(); }
-        else { QMessageBox::critical(m_mainWindow, "Load Error", sLog.str().c_str()); }
+        if (error) {
+            *error = {
+                QStringLiteral("Load Error"),
+                QStringLiteral("Unsupported Pulseq file version %1.%2 for: %3")
+                    .arg(version_major)
+                    .arg(version_minor)
+                    .arg(path)
+            };
+        }
         return false;
     }
 
+    return true;
+}
+
+bool PulseqLoader::loadParserFile(const QString& path, LoadError* error)
+{
     // ============================================================================
     // PULSEQ FILE LOADING WITH ERROR HANDLING
     // ============================================================================
@@ -572,49 +619,57 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
     // Setup time units and factor before loading
     updateTimeUnitFromSettings();
 
-    if (!m_spPulseqSeq->load(sPulseqFilePath.toStdString()))
+    if (!m_spPulseqSeq || !m_spPulseqSeq->load(path.toStdString()))
     {
-        m_sequenceLoadState = SequenceLoadState::Blank;
-        std::stringstream sLog;
-        sLog << "Failed to load Pulseq file: " << sPulseqFilePath.toStdString() << "\n\n";
-        sLog << "Possible causes:\n";
-        sLog << "1. Missing required definitions for:\n";
-        sLog << "   - AdcRasterTime (ADC sampling raster time)\n";
-        sLog << "   - GradientRasterTime (Gradient raster time)\n";
-        sLog << "   - RadiofrequencyRasterTime (RF raster time)\n";
-        sLog << "   - BlockDurationRaster (Block duration raster time)\n\n";
-        sLog << "2. File format issues or corruption\n";
-        sLog << "3. Unsupported Pulseq version\n\n";
-        sLog << "Please check the console output for detailed error messages.";
-        
-        ClearPulseqCache();
-        m_mainWindow->setEnabled(true);
-        if (m_silentMode) { qWarning() << sLog.str().c_str(); }
-        else { QMessageBox::critical(m_mainWindow, "Pulseq Load Error", sLog.str().c_str()); }
+        if (error) {
+            *error = {
+                QStringLiteral("Pulseq Load Error"),
+                QStringLiteral(
+                    "Failed to load Pulseq file: %1\n\n"
+                    "Possible causes:\n"
+                    "1. Missing required definitions for:\n"
+                    "   - AdcRasterTime (ADC sampling raster time)\n"
+                    "   - GradientRasterTime (Gradient raster time)\n"
+                    "   - RadiofrequencyRasterTime (RF raster time)\n"
+                    "   - BlockDurationRaster (Block duration raster time)\n\n"
+                    "2. File format issues or corruption\n"
+                    "3. Unsupported Pulseq version\n\n"
+                    "Please check the console output for detailed error messages.")
+                    .arg(path)
+            };
+        }
         return false;
     }
+
     // Do not use setWindowFilePath for the main window title, because it can auto-compose
     // "file - AppName" which conflicts with our explicit "SeqEyes - file.seq" title.
     if (m_mainWindow) { m_mainWindow->setWindowFilePath(QString()); }
+    return true;
+}
 
+bool PulseqLoader::validateRequiredDefinitions(LoadError* error) const
+{
     // Enforce presence of GradientRasterTime. If missing, abort load and inform user.
+    std::vector<double> gradDef = m_spPulseqSeq ? m_spPulseqSeq->GetDefinition("GradientRasterTime") : std::vector<double>();
+    bool ok = !gradDef.empty() && std::isfinite(gradDef[0]) && gradDef[0] > 0.0;
+    if (!ok)
     {
-        std::vector<double> gradDef = m_spPulseqSeq->GetDefinition("GradientRasterTime");
-        bool ok = !gradDef.empty() && std::isfinite(gradDef[0]) && gradDef[0] > 0.0;
-        if (!ok)
-        {
-            m_sequenceLoadState = SequenceLoadState::Blank;
-            m_mainWindow->setEnabled(true);
-            const char* msg = "Missing required definition: GradientRasterTime (seconds)\n\n"
-                              "The sequence lacks GradientRasterTime in [DEFINITIONS].\n"
-                              "Please add e.g. 'GradientRasterTime 1e-05' and reload.";
-            if (m_silentMode) { qWarning() << msg; }
-            else { QMessageBox::critical(m_mainWindow, "Missing Definition", msg); }
-            ClearPulseqCache();
-            return false;
+        if (error) {
+            *error = {
+                QStringLiteral("Missing Definition"),
+                QStringLiteral(
+                    "Missing required definition: GradientRasterTime (seconds)\n\n"
+                    "The sequence lacks GradientRasterTime in [DEFINITIONS].\n"
+                    "Please add e.g. 'GradientRasterTime 1e-05' and reload.")
+            };
         }
+        return false;
     }
+    return true;
+}
 
+bool PulseqLoader::decodeBlocks(LoadError* error)
+{
     LogManager::getInstance().appendStructured(
         QtInfoMsg,
         QStringLiteral("PulseqLoader"),
@@ -687,18 +742,15 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
         m_vecDecodeSeqBlocks[ushBlockIndex] = m_spPulseqSeq->GetBlock(ushBlockIndex);
         if (!m_spPulseqSeq->decodeBlock(m_vecDecodeSeqBlocks[ushBlockIndex]))
         {
-            m_sequenceLoadState = SequenceLoadState::Blank;
-            std::stringstream sLog;
-            sLog << "Decode SeqBlock failed, block index: " << ushBlockIndex;
+            const QString message = QStringLiteral("Decode SeqBlock failed, block index: %1").arg(ushBlockIndex);
             LogManager::getInstance().appendStructured(
                 QtCriticalMsg,
                 QStringLiteral("PulseqLoader"),
-                QString::fromStdString(sLog.str()),
+                message,
                 QStringLiteral("%1:%2").arg(QStringLiteral("PulseqLoader.cpp")).arg(__LINE__));
-            if (m_silentMode) { qWarning() << sLog.str().c_str(); }
-            else { QMessageBox::critical(m_mainWindow, "File Error", sLog.str().c_str()); }
-            ClearPulseqCache();
-            m_mainWindow->setEnabled(true);
+            if (error) {
+                *error = {QStringLiteral("File Error"), message};
+            }
             return false;
         }
         int progress = (ushBlockIndex + 1) * 100 / lSeqBlockNum;
@@ -732,7 +784,11 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
     }
     std::cout << "Sequence total duration: " << m_dTotalDuration_us / 1e6 << " seconds" << std::endl;
     m_mainWindow->getProgressBar()->hide();
+    return true;
+}
 
+bool PulseqLoader::buildLoadedWaveformCaches(LoadError* error)
+{
     // Build merged series once at load time (no zero padding, only NaN on real gaps)
     // Phase 1 optimization: skip building merged RF arrays (expensive for large sequences).
     // RF is rendered on-demand from per-shape cache with per-block scaling.
@@ -750,6 +806,7 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
     buildLabelSnapshotCache();
     parseTridIdNamesDefinition();
 
+    const int lSeqBlockNum = static_cast<int>(m_vecDecodeSeqBlocks.size());
     nBlockRangeStart = 0;
     nBlockRangeEnd = std::min(int(lSeqBlockNum - 1), 10);
 
@@ -759,15 +816,17 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
         QString unifiedRfError;
         if (!buildUnifiedRfBlocks(&unifiedRfError))
         {
-            m_sequenceLoadState = SequenceLoadState::Blank;
-            if (m_silentMode) { qWarning().noquote() << unifiedRfError; }
-            else { QMessageBox::critical(m_mainWindow, "Pulseq Load Error", unifiedRfError); }
-            ClearPulseqCache();
-            m_mainWindow->setEnabled(true);
+            if (error) {
+                *error = {QStringLiteral("Pulseq Load Error"), unifiedRfError};
+            }
             return false;
         }
     }
+    return true;
+}
 
+QPair<double, double> PulseqLoader::configureInitialViewport()
+{
     WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer();
     // Compute fixed Y-axis ranges based on full-sequence data to avoid per-TR/window autoscale jitter.
     // This keeps comparisons consistent when toggling TRs or panning/zooming.
@@ -786,6 +845,7 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
 
     double initialStartTime = 0.0;
     double initialEndTime = 1.0;
+    const int lSeqBlockNum = static_cast<int>(m_vecDecodeSeqBlocks.size());
     if (lSeqBlockNum > 0)
     {
         // Determine initial view range based on render mode
@@ -827,7 +887,11 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
     {
         drawer->updateCurveVisibility();
     }
+    return qMakePair(initialStartTime, initialEndTime);
+}
 
+void PulseqLoader::updateRepetitionTimeMetadata()
+{
     // TR Detection
     std::vector<double> repTimeDef = m_spPulseqSeq->GetDefinition("RepetitionTime");
     std::vector<double> trDef = m_spPulseqSeq->GetDefinition("TR");
@@ -847,6 +911,7 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
         m_bHasRepetitionTime = false;
     }
 
+    const int lSeqBlockNum = static_cast<int>(m_vecDecodeSeqBlocks.size());
     if (m_bHasRepetitionTime)
     {
         m_nTrCount = static_cast<int>(std::ceil(m_dTotalDuration_us / m_dRepetitionTime_us));
@@ -881,6 +946,11 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
         }
         m_nTrCount = m_vecTrBlockIndices.size();
     }
+}
+
+void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double, double>& initialRange)
+{
+    WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer();
 
     // Update TR manager with new info
     TRManager* trManager = m_mainWindow->getTRManager();
@@ -889,7 +959,7 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
 
     m_sequenceLoadState = SequenceLoadState::Loaded;
 
-    QCPRange finalRange(initialStartTime, initialEndTime);
+    QCPRange finalRange(initialRange.first, initialRange.second);
     if (m_bHasRepetitionTime && m_mainWindow && drawer &&
         !drawer->getRects().isEmpty() && drawer->getRects()[0])
     {
@@ -919,7 +989,7 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
     if (m_mainWindow)
     {
         // Show "SeqEyes - file.seq" only after a successful load.
-        m_mainWindow->setLoadedFileTitle(sPulseqFilePath);
+        m_mainWindow->setLoadedFileTitle(path);
 
         if (auto* coord = m_mainWindow->getCoordLabel())
         {
@@ -931,14 +1001,35 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
                 << "coordMinW=" << coord->minimumWidth();
         }
     }
-    m_sPulseqFilePathCache = sPulseqFilePath;
-    addRecentFile(sPulseqFilePath);
+    m_sPulseqFilePathCache = path;
+    addRecentFile(path);
     startTrajectoryComputationIfEnabled();
     // M1 (first gradient moment) is computed asynchronously on every sequence
     // load. The result is cached and only displayed if the user enables the
     // M1x/M1y/M1z checkboxes, so there is no cost to running it up front.
     startM1ComputationAsync();
     m_mainWindow->setEnabled(true);
+}
+
+bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
+{
+    beginLoad(sPulseqFilePath);
+
+    LoadError error;
+    if (!readAndCreateVersionedLoader(sPulseqFilePath, &error))
+        return failLoad(error);
+    if (!loadParserFile(sPulseqFilePath, &error))
+        return failLoad(error);
+    if (!validateRequiredDefinitions(&error))
+        return failLoad(error);
+    if (!decodeBlocks(&error))
+        return failLoad(error);
+    if (!buildLoadedWaveformCaches(&error))
+        return failLoad(error);
+
+    const QPair<double, double> initialRange = configureInitialViewport();
+    updateRepetitionTimeMetadata();
+    finishSuccessfulLoad(sPulseqFilePath, initialRange);
     return true;
 }
 
@@ -1021,15 +1112,7 @@ void PulseqLoader::updateRecentFilesMenu()
             recentAction->setData(path);
             connect(recentAction, &QAction::triggered, this, [this, recentAction]() {
                 const QString selectedPath = recentAction->data().toString();
-                if (selectedPath.isEmpty())
-                    return;
-                QFileInfo fi(selectedPath);
-                m_sLastOpenDirectory = fi.absolutePath();
-                saveLastOpenDirectory();
-                if (!LoadPulseqFile(selectedPath))
-                {
-                    m_sPulseqFilePathCache.clear();
-                }
+                OpenPulseqFilePath(selectedPath);
             });
         }
     }
