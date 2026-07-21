@@ -225,6 +225,36 @@ add_test(NAME ${RF_MULTICHANNEL_TEST_NAME} COMMAND ${RF_MULTICHANNEL_TEST_NAME})
 seqeyes_configure_qt_app_test(${RF_MULTICHANNEL_TEST_NAME} ${RF_MULTICHANNEL_TEST_NAME})
 
 
+# B0SystemProfileTest: sequence B0/SystemName/profile B0 precedence and ppm offsets.
+set(B0_SYSTEM_PROFILE_TEST_NAME B0SystemProfileTest)
+add_executable(${B0_SYSTEM_PROFILE_TEST_NAME}
+    ${PROJECT_SOURCE_DIR}/test/B0SystemProfileTest.cpp
+    ${SEQEYES_TEST_APP_SOURCES}
+)
+seqeyes_add_app_source_dependencies(${B0_SYSTEM_PROFILE_TEST_NAME})
+
+target_include_directories(${B0_SYSTEM_PROFILE_TEST_NAME} PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+    ${EXTERNAL_PULSEQ_DIR}
+    ${EXTERNAL_QCP_DIR}
+)
+
+target_compile_definitions(${B0_SYSTEM_PROFILE_TEST_NAME} PRIVATE
+    SEQ_FILES_DIR="${PROJECT_SOURCE_DIR}/test/seq_files"
+)
+
+target_link_libraries(${B0_SYSTEM_PROFILE_TEST_NAME} PRIVATE
+    Qt6::Test
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::PrintSupport
+)
+
+add_test(NAME ${B0_SYSTEM_PROFILE_TEST_NAME} COMMAND ${B0_SYSTEM_PROFILE_TEST_NAME})
+seqeyes_configure_qt_app_test(${B0_SYSTEM_PROFILE_TEST_NAME} ${B0_SYSTEM_PROFILE_TEST_NAME})
+
+
 # PerfZoomTest: headless timing of programmatic zoom-in
 set(PERF_TEST_NAME PerfZoomTest)
 add_executable(${PERF_TEST_NAME}
