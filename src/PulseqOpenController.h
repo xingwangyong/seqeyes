@@ -19,10 +19,14 @@ public:
 
     OpenResult openPath(QString candidatePath);
     OpenResult reopen();
+    const QString& loadedPath() const { return m_loadedPath; }
+    const QString& reopenPath() const { return m_reopenPath; }
 
 private:
     PulseqLoader& m_loader;
     IPulseqLoadUi& m_ui;
+    QString m_loadedPath;
+    QString m_reopenPath;
 };
 
 #endif

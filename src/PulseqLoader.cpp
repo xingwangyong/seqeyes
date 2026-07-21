@@ -199,7 +199,6 @@ PulseqLoader::PulseqLoader(MainWindow* mainWindow)
     : QObject(mainWindow),
       m_mainWindow(mainWindow),
       m_sPulseqFilePath(""),
-      m_sPulseqFilePathCache(""),
       m_sLastOpenDirectory(""),
       m_spPulseqSeq(nullptr), // Will be created based on file version
       m_dTotalDuration_us(0.),
@@ -284,6 +283,16 @@ void PulseqLoader::ReOpenPulseqFile()
 {
     if (m_openController)
         m_openController->reopen();
+}
+
+QString PulseqLoader::getLoadedPulseqFilePath() const
+{
+    return m_sPulseqFilePath;
+}
+
+QString PulseqLoader::getReopenPulseqFilePath() const
+{
+    return m_openController ? m_openController->reopenPath() : QString();
 }
 
 void PulseqLoader::ClearPulseqCache(bool withUi)
@@ -777,34 +786,26 @@ void PulseqLoader::commitStagedSequence(LoadedSequenceState& state)
     state.decodedBlocks.clear();
 }
 
-bool PulseqLoader::buildLoadedWaveformCaches(LoadError* error)
+bool PulseqLoader::buildLoadedWaveformCaches(const LoadedSequenceState& state,
+                                             StagedDerivedState& staged,
+                                             LoadError* error) const
 {
-    // Build merged series once at load time (no zero padding, only NaN on real gaps)
-    // Phase 1 optimization: skip building merged RF arrays (expensive for large sequences).
-    // RF is rendered on-demand from per-shape cache with per-block scaling.
-    m_rfTimeAmp.clear(); m_rfAmp.clear(); m_rfTimePh.clear(); m_rfPh.clear();
-    
-    // Phase 2: skip building merged gradient series; use on-demand per-shape cache
-    m_gxTime.clear(); m_gxValues.clear();
-    m_gyTime.clear(); m_gyValues.clear();
-    m_gzTime.clear(); m_gzValues.clear();
-    
     // Build merged ADC series
-    SeriesBuilder::buildADCSeries(m_vecDecodeSeqBlocks, vecBlockEdges, tFactor, m_adcTime, m_adcValues);
+    SeriesBuilder::buildADCSeries(state.decodedBlocks, state.blockEdges, tFactor, staged.adcTime, staged.adcValues);
 
     // Cache label/flag values after each block for fast UI queries (Information window).
-    buildLabelSnapshotCache();
-    parseTridIdNamesDefinition();
+    buildLabelSnapshotCache(state, staged);
+    parseTridIdNamesDefinition(state, staged);
 
-    const int lSeqBlockNum = static_cast<int>(m_vecDecodeSeqBlocks.size());
-    nBlockRangeStart = 0;
-    nBlockRangeEnd = std::min(int(lSeqBlockNum - 1), 10);
+    const int lSeqBlockNum = static_cast<int>(state.decodedBlocks.size());
+    staged.blockRangeStart = 0;
+    staged.blockRangeEnd = std::min(int(lSeqBlockNum - 1), 10);
 
     // Precompute per-shape scale aggregates for RF/Gradients (single pass over blocks)
-    buildShapeScaleAggregates();
+    buildShapeScaleAggregates(state, staged);
     {
         QString unifiedRfError;
-        if (!buildUnifiedRfBlocks(&unifiedRfError))
+        if (!buildUnifiedRfBlocks(state, staged, &unifiedRfError))
         {
             if (error) {
                 *error = {QStringLiteral("Pulseq Load Error"), unifiedRfError};
@@ -815,7 +816,9 @@ bool PulseqLoader::buildLoadedWaveformCaches(LoadError* error)
     return true;
 }
 
-bool PulseqLoader::buildLoadedMetadata(const LoadedSequenceState& state, LoadError* error)
+bool PulseqLoader::buildLoadedMetadata(const LoadedSequenceState& state,
+                                       StagedDerivedState& staged,
+                                       LoadError* error) const
 {
     if (m_forceDerivedMetadataFailureForTesting)
     {
@@ -828,81 +831,20 @@ bool PulseqLoader::buildLoadedMetadata(const LoadedSequenceState& state, LoadErr
         return false;
     }
 
-    updateEchoAndExcitationMetadata(state.versionMajor, state.versionMinor);
-    updateRepetitionTimeMetadata();
+    updateEchoAndExcitationMetadata(state, staged);
+    updateRepetitionTimeMetadata(state, staged);
     return true;
 }
 
 bool PulseqLoader::stageLoadedDerivedState(LoadedSequenceState& state, LoadError* error)
 {
-    m_spPulseqSeq = state.sequence;
-    m_vecDecodeSeqBlocks = state.decodedBlocks;
-    vecBlockEdges = state.blockEdges;
-    m_dTotalDuration_us = state.totalDuration_us;
-    m_pulseqVersionString = state.versionString;
-
-    if (!buildLoadedMetadata(state, error))
-    {
-        clearTransientLiveStateAfterStaging();
-        return false;
-    }
-    if (!buildLoadedWaveformCaches(error))
-    {
-        clearTransientLiveStateAfterStaging();
-        return false;
-    }
-
     auto staged = std::make_unique<StagedDerivedState>();
-    staged->rfTimeAmp = m_rfTimeAmp;
-    staged->rfAmp = m_rfAmp;
-    staged->rfTimePh = m_rfTimePh;
-    staged->rfPh = m_rfPh;
-    staged->gxTime = m_gxTime;
-    staged->gxValues = m_gxValues;
-    staged->gyTime = m_gyTime;
-    staged->gyValues = m_gyValues;
-    staged->gzTime = m_gzTime;
-    staged->gzValues = m_gzValues;
-    staged->adcTime = m_adcTime;
-    staged->adcValues = m_adcValues;
-    staged->unifiedRfBlocks = m_unifiedRfBlocks;
-    staged->unifiedRfChannelCount = m_unifiedRfChannelCount;
-    staged->detectedRoosPtxHack = m_detectedRoosPtxHack;
-    staged->unifiedRfStatusMessage = m_unifiedRfStatusMessage;
-    staged->rfAmpCache = m_rfAmpCache;
-    staged->rfPhCache = m_rfPhCache;
-    staged->gradShapeCache = m_gradShapeCache;
-    staged->rfAgg = m_rfAgg;
-    for (int c = 0; c < 3; ++c)
-    {
-        staged->gradAgg[c] = m_gradAgg[c];
-        staged->gradTrapMaxPosScale[c] = m_gradTrapMaxPosScale[c];
-        staged->gradTrapMinNegScale[c] = m_gradTrapMinNegScale[c];
-        staged->gradExtTrapGlobalMin[c] = m_gradExtTrapGlobalMin[c];
-        staged->gradExtTrapGlobalMax[c] = m_gradExtTrapGlobalMax[c];
-    }
-    staged->labelSnapshots = m_labelSnapshots;
-    staged->usedExtensions = m_usedExtensions;
-    staged->tridIdNames = m_tridIdNames;
-    staged->maxAccumulatedCounter = m_maxAccumulatedCounter;
-    staged->hasRepetitionTime = m_bHasRepetitionTime;
-    staged->repetitionTime_us = m_dRepetitionTime_us;
-    staged->trCount = m_nTrCount;
-    staged->trBlockIndices = m_vecTrBlockIndices;
-    staged->blockRangeStart = nBlockRangeStart;
-    staged->blockRangeEnd = nBlockRangeEnd;
-    staged->supportsRfUseMetadata = m_supportsRfUseMetadata;
-    staged->hasEchoTimeDefinition = m_hasEchoTimeDefinition;
-    staged->teTime_us = m_teTime_us;
-    staged->teDurationAxis = m_teDurationAxis;
-    staged->teDurationsAxis = m_teDurationsAxis;
-    staged->excitationCentersAxis = m_excitationCentersAxis;
-    staged->refocusingCentersAxis = m_refocusingCentersAxis;
-    staged->rfUseGuessed = m_rfUseGuessed;
-    staged->rfGuessWarning = m_rfGuessWarning;
+    if (!buildLoadedMetadata(state, *staged, error))
+        return false;
+    if (!buildLoadedWaveformCaches(state, *staged, error))
+        return false;
 
     m_stagedDerivedState = std::move(staged);
-    clearTransientLiveStateAfterStaging();
     return true;
 }
 
@@ -960,55 +902,6 @@ void PulseqLoader::commitStagedDerivedState()
     m_rfUseGuessed = staged.rfUseGuessed;
     m_rfGuessWarning = std::move(staged.rfGuessWarning);
     m_stagedDerivedState.reset();
-}
-
-void PulseqLoader::clearTransientLiveStateAfterStaging()
-{
-    m_spPulseqSeq.reset();
-    m_vecDecodeSeqBlocks.clear();
-    vecBlockEdges.clear();
-    m_dTotalDuration_us = 0.0;
-    m_pulseqVersionString.clear();
-    m_rfTimeAmp.clear(); m_rfAmp.clear(); m_rfTimePh.clear(); m_rfPh.clear();
-    m_gxTime.clear(); m_gxValues.clear();
-    m_gyTime.clear(); m_gyValues.clear();
-    m_gzTime.clear(); m_gzValues.clear();
-    m_adcTime.clear(); m_adcValues.clear();
-    m_unifiedRfBlocks.clear();
-    m_unifiedRfChannelCount = 1;
-    m_detectedRoosPtxHack = false;
-    m_unifiedRfStatusMessage.clear();
-    m_rfAmpCache.clear();
-    m_rfPhCache.clear();
-    m_gradShapeCache.clear();
-    m_rfAgg.clear();
-    for (int c = 0; c < 3; ++c)
-    {
-        m_gradAgg[c].clear();
-        m_gradTrapMaxPosScale[c] = 0.0;
-        m_gradTrapMinNegScale[c] = 0.0;
-        m_gradExtTrapGlobalMin[c] = std::numeric_limits<double>::infinity();
-        m_gradExtTrapGlobalMax[c] = -std::numeric_limits<double>::infinity();
-    }
-    m_labelSnapshots.clear();
-    m_usedExtensions.clear();
-    m_tridIdNames.clear();
-    m_maxAccumulatedCounter = 0;
-    m_bHasRepetitionTime = false;
-    m_dRepetitionTime_us = 0.0;
-    m_nTrCount = 0;
-    m_vecTrBlockIndices.clear();
-    nBlockRangeStart = 0;
-    nBlockRangeEnd = 0;
-    m_supportsRfUseMetadata = false;
-    m_hasEchoTimeDefinition = false;
-    m_teTime_us = 0.0;
-    m_teDurationAxis = 0.0;
-    m_teDurationsAxis.clear();
-    m_excitationCentersAxis.clear();
-    m_refocusingCentersAxis.clear();
-    m_rfUseGuessed = false;
-    m_rfGuessWarning.clear();
 }
 
 QPair<double, double> PulseqLoader::configureInitialViewport()
@@ -1076,40 +969,41 @@ QPair<double, double> PulseqLoader::configureInitialViewport()
     return qMakePair(initialStartTime, initialEndTime);
 }
 
-void PulseqLoader::updateRepetitionTimeMetadata()
+void PulseqLoader::updateRepetitionTimeMetadata(const LoadedSequenceState& state, StagedDerivedState& staged) const
 {
     // TR Detection
-    std::vector<double> repTimeDef = m_spPulseqSeq->GetDefinition("RepetitionTime");
-    std::vector<double> trDef = m_spPulseqSeq->GetDefinition("TR");
+    std::vector<double> repTimeDef = state.sequence ? state.sequence->GetDefinition("RepetitionTime") : std::vector<double>();
+    std::vector<double> trDef = state.sequence ? state.sequence->GetDefinition("TR") : std::vector<double>();
 
     if (!repTimeDef.empty())
     {
-        m_dRepetitionTime_us = repTimeDef[0] * 1e6;
-        m_bHasRepetitionTime = true;
+        staged.repetitionTime_us = repTimeDef[0] * 1e6;
+        staged.hasRepetitionTime = true;
     }
     else if (!trDef.empty())
     {
-        m_dRepetitionTime_us = trDef[0] * 1e6;
-        m_bHasRepetitionTime = true;
+        staged.repetitionTime_us = trDef[0] * 1e6;
+        staged.hasRepetitionTime = true;
     }
     else
     {
-        m_bHasRepetitionTime = false;
+        staged.hasRepetitionTime = false;
+        staged.repetitionTime_us = 0.0;
     }
 
-    const int lSeqBlockNum = static_cast<int>(m_vecDecodeSeqBlocks.size());
-    if (m_bHasRepetitionTime)
+    const int lSeqBlockNum = static_cast<int>(state.decodedBlocks.size());
+    if (staged.hasRepetitionTime)
     {
-        m_nTrCount = static_cast<int>(std::ceil(m_dTotalDuration_us / m_dRepetitionTime_us));
-        m_vecTrBlockIndices.clear();
-        for (int tr = 0; tr < m_nTrCount; ++tr)
+        staged.trCount = static_cast<int>(std::ceil(state.totalDuration_us / staged.repetitionTime_us));
+        staged.trBlockIndices.clear();
+        for (int tr = 0; tr < staged.trCount; ++tr)
         {
-            double trStartTime = tr * m_dRepetitionTime_us * tFactor;
+            double trStartTime = tr * staged.repetitionTime_us * tFactor;
             int closestBlock = 0;
             double minDistance = std::numeric_limits<double>::max();
             for (int i = 0; i < lSeqBlockNum; ++i)
             {
-                double blockStartTime = vecBlockEdges[i];
+                double blockStartTime = state.blockEdges[i];
                 double distance = std::abs(blockStartTime - trStartTime);
                 if (distance < minDistance)
                 {
@@ -1117,20 +1011,20 @@ void PulseqLoader::updateRepetitionTimeMetadata()
                     closestBlock = i;
                 }
             }
-            m_vecTrBlockIndices.push_back(closestBlock);
+            staged.trBlockIndices.push_back(closestBlock);
         }
     }
     else
     {
-        m_vecTrBlockIndices.clear();
+        staged.trBlockIndices.clear();
         for (int i = 0; i < lSeqBlockNum; ++i)
         {
-            if (m_vecDecodeSeqBlocks[i]->isADC())
+            if (state.decodedBlocks[i]->isADC())
             {
-                m_vecTrBlockIndices.push_back(i);
+                staged.trBlockIndices.push_back(i);
             }
         }
-        m_nTrCount = m_vecTrBlockIndices.size();
+        staged.trCount = staged.trBlockIndices.size();
     }
 }
 
@@ -1187,7 +1081,6 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
                 << "coordMinW=" << coord->minimumWidth();
         }
     }
-    m_sPulseqFilePathCache = path;
     addRecentFile(path);
     startTrajectoryComputationIfEnabled();
     // M1 (first gradient moment) is computed asynchronously on every sequence
@@ -1298,12 +1191,12 @@ void PulseqLoader::updateRecentFilesMenu()
     saveRecentFiles();
 }
 
-void PulseqLoader::buildLabelSnapshotCache()
+void PulseqLoader::buildLabelSnapshotCache(const LoadedSequenceState& state, StagedDerivedState& staged) const
 {
-    m_labelSnapshots.clear();
-    m_usedExtensions.clear();
-    m_maxAccumulatedCounter = 0;
-    const int nBlocks = static_cast<int>(m_vecDecodeSeqBlocks.size());
+    staged.labelSnapshots.clear();
+    staged.usedExtensions.clear();
+    staged.maxAccumulatedCounter = 0;
+    const int nBlocks = static_cast<int>(state.decodedBlocks.size());
     if (nBlocks <= 0)
         return;
 
@@ -1313,26 +1206,26 @@ void PulseqLoader::buildLabelSnapshotCache()
     QVector<bool> flagVal(NUM_FLAGS, false);
     QHash<QString, int> customCounterVal;
 
-    m_labelSnapshots.resize(nBlocks);
+    staged.labelSnapshots.resize(nBlocks);
     for (int i = 0; i < nBlocks; ++i)
     {
-        SeqBlock* blk = m_vecDecodeSeqBlocks[i];
+        SeqBlock* blk = state.decodedBlocks[i];
         if (blk && blk->isLabel())
         {
-            auto seq = m_spPulseqSeq;
+            auto seq = state.sequence;
             auto markCounterUsed = [&](int id) {
                 if (!seq) return;
                 const std::string s = seq->getCounterIdAsString(id);
-                if (!s.empty()) { m_usedExtensions.insert(normalizedExtensionName(s)); return; }
+                if (!s.empty()) { staged.usedExtensions.insert(normalizedExtensionName(s)); return; }
                 const std::string u = seq->GetUnknownLabelName(id);
-                if (!u.empty()) { m_usedExtensions.insert(normalizedExtensionName(u)); return; }
-                m_usedExtensions.insert(fallbackExtensionName("LABEL", id));
+                if (!u.empty()) { staged.usedExtensions.insert(normalizedExtensionName(u)); return; }
+                staged.usedExtensions.insert(fallbackExtensionName("LABEL", id));
             };
             auto markFlagUsed = [&](int id) {
                 if (!seq) return;
                 const std::string s = seq->getFlagIdAsString(id);
-                if (!s.empty()) { m_usedExtensions.insert(normalizedExtensionName(s)); return; }
-                m_usedExtensions.insert(fallbackExtensionName("FLAG", id));
+                if (!s.empty()) { staged.usedExtensions.insert(normalizedExtensionName(s)); return; }
+                staged.usedExtensions.insert(fallbackExtensionName("FLAG", id));
             };
             auto customCounterName = [&](int id) -> QString {
                 if (!seq) return fallbackExtensionName("LABEL", id);
@@ -1359,7 +1252,7 @@ void PulseqLoader::buildLabelSnapshotCache()
                 {
                     const QString name = customCounterName(lblId);
                     customCounterVal.insert(name, val);
-                    m_usedExtensions.insert(name);
+                    staged.usedExtensions.insert(name);
                 }
                 if (flagId >= 0 && flagId < NUM_FLAGS && flagId != FLAG_UNKNOWN)
                 {
@@ -1381,7 +1274,7 @@ void PulseqLoader::buildLabelSnapshotCache()
                 {
                     const QString name = customCounterName(lblId);
                     customCounterVal[name] = customCounterVal.value(name, 0) + val;
-                    m_usedExtensions.insert(name);
+                    staged.usedExtensions.insert(name);
                 }
             }
         }
@@ -1390,23 +1283,23 @@ void PulseqLoader::buildLabelSnapshotCache()
         snap.counters = counterVal;
         snap.flags = flagVal;
         snap.customCounters = customCounterVal;
-        m_labelSnapshots[i] = snap;
+        staged.labelSnapshots[i] = snap;
 
         // Track max accumulated counter value across all blocks (used for ADC Y-range)
         for (int c : counterVal)
-            m_maxAccumulatedCounter = std::max(m_maxAccumulatedCounter, std::abs(c));
+            staged.maxAccumulatedCounter = std::max(staged.maxAccumulatedCounter, std::abs(c));
         for (auto it = customCounterVal.constBegin(); it != customCounterVal.constEnd(); ++it)
-            m_maxAccumulatedCounter = std::max(m_maxAccumulatedCounter, std::abs(it.value()));
+            staged.maxAccumulatedCounter = std::max(staged.maxAccumulatedCounter, std::abs(it.value()));
     }
 }
 
-void PulseqLoader::parseTridIdNamesDefinition()
+void PulseqLoader::parseTridIdNamesDefinition(const LoadedSequenceState& state, StagedDerivedState& staged) const
 {
-    m_tridIdNames.clear();
-    if (!m_spPulseqSeq)
+    staged.tridIdNames.clear();
+    if (!state.sequence)
         return;
 
-    const std::string raw = m_spPulseqSeq->GetDefinitionStr("TridIdName");
+    const std::string raw = state.sequence->GetDefinitionStr("TridIdName");
     if (raw.empty())
         return;
 
@@ -1416,7 +1309,7 @@ void PulseqLoader::parseTridIdNamesDefinition()
     {
         part = part.trimmed();
         if (!part.isEmpty())
-            m_tridIdNames.append(part);
+            staged.tridIdNames.append(part);
     }
 }
 
@@ -1745,39 +1638,37 @@ bool PulseqLoader::IsBlockRf(const float* fAmp, const float* fPhase, const int& 
     return false;
 }
 
-void PulseqLoader::updateEchoAndExcitationMetadata(int versionMajor, int versionMinor)
+void PulseqLoader::updateEchoAndExcitationMetadata(const LoadedSequenceState& state,
+                                                   StagedDerivedState& staged) const
 {
-    m_excitationCentersAxis.clear();
-    m_refocusingCentersAxis.clear();
-    m_hasEchoTimeDefinition = false;
-    m_teTime_us = 0.0;
-    m_teDurationAxis = 0.0;
-    m_teDurationsAxis.clear();
-    m_supportsRfUseMetadata = (versionMajor > 1) || (versionMajor == 1 && versionMinor >= 5);
-    m_rfUseGuessed = false;
-    m_rfGuessWarning.clear();
+    staged.excitationCentersAxis.clear();
+    staged.refocusingCentersAxis.clear();
+    staged.hasEchoTimeDefinition = false;
+    staged.teTime_us = 0.0;
+    staged.teDurationAxis = 0.0;
+    staged.teDurationsAxis.clear();
+    staged.supportsRfUseMetadata = (state.versionMajor > 1) || (state.versionMajor == 1 && state.versionMinor >= 5);
+    staged.rfUseGuessed = false;
+    staged.rfGuessWarning.clear();
 
-    if (!m_spPulseqSeq)
+    if (!state.sequence)
         return;
 
-    std::vector<double> teDef = m_spPulseqSeq->GetDefinition("EchoTime");
+    std::vector<double> teDef = state.sequence->GetDefinition("EchoTime");
     if (teDef.empty())
-        teDef = m_spPulseqSeq->GetDefinition("TE");
+        teDef = state.sequence->GetDefinition("TE");
     if (!teDef.empty())
     {
-        m_hasEchoTimeDefinition = true;
-        m_teDurationsAxis.reserve(static_cast<qsizetype>(teDef.size()));
+        staged.hasEchoTimeDefinition = true;
+        staged.teDurationsAxis.reserve(static_cast<qsizetype>(teDef.size()));
         for (double teSec : teDef)
         {
             const double teUs = teSec * 1e6;
-            m_teDurationsAxis.append(teUs * tFactor);
+            staged.teDurationsAxis.append(teUs * tFactor);
         }
-        m_teTime_us = teDef[0] * 1e6;
-        m_teDurationAxis = m_teDurationsAxis.first();
+        staged.teTime_us = teDef[0] * 1e6;
+        staged.teDurationAxis = staged.teDurationsAxis.first();
     }
-
-    if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2)
-        return;
 }
 
 
@@ -3215,9 +3106,18 @@ QString PulseqLoader::rfPhKey(int phaseShapeId, int timeShapeId, int len) const
 const PulseqLoader::RFAmpEntry& PulseqLoader::ensureRfAmpCached(const float* amp, int len,
                                                                int magShapeId, int timeShapeId)
 {
+    return ensureRfAmpCached(m_rfAmpCache, amp, len, magShapeId, timeShapeId);
+}
+
+const PulseqLoader::RFAmpEntry& PulseqLoader::ensureRfAmpCached(QHash<QString, RFAmpEntry>& cache,
+                                                               const float* amp,
+                                                               int len,
+                                                               int magShapeId,
+                                                               int timeShapeId) const
+{
     QString key = rfAmpKey(magShapeId, timeShapeId, len);
-    auto it = m_rfAmpCache.find(key);
-    if (it != m_rfAmpCache.end()) return it.value();
+    auto it = cache.find(key);
+    if (it != cache.end()) return it.value();
     RFAmpEntry e; e.length = len; e.ampNorm.resize(len);
     double mnA = std::numeric_limits<double>::infinity();
     double mxA = -std::numeric_limits<double>::infinity();
@@ -3236,16 +3136,25 @@ const PulseqLoader::RFAmpEntry& PulseqLoader::ensureRfAmpCached(const float* amp
     } else {
         e.peakIndex = -1;
     }
-    auto ins = m_rfAmpCache.insert(key, e);
+    auto ins = cache.insert(key, e);
     return ins.value();
 }
 
 const PulseqLoader::RFPhEntry& PulseqLoader::ensureRfPhCached(const float* phase, int len,
                                                              int phaseShapeId, int timeShapeId)
 {
+    return ensureRfPhCached(m_rfPhCache, phase, len, phaseShapeId, timeShapeId);
+}
+
+const PulseqLoader::RFPhEntry& PulseqLoader::ensureRfPhCached(QHash<QString, RFPhEntry>& cache,
+                                                             const float* phase,
+                                                             int len,
+                                                             int phaseShapeId,
+                                                             int timeShapeId) const
+{
     QString key = rfPhKey(phaseShapeId, timeShapeId, len);
-    auto it = m_rfPhCache.find(key);
-    if (it != m_rfPhCache.end()) return it.value();
+    auto it = cache.find(key);
+    if (it != cache.end()) return it.value();
     RFPhEntry e; e.length = len; e.phNorm.resize(len);
     double mnP = std::numeric_limits<double>::infinity();
     double mxP = -std::numeric_limits<double>::infinity();
@@ -3263,7 +3172,7 @@ const PulseqLoader::RFPhEntry& PulseqLoader::ensureRfPhCached(const float* phase
     if (!std::isfinite(mnP) || !std::isfinite(mxP)) { mnP = 0.0; mxP = 0.0; }
     e.phMin = mnP; e.phMax = mxP;
     e.isRealLike = isReal;
-    auto ins = m_rfPhCache.insert(key, e);
+    auto ins = cache.insert(key, e);
     return ins.value();
 }
 
@@ -3275,9 +3184,18 @@ QString PulseqLoader::gradKey(int waveShapeId, int timeShapeId, int len) const
 const PulseqLoader::GradShapeEntry& PulseqLoader::ensureGradCached(const float* shape, int len,
                                                                   int waveShapeId, int timeShapeId)
 {
+    return ensureGradCached(m_gradShapeCache, shape, len, waveShapeId, timeShapeId);
+}
+
+const PulseqLoader::GradShapeEntry& PulseqLoader::ensureGradCached(QHash<QString, GradShapeEntry>& cache,
+                                                                  const float* shape,
+                                                                  int len,
+                                                                  int waveShapeId,
+                                                                  int timeShapeId) const
+{
     QString key = gradKey(waveShapeId, timeShapeId, len);
-    auto it = m_gradShapeCache.find(key);
-    if (it != m_gradShapeCache.end()) return it.value();
+    auto it = cache.find(key);
+    if (it != cache.end()) return it.value();
     GradShapeEntry e; e.length = len; e.norm.resize(len);
     double mn = std::numeric_limits<double>::infinity();
     double mx = -std::numeric_limits<double>::infinity();
@@ -3287,7 +3205,7 @@ const PulseqLoader::GradShapeEntry& PulseqLoader::ensureGradCached(const float* 
     }
     if (!std::isfinite(mn) || !std::isfinite(mx)) { mn = 0.0; mx = 0.0; }
     e.vMin = mn; e.vMax = mx;
-    auto ins = m_gradShapeCache.insert(key, e);
+    auto ins = cache.insert(key, e);
     return ins.value();
 }
 
@@ -3785,17 +3703,17 @@ QString PulseqLoader::rfSourceTypeToString(RfSourceType type) const
     return QStringLiteral("SingleChannel");
 }
 
-PulseqLoader::RoosPtxDetectionResult PulseqLoader::detectRoosPtxHackPattern() const
+PulseqLoader::RoosPtxDetectionResult PulseqLoader::detectRoosPtxHackPattern(const LoadedSequenceState& state) const
 {
     RoosPtxDetectionResult result;
-    if (m_vecDecodeSeqBlocks.empty()) {
+    if (state.decodedBlocks.empty()) {
         return result;
     }
 
     QHash<int, int> resetCountHits;
     QHash<int, int> resetCountSegmentLen;
     int splitCapableRfBlocks = 0;
-    for (SeqBlock* blk : m_vecDecodeSeqBlocks) {
+    for (SeqBlock* blk : state.decodedBlocks) {
         if (!blk || !blk->isRF() || blk->hasRfShim()) {
             continue;
         }
@@ -3803,11 +3721,11 @@ PulseqLoader::RoosPtxDetectionResult PulseqLoader::detectRoosPtxHackPattern() co
         const RFEvent& rf = blk->GetRFEvent();
         std::vector<float> rawAmp;
         std::vector<float> rawPhase;
-        if (!getRoosRawRfShapes(m_spPulseqSeq.get(), rf, rawAmp, rawPhase)) {
+        if (!getRoosRawRfShapes(state.sequence.get(), rf, rawAmp, rawPhase)) {
             continue;
         }
         const int rfLength = int(rawAmp.size());
-        const QVector<int> boundaries = detectRoosTimeShapeBoundaries(m_spPulseqSeq.get(), rf.timeShape, rfLength);
+        const QVector<int> boundaries = detectRoosTimeShapeBoundaries(state.sequence.get(), rf.timeShape, rfLength);
         int segmentLen = 0;
         if (!areUniformRoosSegments(boundaries, &segmentLen)) {
             continue;
@@ -3866,21 +3784,23 @@ PulseqLoader::RoosPtxDetectionResult PulseqLoader::detectRoosPtxHackPattern() co
     return result;
 }
 
-bool PulseqLoader::buildUnifiedRfBlocks(QString* errorMessage)
+bool PulseqLoader::buildUnifiedRfBlocks(const LoadedSequenceState& state,
+                                        StagedDerivedState& staged,
+                                        QString* errorMessage) const
 {
-    m_unifiedRfBlocks.clear();
-    m_unifiedRfChannelCount = 1;
-    m_detectedRoosPtxHack = false;
-    m_unifiedRfStatusMessage.clear();
-    if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.isEmpty()) {
+    staged.unifiedRfBlocks.clear();
+    staged.unifiedRfChannelCount = 1;
+    staged.detectedRoosPtxHack = false;
+    staged.unifiedRfStatusMessage.clear();
+    if (state.decodedBlocks.empty() || state.blockEdges.isEmpty()) {
         return true;
     }
 
     const bool enableRoosAutoDetection = Settings::getInstance().getEnableRoosPtxHackAutoDetection();
-    const RoosPtxDetectionResult roosDetection = detectRoosPtxHackPattern();
+    const RoosPtxDetectionResult roosDetection = detectRoosPtxHackPattern(state);
     bool hasExplicitRfShim = false;
-    for (int i = 0; i < static_cast<int>(m_vecDecodeSeqBlocks.size()); ++i) {
-        SeqBlock* blk = m_vecDecodeSeqBlocks[i];
+    for (int i = 0; i < static_cast<int>(state.decodedBlocks.size()); ++i) {
+        SeqBlock* blk = state.decodedBlocks[i];
         if (!blk || !blk->isRF()) {
             continue;
         }
@@ -3894,13 +3814,13 @@ bool PulseqLoader::buildUnifiedRfBlocks(QString* errorMessage)
         UnifiedRfBlock unifiedBlock;
         unifiedBlock.blockIndex = i;
         unifiedBlock.rfLength = rfLength;
-        unifiedBlock.startTimeAxis = vecBlockEdges[i] + rf.delay * tFactor;
+        unifiedBlock.startTimeAxis = state.blockEdges[i] + rf.delay * tFactor;
         unifiedBlock.dwellAxis = blk->GetRFDwellTime() * tFactor;
 
         float* rfList = blk->GetRFAmplitudePtr();
         float* phaseList = blk->GetRFPhasePtr();
-        const RFAmpEntry& ampEntry = ensureRfAmpCached(rfList, rfLength, rf.magShape, rf.timeShape);
-        const RFPhEntry& phEntry = ensureRfPhCached(phaseList, rfLength, rf.phaseShape, rf.timeShape);
+        const RFAmpEntry& ampEntry = ensureRfAmpCached(staged.rfAmpCache, rfList, rfLength, rf.magShape, rf.timeShape);
+        const RFPhEntry& phEntry = ensureRfPhCached(staged.rfPhCache, phaseList, rfLength, rf.phaseShape, rf.timeShape);
 
         auto makeChannel = [&](int channelIndex,
                                RfSourceType source,
@@ -3911,7 +3831,7 @@ bool PulseqLoader::buildUnifiedRfBlocks(QString* errorMessage)
             channel.source = source;
             channel.amplitudeScale = amplitudeScale;
             channel.phaseOffsetRad = phaseOffsetRad;
-            channel.freqOffsetHz = rf.freqOffset + rf.freqPPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla;
+            channel.freqOffsetHz = rf.freqOffset + rf.freqPPM * 1e-6 * Settings::getInstance().getGamma() * state.b0Tesla;
             channel.phaseIsRealLike = phEntry.isRealLike;
             channel.ampNorm = ampEntry.ampNorm;
             channel.phaseNorm = phEntry.phNorm;
@@ -3924,23 +3844,23 @@ bool PulseqLoader::buildUnifiedRfBlocks(QString* errorMessage)
             for (int channelIndex = 0; channelIndex < rfShim.nchan; ++channelIndex) {
                 const double scale = double(rf.amplitude) * double(rfShim.amplitudes[channelIndex]);
                 const double phaseOffset = rf.phaseOffset
-                                         + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla
+                                         + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * state.b0Tesla
                                          + double(rfShim.phases[channelIndex]);
                 makeChannel(channelIndex, RfSourceType::RfShim, scale, phaseOffset);
             }
         } else if (enableRoosAutoDetection && roosDetection.detected) {
             std::vector<float> rawAmp;
             std::vector<float> rawPhase;
-            const bool hasRawShapes = getRoosRawRfShapes(m_spPulseqSeq.get(), rf, rawAmp, rawPhase);
+            const bool hasRawShapes = getRoosRawRfShapes(state.sequence.get(), rf, rawAmp, rawPhase);
             const QVector<int> boundaries = hasRawShapes
-                ? detectRoosTimeShapeBoundaries(m_spPulseqSeq.get(), rf.timeShape, int(rawAmp.size()))
+                ? detectRoosTimeShapeBoundaries(state.sequence.get(), rf.timeShape, int(rawAmp.size()))
                 : QVector<int>();
             int samplesPerChannel = 0;
             if (hasRawShapes
                 && areUniformRoosSegments(boundaries, &samplesPerChannel)
                 && (boundaries.size() - 1) == roosDetection.inferredChannelCount) {
-                const RFAmpEntry& rawAmpEntry = ensureRfAmpCached(rawAmp.data(), int(rawAmp.size()), rf.magShape, rf.timeShape);
-                const RFPhEntry& rawPhEntry = ensureRfPhCached(rawPhase.data(), int(rawPhase.size()), rf.phaseShape, rf.timeShape);
+                const RFAmpEntry& rawAmpEntry = ensureRfAmpCached(staged.rfAmpCache, rawAmp.data(), int(rawAmp.size()), rf.magShape, rf.timeShape);
+                const RFPhEntry& rawPhEntry = ensureRfPhCached(staged.rfPhCache, rawPhase.data(), int(rawPhase.size()), rf.phaseShape, rf.timeShape);
                 unifiedBlock.rfLength = samplesPerChannel;
 
                 for (int channelIndex = 0; channelIndex + 1 < boundaries.size(); ++channelIndex) {
@@ -3958,8 +3878,8 @@ bool PulseqLoader::buildUnifiedRfBlocks(QString* errorMessage)
                     channel.source = RfSourceType::RoosPtxHack;
                     channel.amplitudeScale = double(rf.amplitude);
                     channel.phaseOffsetRad = rf.phaseOffset
-                        + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla;
-                    channel.freqOffsetHz = rf.freqOffset + rf.freqPPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla;
+                        + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * state.b0Tesla;
+                    channel.freqOffsetHz = rf.freqOffset + rf.freqPPM * 1e-6 * Settings::getInstance().getGamma() * state.b0Tesla;
                     channel.phaseIsRealLike = rawPhEntry.isRealLike;
                     channel.ampNorm = rawAmpEntry.ampNorm.mid(start, stop - start);
                     channel.phaseNorm = rawPhEntry.phNorm.mid(start, stop - start);
@@ -3989,18 +3909,18 @@ bool PulseqLoader::buildUnifiedRfBlocks(QString* errorMessage)
                 makeChannel(0,
                             RfSourceType::RoosPtxHack,
                             double(rf.amplitude),
-                            rf.phaseOffset + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla);
+                            rf.phaseOffset + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * state.b0Tesla);
             }
         } else {
             makeChannel(0,
                         roosDetection.detected ? RfSourceType::RoosPtxHack : RfSourceType::SingleChannel,
                         double(rf.amplitude),
-                        rf.phaseOffset + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * m_b0Tesla);
+                        rf.phaseOffset + rf.phasePPM * 1e-6 * Settings::getInstance().getGamma() * state.b0Tesla);
         }
 
         if (!unifiedBlock.channels.isEmpty()) {
-            m_unifiedRfChannelCount = std::max(m_unifiedRfChannelCount, int(unifiedBlock.channels.size()));
-            m_unifiedRfBlocks.append(unifiedBlock);
+            staged.unifiedRfChannelCount = std::max(staged.unifiedRfChannelCount, int(unifiedBlock.channels.size()));
+            staged.unifiedRfBlocks.append(unifiedBlock);
         }
     }
 
@@ -4018,10 +3938,10 @@ bool PulseqLoader::buildUnifiedRfBlocks(QString* errorMessage)
         return false;
     }
 
-    m_detectedRoosPtxHack = roosDetection.detected;
+    staged.detectedRoosPtxHack = roosDetection.detected;
     if (roosDetection.detected) {
         if (enableRoosAutoDetection) {
-            m_unifiedRfStatusMessage = QStringLiteral(
+            staged.unifiedRfStatusMessage = QStringLiteral(
                 "Detected RoosPtxHack-style RF/ADC phase tables (%1 RF groups, %2 ADC groups, %3 matched phases, inferred %4 channels x %5 samples).")
                 .arg(roosDetection.matchedRfGroupCount)
                 .arg(roosDetection.matchedAdcGroupCount)
@@ -4029,11 +3949,11 @@ bool PulseqLoader::buildUnifiedRfBlocks(QString* errorMessage)
                 .arg(roosDetection.inferredChannelCount)
                 .arg(roosDetection.inferredSamplesPerChannel);
         } else {
-            m_unifiedRfStatusMessage = QStringLiteral(
+            staged.unifiedRfStatusMessage = QStringLiteral(
                 "Detected RoosPtxHack-style RF/ADC phase tables, but auto-detection is disabled in settings.");
         }
     } else if (!enableRoosAutoDetection) {
-        m_unifiedRfStatusMessage = QStringLiteral("RoosPtxHack auto-detection disabled in settings.");
+        staged.unifiedRfStatusMessage = QStringLiteral("RoosPtxHack auto-detection disabled in settings.");
     }
     return true;
 }
@@ -4365,19 +4285,18 @@ void PulseqLoader::getAdcPhaseViewport(double visibleStart, double visibleEnd, i
     m_adcPhaseCache.valid = true;
 }
 
-void PulseqLoader::buildShapeScaleAggregates()
+void PulseqLoader::buildShapeScaleAggregates(const LoadedSequenceState& state, StagedDerivedState& staged) const
 {
-    // Reset
-    m_rfAgg.clear();
+    staged.rfAgg.clear();
     for (int c = 0; c < 3; ++c) {
-        m_gradAgg[c].clear();
-        m_gradTrapMaxPosScale[c] = 0.0;
-        m_gradTrapMinNegScale[c] = 0.0;
-        m_gradExtTrapGlobalMin[c] = std::numeric_limits<double>::infinity();
-        m_gradExtTrapGlobalMax[c] = -std::numeric_limits<double>::infinity();
+        staged.gradAgg[c].clear();
+        staged.gradTrapMaxPosScale[c] = 0.0;
+        staged.gradTrapMinNegScale[c] = 0.0;
+        staged.gradExtTrapGlobalMin[c] = std::numeric_limits<double>::infinity();
+        staged.gradExtTrapGlobalMax[c] = -std::numeric_limits<double>::infinity();
     }
     // Single pass over blocks
-    for (SeqBlock* blk : m_vecDecodeSeqBlocks) {
+    for (SeqBlock* blk : state.decodedBlocks) {
         if (!blk) continue;
         // RF
         if (blk->isRF()) {
@@ -4385,9 +4304,9 @@ void PulseqLoader::buildShapeScaleAggregates()
             int RFLength = blk->GetRFLength();
             if (RFLength > 0) {
                 float* rfList = blk->GetRFAmplitudePtr();
-                const RFAmpEntry& eA = ensureRfAmpCached(rfList, RFLength, rf.magShape, rf.timeShape);
+                const RFAmpEntry& eA = ensureRfAmpCached(staged.rfAmpCache, rfList, RFLength, rf.magShape, rf.timeShape);
                 QString key = rfAmpKey(rf.magShape, rf.timeShape, RFLength);
-                ScaleAgg& ag = m_rfAgg[key];
+                ScaleAgg& ag = staged.rfAgg[key];
                 if (!ag.hasShape) ag.updateShape(eA.ampMin, eA.ampMax);
                 ag.updateScale(double(rf.amplitude));
             }
@@ -4399,17 +4318,17 @@ void PulseqLoader::buildShapeScaleAggregates()
             const GradEvent& grad = blk->GetGradEvent(ch);
             if (blk->isTrapGradient(ch)) {
                 double s = double(grad.amplitude);
-                if (s >= 0) m_gradTrapMaxPosScale[ch] = std::max(m_gradTrapMaxPosScale[ch], s);
-                else        m_gradTrapMinNegScale[ch] = std::min(m_gradTrapMinNegScale[ch], s);
+                if (s >= 0) staged.gradTrapMaxPosScale[ch] = std::max(staged.gradTrapMaxPosScale[ch], s);
+                else        staged.gradTrapMinNegScale[ch] = std::min(staged.gradTrapMinNegScale[ch], s);
                 continue;
             }
             if (blk->isArbitraryGradient(ch)) {
                 int numSamples = blk->GetArbGradNumSamples(ch);
                 const float* shapePtr = blk->GetArbGradShapePtr(ch);
                 if (numSamples > 0 && shapePtr) {
-                    const GradShapeEntry& e = ensureGradCached(shapePtr, numSamples, grad.waveShape, grad.timeShape);
+                    const GradShapeEntry& e = ensureGradCached(staged.gradShapeCache, shapePtr, numSamples, grad.waveShape, grad.timeShape);
                     QString key = gradKey(grad.waveShape, grad.timeShape, numSamples);
-                    ScaleAgg& ag = m_gradAgg[ch][key];
+                    ScaleAgg& ag = staged.gradAgg[ch][key];
                     if (!ag.hasShape) ag.updateShape(e.vMin, e.vMax);
                     ag.updateScale(double(grad.amplitude));
                 }
@@ -4428,8 +4347,8 @@ void PulseqLoader::buildShapeScaleAggregates()
                     double cands[2] = { smin * scale, smax * scale };
                     for (double v : cands) {
                         if (!std::isfinite(v)) continue;
-                        if (v < m_gradExtTrapGlobalMin[ch]) m_gradExtTrapGlobalMin[ch] = v;
-                        if (v > m_gradExtTrapGlobalMax[ch]) m_gradExtTrapGlobalMax[ch] = v;
+                        if (v < staged.gradExtTrapGlobalMin[ch]) staged.gradExtTrapGlobalMin[ch] = v;
+                        if (v > staged.gradExtTrapGlobalMax[ch]) staged.gradExtTrapGlobalMax[ch] = v;
                     }
                 }
                 continue;

@@ -211,6 +211,7 @@ target_link_libraries(${RF_MULTICHANNEL_TEST_NAME} PRIVATE
 )
 
 add_test(NAME ${RF_MULTICHANNEL_TEST_NAME} COMMAND ${RF_MULTICHANNEL_TEST_NAME})
+seqeyes_configure_qt_app_test(${RF_MULTICHANNEL_TEST_NAME} ${RF_MULTICHANNEL_TEST_NAME})
 
 
 # PerfZoomTest: headless timing of programmatic zoom-in

@@ -48,12 +48,14 @@ OpenResult PulseqOpenController::openPath(QString candidatePath)
         qWarning() << "Failed to load file:" << normalizedPath;
         return result;
     }
+    m_loadedPath = result.loadedPath;
+    m_reopenPath = result.loadedPath;
     return result;
 }
 
 OpenResult PulseqOpenController::reopen()
 {
-    const QString reopenPath = m_loader.m_sPulseqFilePathCache;
+    const QString reopenPath = m_reopenPath;
     if (reopenPath.isEmpty())
         return {};
     return openPath(reopenPath);

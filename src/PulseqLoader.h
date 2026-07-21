@@ -147,9 +147,8 @@ public:
     double getRepetitionTime_us() const { return m_dRepetitionTime_us; }
     int getTrCount() const { return m_nTrCount; }
     double getTFactor() const { return tFactor; }
-    void setPulseqFilePathCache(const QString& path) { m_sPulseqFilePathCache = path; }
-    const QString& getLoadedPulseqFilePath() const { return m_sPulseqFilePath; }
-    const QString& getReopenPulseqFilePath() const { return m_sPulseqFilePathCache; }
+    QString getLoadedPulseqFilePath() const;
+    QString getReopenPulseqFilePath() const;
     std::shared_ptr<ExternalSequence> getSequence(){ return m_spPulseqSeq; }
     SequenceLoadState getSequenceLoadState() const { return m_sequenceLoadState; }
     bool isSequenceLoading() const { return m_sequenceLoadState == SequenceLoadState::Loading; }
@@ -336,13 +335,14 @@ private:
         QVector<bool> flags;    // size NUM_FLAGS (known flags only)
         QHash<QString, int> customCounters; // unknown/custom counters keyed by upper-case name
     };
+    struct StagedDerivedState;
 
-    void buildLabelSnapshotCache();
-    void parseTridIdNamesDefinition();
+    void buildLabelSnapshotCache(const LoadedSequenceState& state, StagedDerivedState& staged) const;
+    void parseTridIdNamesDefinition(const LoadedSequenceState& state, StagedDerivedState& staged) const;
     const LabelSnapshot* labelSnapshotAfterBlock(int blockIdx) const;
     QString formatExtensionLabelLine(const QString& label, int value, bool isFlag) const;
 
-    void buildShapeScaleAggregates();
+    void buildShapeScaleAggregates(const LoadedSequenceState& state, StagedDerivedState& staged) const;
     struct RoosPtxDetectionResult {
         bool detected {false};
         int matchedRfGroupCount {0};
@@ -352,8 +352,10 @@ private:
         int inferredChannelCount {1};
         int inferredSamplesPerChannel {0};
     };
-    bool buildUnifiedRfBlocks(QString* errorMessage = nullptr);
-    RoosPtxDetectionResult detectRoosPtxHackPattern() const;
+    bool buildUnifiedRfBlocks(const LoadedSequenceState& state,
+                              StagedDerivedState& staged,
+                              QString* errorMessage = nullptr) const;
+    RoosPtxDetectionResult detectRoosPtxHackPattern(const LoadedSequenceState& state) const;
     void appendUnifiedRfBlockSeries(const UnifiedRfBlock& block,
                                     int pixelWidth,
                                     double window,
@@ -379,18 +381,17 @@ private:
     bool validateRequiredDefinitions(const LoadedSequenceState& state, LoadError* error) const;
     bool decodeBlocks(LoadedSequenceState& state, LoadError* error);
     void commitStagedSequence(LoadedSequenceState& state);
-    bool buildLoadedWaveformCaches(LoadError* error);
-    bool buildLoadedMetadata(const LoadedSequenceState& state, LoadError* error);
+    bool buildLoadedWaveformCaches(const LoadedSequenceState& state, StagedDerivedState& staged, LoadError* error) const;
+    bool buildLoadedMetadata(const LoadedSequenceState& state, StagedDerivedState& staged, LoadError* error) const;
     bool stageLoadedDerivedState(LoadedSequenceState& state, LoadError* error);
     void commitStagedDerivedState();
-    void clearTransientLiveStateAfterStaging();
     QPair<double, double> configureInitialViewport();
-    void updateRepetitionTimeMetadata();
+    void updateRepetitionTimeMetadata(const LoadedSequenceState& state, StagedDerivedState& staged) const;
     void finishSuccessfulLoad(const QString& path, const QPair<double, double>& initialRange);
     bool failLoad(const LoadError& error);
     void ClearPulseqCache(bool withUi = true);
     bool IsBlockRf(const float* fAmp, const float* fPhase, const int& iSamples);
-    void updateEchoAndExcitationMetadata(int versionMajor, int versionMinor);
+    void updateEchoAndExcitationMetadata(const LoadedSequenceState& state, StagedDerivedState& staged) const;
     void computeKSpaceTrajectory();
     KSpaceTrajectory::Input buildKSpaceTrajectoryInput() const;
     void applyTrajectoryResult(const KSpaceTrajectory::Result& result);
@@ -428,7 +429,6 @@ private:
 
     // Member variables moved from MainWindow
     QString m_sPulseqFilePath;
-    QString m_sPulseqFilePathCache;
     QString m_sLastOpenDirectory;  // Remember last opened directory
     QStringList m_listRecentPulseqFilePaths;
     std::shared_ptr<ExternalSequence> m_spPulseqSeq;
@@ -559,6 +559,16 @@ private:
     QString rfPhKey(int phaseShapeId, int timeShapeId, int len) const;
     const RFAmpEntry& ensureRfAmpCached(const float* amp, int len, int magShapeId, int timeShapeId);
     const RFPhEntry&  ensureRfPhCached(const float* phase, int len, int phaseShapeId, int timeShapeId);
+    const RFAmpEntry& ensureRfAmpCached(QHash<QString, RFAmpEntry>& cache,
+                                        const float* amp,
+                                        int len,
+                                        int magShapeId,
+                                        int timeShapeId) const;
+    const RFPhEntry& ensureRfPhCached(QHash<QString, RFPhEntry>& cache,
+                                      const float* phase,
+                                      int len,
+                                      int phaseShapeId,
+                                      int timeShapeId) const;
     void downsampleMinMax(const QVector<float>& src, int buckets, QVector<int>& outIdxMin, QVector<int>& outIdxMax) const;
     void lttbDownsampleUniform(const QVector<float>& src, double tStart, double dt, int targetPoints,
                                QVector<double>& tOut, QVector<double>& vOut) const;
@@ -574,6 +584,11 @@ private:
     QString gradKey(int waveShapeId, int timeShapeId, int len) const;
     const GradShapeEntry& ensureGradCached(const float* shape, int len,
                                           int waveShapeId, int timeShapeId);
+    const GradShapeEntry& ensureGradCached(QHash<QString, GradShapeEntry>& cache,
+                                           const float* shape,
+                                           int len,
+                                           int waveShapeId,
+                                           int timeShapeId) const;
 
     // ===== Aggregated per-shape scale tracking (for global Y-range, computed once at load) =====
     struct ScaleAgg {
