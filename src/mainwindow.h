@@ -74,6 +74,7 @@ class MainWindow : public QMainWindow
     // Grant handlers access to private members like 'ui' and other handlers
     friend class InteractionHandler;
     friend class PulseqLoader;
+    friend class PulseqLoadUiAdapter;
     friend class TRManager;
     friend class WaveformDrawer;
 

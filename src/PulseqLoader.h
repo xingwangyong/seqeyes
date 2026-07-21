@@ -24,6 +24,9 @@
 // Forward declarations
 class MainWindow;
 class EventBlockInfoDialog;
+class PulseqLoadTransaction;
+class PulseqLoadUiAdapter;
+class PulseqOpenController;
 
 class PulseqLoader : public QObject
 {
@@ -107,6 +110,11 @@ public:
         QVector<QVector<double>> ampValueByChannel;
         QVector<QVector<double>> phaseTimeByChannel;
         QVector<QVector<double>> phaseValueByChannel;
+    };
+    struct LoadError
+    {
+        QString title;
+        QString message;
     };
 
     explicit PulseqLoader(MainWindow* mainWindow);
@@ -304,11 +312,8 @@ signals:
     void trajectoryDataUpdated();
 
 private:
-    struct LoadError
-    {
-        QString title;
-        QString message;
-    };
+    friend class PulseqLoadTransaction;
+    friend class PulseqOpenController;
 
     struct LabelSnapshot
     {
@@ -398,6 +403,8 @@ private:
 
 private:
     MainWindow* m_mainWindow;
+    std::unique_ptr<PulseqLoadUiAdapter> m_loadUi;
+    std::unique_ptr<PulseqOpenController> m_openController;
 
     // Member variables moved from MainWindow
     QString m_sPulseqFilePath;

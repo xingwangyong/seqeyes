@@ -25,7 +25,10 @@ set(SEQEYES_TEST_APP_SOURCES
     ${PROJECT_SOURCE_DIR}/src/LogManager.cpp
     ${PROJECT_SOURCE_DIR}/src/mainwindow.cpp
     ${PROJECT_SOURCE_DIR}/src/TrajectoryColormap.cpp
+    ${PROJECT_SOURCE_DIR}/src/PulseqLoadTransaction.cpp
+    ${PROJECT_SOURCE_DIR}/src/PulseqLoadUiAdapter.cpp
     ${PROJECT_SOURCE_DIR}/src/PulseqLoader.cpp
+    ${PROJECT_SOURCE_DIR}/src/PulseqOpenController.cpp
     ${PROJECT_SOURCE_DIR}/src/NumericLineEdit.h
     ${PROJECT_SOURCE_DIR}/src/SeriesBuilder.cpp
     ${PROJECT_SOURCE_DIR}/src/KSpaceTrajectory.cpp

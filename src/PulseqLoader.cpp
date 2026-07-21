@@ -1,4 +1,7 @@
 #include "PulseqLoader.h"
+#include "PulseqLoadTransaction.h"
+#include "PulseqLoadUiAdapter.h"
+#include "PulseqOpenController.h"
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "WaveformDrawer.h"
@@ -207,6 +210,8 @@ PulseqLoader::PulseqLoader(MainWindow* mainWindow)
       nBlockRangeEnd(0),
       tFactor(1e-3)
 {
+    m_loadUi = std::make_unique<PulseqLoadUiAdapter>(m_mainWindow);
+    m_openController = std::make_unique<PulseqOpenController>(*this, *m_loadUi);
     m_listRecentPulseqFilePaths.resize(10);
     updateTimeUnitFromSettings();
     
@@ -266,47 +271,13 @@ void PulseqLoader::OpenPulseqFile()
 
 bool PulseqLoader::OpenPulseqFilePath(QString candidatePath)
 {
-    candidatePath = candidatePath.trimmed();
-    if (candidatePath.isEmpty())
-        return false;
-
-    QFileInfo fileInfo(candidatePath);
-    const QString normalizedPath = fileInfo.absoluteFilePath();
-
-    if (!fileInfo.exists())
-    {
-        const QString message = QStringLiteral("File does not exist:\n%1").arg(candidatePath);
-        qWarning().noquote() << message;
-        if (!m_silentMode) { QMessageBox::warning(m_mainWindow, "File Error", message); }
-        return false;
-    }
-
-    if (!fileInfo.isFile() || fileInfo.suffix().compare(QStringLiteral("seq"), Qt::CaseInsensitive) != 0)
-    {
-        const QString message = QStringLiteral("Please select a .seq file:\n%1").arg(candidatePath);
-        qWarning().noquote() << message;
-        if (!m_silentMode) { QMessageBox::warning(m_mainWindow, "File Error", message); }
-        return false;
-    }
-
-    m_sLastOpenDirectory = fileInfo.absolutePath();
-    saveLastOpenDirectory();
-
-    const bool loaded = LoadPulseqFile(normalizedPath);
-    if (!loaded)
-    {
-        qWarning() << "Failed to load file:" << normalizedPath;
-    }
-    return loaded;
+    return m_openController ? m_openController->openPath(candidatePath) : false;
 }
 
 void PulseqLoader::ReOpenPulseqFile()
 {
-    if (m_sPulseqFilePathCache.size() > 0)
-    {
-        // ClearPulseqCache(); Now LoadPulseqFile() already calls ClearPulseqCache()
-        OpenPulseqFilePath(m_sPulseqFilePathCache);
-    }
+    if (m_openController)
+        m_openController->reopen();
 }
 
 void PulseqLoader::ClearPulseqCache(bool withUi)
@@ -318,20 +289,8 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     m_activeTrajectoryRequestId = 0;
     m_activePnsRequestId = 0;
 
-    if (withUi && m_mainWindow)
-    {
-        if (auto* ih = m_mainWindow->getInteractionHandler())
-            ih->cancelPendingViewportRenders();
-        m_mainWindow->clearLoadedFileTitle();
-        if (auto lbl = m_mainWindow->getVersionLabel()) { lbl->setText(""); lbl->setVisible(false); }
-        if (auto pb = m_mainWindow->getProgressBar()) { pb->hide(); }
-        if (auto* drawer = m_mainWindow->getWaveformDrawer())
-            drawer->clearAllWaveformData();
-        if (m_mainWindow->ui && m_mainWindow->ui->customPlot)
-        {
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
-        }
-    }
+    if (withUi && m_loadUi)
+        m_loadUi->clearLoadedState();
 
     m_dTotalDuration_us = 0.;
     m_sPulseqFilePath.clear();
@@ -421,7 +380,7 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     }
     setTrajectoryState(TrajectoryState::NotStarted);
     emit pnsStateChanged();
-    if (m_mainWindow) { m_mainWindow->setWindowFilePath(""); }
+    if (m_loadUi) { m_loadUi->clearWindowFilePath(); }
     emit pnsDataUpdated();
 }
 
@@ -516,20 +475,22 @@ bool PulseqLoader::failLoad(const LoadError& error)
 {
     m_sequenceLoadState = SequenceLoadState::Blank;
     ClearPulseqCache();
-    if (m_mainWindow)
-        m_mainWindow->setEnabled(true);
+    if (m_loadUi)
+        m_loadUi->setBusy(false);
 
     if (m_silentMode) {
         qWarning().noquote() << error.message;
     } else {
-        QMessageBox::critical(m_mainWindow, error.title, error.message);
+        if (m_loadUi)
+            m_loadUi->showCritical(error.title, error.message);
     }
     return false;
 }
 
 void PulseqLoader::beginLoad()
 {
-    m_mainWindow->setEnabled(false);
+    if (m_loadUi)
+        m_loadUi->setBusy(true);
     m_sequenceLoadState = SequenceLoadState::Loading;
 
     // Opening any sequence must invalidate all cached waveform/trajectory state
@@ -639,7 +600,7 @@ bool PulseqLoader::loadParserFile(const QString& path, LoadError* error)
 
     // Do not use setWindowFilePath for the main window title, because it can auto-compose
     // "file - AppName" which conflicts with our explicit "SeqEyes - file.seq" title.
-    if (m_mainWindow) { m_mainWindow->setWindowFilePath(QString()); }
+    if (m_loadUi) { m_loadUi->clearWindowFilePath(); }
     return true;
 }
 
@@ -724,13 +685,15 @@ bool PulseqLoader::decodeBlocks(LoadError* error)
     QString sVersion = QString::number(shVersionMajor) + "." + QString::number(shVersionMinor) + "." + QString::number(shVersionRevision);
     m_pulseqVersionString = "v" + sVersion;
     // Do not show redundant version label in status bar; keep cached string only
-    if (m_mainWindow->getVersionLabel()) m_mainWindow->getVersionLabel()->setVisible(false);
+    if (m_loadUi) m_loadUi->hideVersionLabel();
 
     const int64_t& lSeqBlockNum = m_spPulseqSeq->GetNumberOfBlocks();
     std::cout << lSeqBlockNum << " blocks detected!\n";
     m_vecDecodeSeqBlocks.resize(lSeqBlockNum);
-    m_mainWindow->getProgressBar()->show();
-    m_mainWindow->getProgressBar()->setValue(0);
+    if (m_loadUi) {
+        m_loadUi->showProgress();
+        m_loadUi->setProgressValue(0);
+    }
     vecBlockEdges.clear();
     vecBlockEdges.resize(lSeqBlockNum + 1, 0);
     for (int64_t ushBlockIndex = 0; ushBlockIndex < lSeqBlockNum; ushBlockIndex++)
@@ -750,7 +713,7 @@ bool PulseqLoader::decodeBlocks(LoadError* error)
             return false;
         }
         int progress = (ushBlockIndex + 1) * 100 / lSeqBlockNum;
-        m_mainWindow->getProgressBar()->setValue(progress);
+        if (m_loadUi) m_loadUi->setProgressValue(progress);
         vecBlockEdges[ushBlockIndex + 1] = vecBlockEdges[ushBlockIndex] + m_vecDecodeSeqBlocks[ushBlockIndex]->GetDuration() * tFactor;
     }
     // Decode succeeded: take shared ownership of the blocks. From here on the
@@ -779,7 +742,7 @@ bool PulseqLoader::decodeBlocks(LoadError* error)
         m_dTotalDuration_us = vecBlockEdges[lSeqBlockNum] / tFactor;
     }
     std::cout << "Sequence total duration: " << m_dTotalDuration_us / 1e6 << " seconds" << std::endl;
-    m_mainWindow->getProgressBar()->hide();
+    if (m_loadUi) m_loadUi->hideProgress();
     return true;
 }
 
@@ -979,14 +942,13 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
     startPnsComputationIfEnabled();
 
     // Keep UI updates only; drawing was already triggered via synchronizeXAxes
-    if (m_mainWindow && m_mainWindow->isTrajectoryVisible())
-    {
-        m_mainWindow->refreshTrajectoryPlotData();
-    }
+    if (m_loadUi)
+        m_loadUi->refreshTrajectoryPlot();
     if (m_mainWindow)
     {
         // Show "SeqEyes - file.seq" only after a successful load.
-        m_mainWindow->setLoadedFileTitle(path);
+        if (m_loadUi)
+            m_loadUi->setLoadedTitle(path);
 
         if (auto* coord = m_mainWindow->getCoordLabel())
         {
@@ -1005,29 +967,14 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
     // load. The result is cached and only displayed if the user enables the
     // M1x/M1y/M1z checkboxes, so there is no cost to running it up front.
     startM1ComputationAsync();
-    m_mainWindow->setEnabled(true);
+    if (m_loadUi)
+        m_loadUi->setBusy(false);
 }
 
 bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
 {
-    beginLoad();
-
-    LoadError error;
-    if (!readAndCreateVersionedLoader(sPulseqFilePath, &error))
-        return failLoad(error);
-    if (!loadParserFile(sPulseqFilePath, &error))
-        return failLoad(error);
-    if (!validateRequiredDefinitions(&error))
-        return failLoad(error);
-    if (!decodeBlocks(&error))
-        return failLoad(error);
-    if (!buildLoadedWaveformCaches(&error))
-        return failLoad(error);
-
-    const QPair<double, double> initialRange = configureInitialViewport();
-    updateRepetitionTimeMetadata();
-    finishSuccessfulLoad(sPulseqFilePath, initialRange);
-    return true;
+    PulseqLoadTransaction transaction(*this);
+    return transaction.load(sPulseqFilePath);
 }
 
 void PulseqLoader::loadRecentFiles()

@@ -135,7 +135,10 @@ set(SRC_LIST
     ${PROJECT_ROOT}/src/InteractionHandler.cpp
     ${PROJECT_ROOT}/src/LogManager.cpp
     ${PROJECT_ROOT}/src/mainwindow.cpp
+    ${PROJECT_ROOT}/src/PulseqLoadTransaction.cpp
+    ${PROJECT_ROOT}/src/PulseqLoadUiAdapter.cpp
     ${PROJECT_ROOT}/src/PulseqLoader.cpp
+    ${PROJECT_ROOT}/src/PulseqOpenController.cpp
     ${PROJECT_ROOT}/src/SeriesBuilder.cpp
     ${PROJECT_ROOT}/src/KSpaceTrajectory.cpp
     ${PROJECT_ROOT}/src/M1Calculator.cpp
@@ -158,7 +161,10 @@ set(HEADER_LIST
     ${PROJECT_ROOT}/src/LogManager.h
     ${PROJECT_ROOT}/src/mainwindow.h
     ${PROJECT_ROOT}/src/seqeyes_version.h
+    ${PROJECT_ROOT}/src/PulseqLoadTransaction.h
+    ${PROJECT_ROOT}/src/PulseqLoadUiAdapter.h
     ${PROJECT_ROOT}/src/PulseqLoader.h
+    ${PROJECT_ROOT}/src/PulseqOpenController.h
     ${PROJECT_ROOT}/src/NumericLineEdit.h
     ${PROJECT_ROOT}/src/SeriesBuilder.h
     ${PROJECT_ROOT}/src/KSpaceTrajectory.h
