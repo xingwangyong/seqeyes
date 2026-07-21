@@ -10,7 +10,9 @@ A brief overview of SeqEyes can be found at the  [2026 pulseq virtual meeting](h
   - Download the compiled `.exe` from [github releases](https://github.com/xingwangyong/seqeyes/releases)
   - Install with `pip install seqeyes`.
 - Linux: Download the AppImage from [github releases](https://github.com/xingwangyong/seqeyes/releases).
-- macOS: Install with `pip install seqeyes`.
+- macOS:
+  - Recommended: install with `pip install seqeyes`.
+  - Alternatively: download the unsigned app bundle zip from [github releases](https://github.com/xingwangyong/seqeyes/releases). See [macOS unsigned app notes](doc/macos_unsigned_app.md).
 
 ## Usage
 - Open GUI, load .seq file
@@ -47,5 +49,4 @@ Please see [build.md](build.md) for detailed build steps.
 ## Known Issues
 
 Please see [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for a list of known issues and limitations.
-
 

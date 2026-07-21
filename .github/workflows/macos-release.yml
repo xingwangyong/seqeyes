@@ -1,0 +1,104 @@
+name: Build & Release SeqEyes (macOS)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  version_guard:
+    uses: ./.github/workflows/_release-version-guard.yml
+    with:
+      release_tag: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+
+  build_macos:
+    needs: version_guard
+    name: Build macOS app (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: arm64
+            os: macos-latest
+          - name: x86_64
+            os: macos-15-intel
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Qt 6.9.2
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.2'
+          cache: true
+
+      - name: Clean build directories
+        shell: bash
+        run: rm -rf _cmake_build macos-stage
+
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S . -B _cmake_build
+          -DCMAKE_BUILD_TYPE=Release
+          -DSEQEYES_BUILD_TESTS=OFF
+          -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/macos-stage"
+
+      - name: Build
+        run: cmake --build _cmake_build --config Release --verbose
+
+      - name: Install app bundle
+        run: cmake --install _cmake_build --config Release
+
+      - name: Verify app bundle linkage
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="macos-stage/seqeyes/bin/seqeyes.app"
+          test -d "$APP"
+          test -x "$APP/Contents/MacOS/seqeyes"
+          test -d "$APP/Contents/Frameworks"
+          otool -l "$APP/Contents/MacOS/seqeyes" | grep -A2 LC_RPATH
+          otool -L "$APP/Contents/MacOS/seqeyes"
+
+      - name: Create app zip
+        id: app_zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "release" ]; then
+            zip_name="seqeyes-${{ github.event.release.tag_name }}-macos-${{ matrix.name }}.zip"
+          else
+            zip_name="seqeyes-latest-macos-${{ matrix.name }}.zip"
+          fi
+          ditto -c -k --keepParent "macos-stage/seqeyes/bin/seqeyes.app" "$zip_name"
+          echo "zip_name=$zip_name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seqeyes-macos-${{ matrix.name }}
+          path: ${{ steps.app_zip.outputs.zip_name }}
+
+  upload_release:
+    if: github.event_name == 'release'
+    needs: build_macos
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download macOS app artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: seqeyes-macos-*
+          path: dist/
+          merge-multiple: true
+
+      - name: Upload macOS apps to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
