@@ -17,6 +17,7 @@
 
 #include "ExternalSequence.h" // For ExternalSequence factory and SeqBlock
 #include "KSpaceTrajectory.h"
+#include "LoadResult.h"
 #include "PnsCalculator.h"
 #include "M1Calculator.h"
 #include "Settings.h"
@@ -111,12 +112,6 @@ public:
         QVector<QVector<double>> phaseTimeByChannel;
         QVector<QVector<double>> phaseValueByChannel;
     };
-    struct LoadError
-    {
-        QString title;
-        QString message;
-    };
-
     explicit PulseqLoader(MainWindow* mainWindow);
     ~PulseqLoader();
 
