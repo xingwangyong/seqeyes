@@ -26,17 +26,17 @@ bool PulseqLoadTransaction::prepare(const QString& path)
         return false;
     if (!m_loader.decodeBlocks(m_staged, &m_error))
         return false;
+    if (!m_loader.stageLoadedDerivedState(m_staged, &m_error))
+        return false;
     return true;
 }
 
 bool PulseqLoadTransaction::commit(const QString& path)
 {
     m_loader.commitStagedSequence(m_staged);
-    if (!m_loader.buildLoadedWaveformCaches(&m_error))
-        return rollback();
+    m_loader.commitStagedDerivedState();
 
     m_initialRange = m_loader.configureInitialViewport();
-    m_loader.updateRepetitionTimeMetadata();
     m_loader.finishSuccessfulLoad(path, m_initialRange);
     return true;
 }

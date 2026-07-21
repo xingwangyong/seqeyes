@@ -295,6 +295,21 @@ public:
     const QVector<double>& getPnsNorm() const { return m_pnsResult.pnsNorm; }
     void recomputePnsFromSettings();
 
+    // Test hooks for stale async-result guards.
+    std::uint64_t asyncSequenceGenerationForTesting() const { return m_trajectorySequenceGeneration; }
+    std::uint64_t activeTrajectoryRequestIdForTesting() const { return m_activeTrajectoryRequestId; }
+    std::uint64_t activePnsRequestIdForTesting() const { return m_activePnsRequestId; }
+    std::uint64_t activeM1RequestIdForTesting() const { return m_activeM1RequestId; }
+    void injectTrajectoryResultForTesting(const KSpaceTrajectory::Result& result,
+                                          std::uint64_t generation,
+                                          std::uint64_t requestId);
+    void injectPnsResultForTesting(const PnsCalculator::Result& result,
+                                   std::uint64_t generation,
+                                   std::uint64_t requestId);
+    void injectM1ResultForTesting(const M1Calculator::Result& result,
+                                  std::uint64_t generation,
+                                  std::uint64_t requestId);
+
 public slots:
     // Slots for UI connections
     void OpenPulseqFile();
@@ -364,6 +379,9 @@ private:
     bool decodeBlocks(LoadedSequenceState& state, LoadError* error);
     void commitStagedSequence(LoadedSequenceState& state);
     bool buildLoadedWaveformCaches(LoadError* error);
+    bool stageLoadedDerivedState(LoadedSequenceState& state, LoadError* error);
+    void commitStagedDerivedState();
+    void clearTransientLiveStateAfterStaging();
     QPair<double, double> configureInitialViewport();
     void updateRepetitionTimeMetadata();
     void finishSuccessfulLoad(const QString& path, const QPair<double, double>& initialRange);
@@ -505,6 +523,7 @@ private:
     M1Calculator::Result m_m1Result;
     M1State m_m1State {M1State::NotStarted};
     std::uint64_t m_m1RequestSerial {0};
+    std::uint64_t m_activeM1RequestId {0};
     bool m_autoStartPnsAfterLoad {true};
     bool m_pnsDirty {true};
     std::uint64_t m_pnsRequestSerial {0};
@@ -578,6 +597,57 @@ private:
     // External trapezoid global min/max per channel (aggregated during load)
     double m_gradExtTrapGlobalMin[3] { std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity(), std::numeric_limits<double>::infinity() };
     double m_gradExtTrapGlobalMax[3] { -std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity() };
+
+    struct StagedDerivedState
+    {
+        QVector<double> rfTimeAmp, rfAmp;
+        QVector<double> rfTimePh, rfPh;
+        QVector<double> gxTime, gxValues;
+        QVector<double> gyTime, gyValues;
+        QVector<double> gzTime, gzValues;
+        QVector<double> adcTime, adcValues;
+        QVector<UnifiedRfBlock> unifiedRfBlocks;
+        int unifiedRfChannelCount {1};
+        bool detectedRoosPtxHack {false};
+        QString unifiedRfStatusMessage;
+        QHash<QString, RFAmpEntry> rfAmpCache;
+        QHash<QString, RFPhEntry> rfPhCache;
+        QHash<QString, GradShapeEntry> gradShapeCache;
+        QHash<QString, ScaleAgg> rfAgg;
+        QHash<QString, ScaleAgg> gradAgg[3];
+        double gradTrapMaxPosScale[3] {0.0, 0.0, 0.0};
+        double gradTrapMinNegScale[3] {0.0, 0.0, 0.0};
+        double gradExtTrapGlobalMin[3] {
+            std::numeric_limits<double>::infinity(),
+            std::numeric_limits<double>::infinity(),
+            std::numeric_limits<double>::infinity()
+        };
+        double gradExtTrapGlobalMax[3] {
+            -std::numeric_limits<double>::infinity(),
+            -std::numeric_limits<double>::infinity(),
+            -std::numeric_limits<double>::infinity()
+        };
+        QVector<LabelSnapshot> labelSnapshots;
+        QSet<QString> usedExtensions;
+        QStringList tridIdNames;
+        int maxAccumulatedCounter {0};
+        bool hasRepetitionTime {false};
+        double repetitionTime_us {0.0};
+        int trCount {0};
+        std::vector<int> trBlockIndices;
+        int blockRangeStart {0};
+        int blockRangeEnd {0};
+        bool supportsRfUseMetadata {false};
+        bool hasEchoTimeDefinition {false};
+        double teTime_us {0.0};
+        double teDurationAxis {0.0};
+        QVector<double> teDurationsAxis;
+        QVector<double> excitationCentersAxis;
+        QVector<double> refocusingCentersAxis;
+        bool rfUseGuessed {false};
+        QString rfGuessWarning;
+    };
+    std::unique_ptr<StagedDerivedState> m_stagedDerivedState;
 
     // Shared owner of the decoded SeqBlock* for the current sequence. Both the
     // loader and any in-flight async trajectory/PNS task hold a shared_ptr to

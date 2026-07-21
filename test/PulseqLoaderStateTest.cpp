@@ -448,6 +448,85 @@ private slots:
         QCOMPARE(paths[1], QFileInfo(m_fileA).absoluteFilePath());
     }
 
+    void staleAsyncResults_afterNewLoadDoNotOverwriteCurrentState()
+    {
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileA), qPrintable(m_fileA));
+        verifyLoaded(loader, m_fileA);
+        const std::uint64_t oldGeneration = loader->asyncSequenceGenerationForTesting();
+        const std::uint64_t oldTrajectoryRequest = loader->activeTrajectoryRequestIdForTesting();
+        const std::uint64_t oldPnsRequest = loader->activePnsRequestIdForTesting();
+        const std::uint64_t oldM1Request = loader->activeM1RequestIdForTesting();
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileB), qPrintable(m_fileB));
+        verifyLoaded(loader, m_fileB);
+        const std::uint64_t currentGeneration = loader->asyncSequenceGenerationForTesting();
+        QVERIFY(currentGeneration != oldGeneration);
+
+        KSpaceTrajectory::Result currentTrajectory;
+        currentTrajectory.kx = {2.0};
+        currentTrajectory.ky = {2.0};
+        currentTrajectory.kz = {2.0};
+        currentTrajectory.t = {0.002};
+        loader->injectTrajectoryResultForTesting(
+            currentTrajectory,
+            currentGeneration,
+            loader->activeTrajectoryRequestIdForTesting());
+        QCOMPARE(loader->getTrajectoryKx(), QVector<double>({2.0}));
+
+        KSpaceTrajectory::Result staleTrajectory;
+        staleTrajectory.kx = {99.0};
+        staleTrajectory.ky = {99.0};
+        staleTrajectory.kz = {99.0};
+        staleTrajectory.t = {0.099};
+        loader->injectTrajectoryResultForTesting(staleTrajectory, oldGeneration, oldTrajectoryRequest);
+        QCOMPARE(loader->getTrajectoryKx(), QVector<double>({2.0}));
+
+        PnsCalculator::Result currentPns;
+        currentPns.valid = true;
+        currentPns.ok = true;
+        currentPns.timeSec = {0.002};
+        currentPns.pnsNorm = {2.0};
+        loader->injectPnsResultForTesting(
+            currentPns,
+            currentGeneration,
+            loader->activePnsRequestIdForTesting());
+        QCOMPARE(loader->getPnsNorm(), QVector<double>({2.0}));
+
+        PnsCalculator::Result stalePns;
+        stalePns.valid = true;
+        stalePns.ok = true;
+        stalePns.timeSec = {0.099};
+        stalePns.pnsNorm = {99.0};
+        loader->injectPnsResultForTesting(stalePns, oldGeneration, oldPnsRequest);
+        QCOMPARE(loader->getPnsNorm(), QVector<double>({2.0}));
+
+        M1Calculator::Result currentM1;
+        currentM1.ok = true;
+        currentM1.valid = true;
+        currentM1.tSec = {0.002};
+        currentM1.m1x = {2.0};
+        currentM1.m1y = {2.0};
+        currentM1.m1z = {2.0};
+        loader->injectM1ResultForTesting(
+            currentM1,
+            currentGeneration,
+            loader->activeM1RequestIdForTesting());
+        QCOMPARE(loader->getM1X(), QVector<double>({2.0}));
+
+        M1Calculator::Result staleM1;
+        staleM1.ok = true;
+        staleM1.valid = true;
+        staleM1.tSec = {0.099};
+        staleM1.m1x = {99.0};
+        staleM1.m1y = {99.0};
+        staleM1.m1z = {99.0};
+        loader->injectM1ResultForTesting(staleM1, oldGeneration, oldM1Request);
+        QCOMPARE(loader->getM1X(), QVector<double>({2.0}));
+    }
+
 private:
     QString m_fileA;
     QString m_fileB;

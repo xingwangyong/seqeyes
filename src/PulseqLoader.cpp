@@ -294,6 +294,7 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     ++m_trajectorySequenceGeneration;
     m_activeTrajectoryRequestId = 0;
     m_activePnsRequestId = 0;
+    m_activeM1RequestId = 0;
 
     if (withUi && m_loadUi)
         m_loadUi->clearLoadedState();
@@ -346,6 +347,7 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     m_m1Result = M1Calculator::Result{};
     m_m1State = M1State::NotStarted;
     m_m1RequestSerial = 0;
+    m_activeM1RequestId = 0;
     m_usedExtensions.clear();
     m_tridIdNames.clear();
     m_adcPhaseCache.valid = false;
@@ -498,6 +500,7 @@ bool PulseqLoader::failLoad(const LoadError& error)
 void PulseqLoader::beginLoad()
 {
     m_lastLoadError = {};
+    m_stagedDerivedState.reset();
     if (m_loadUi)
         m_loadUi->setBusy(true);
     m_sequenceLoadState = SequenceLoadState::Loading;
@@ -772,8 +775,6 @@ void PulseqLoader::commitStagedSequence(LoadedSequenceState& state)
     if (state.blockBundle)
         m_blockBundle->blocks = std::move(state.blockBundle->blocks);
     state.decodedBlocks.clear();
-
-    updateEchoAndExcitationMetadata(state.versionMajor, state.versionMinor);
 }
 
 bool PulseqLoader::buildLoadedWaveformCaches(LoadError* error)
@@ -812,6 +813,181 @@ bool PulseqLoader::buildLoadedWaveformCaches(LoadError* error)
         }
     }
     return true;
+}
+
+bool PulseqLoader::stageLoadedDerivedState(LoadedSequenceState& state, LoadError* error)
+{
+    m_spPulseqSeq = state.sequence;
+    m_vecDecodeSeqBlocks = state.decodedBlocks;
+    vecBlockEdges = state.blockEdges;
+    m_dTotalDuration_us = state.totalDuration_us;
+    m_pulseqVersionString = state.versionString;
+
+    updateEchoAndExcitationMetadata(state.versionMajor, state.versionMinor);
+    if (!buildLoadedWaveformCaches(error))
+    {
+        clearTransientLiveStateAfterStaging();
+        return false;
+    }
+    updateRepetitionTimeMetadata();
+
+    auto staged = std::make_unique<StagedDerivedState>();
+    staged->rfTimeAmp = m_rfTimeAmp;
+    staged->rfAmp = m_rfAmp;
+    staged->rfTimePh = m_rfTimePh;
+    staged->rfPh = m_rfPh;
+    staged->gxTime = m_gxTime;
+    staged->gxValues = m_gxValues;
+    staged->gyTime = m_gyTime;
+    staged->gyValues = m_gyValues;
+    staged->gzTime = m_gzTime;
+    staged->gzValues = m_gzValues;
+    staged->adcTime = m_adcTime;
+    staged->adcValues = m_adcValues;
+    staged->unifiedRfBlocks = m_unifiedRfBlocks;
+    staged->unifiedRfChannelCount = m_unifiedRfChannelCount;
+    staged->detectedRoosPtxHack = m_detectedRoosPtxHack;
+    staged->unifiedRfStatusMessage = m_unifiedRfStatusMessage;
+    staged->rfAmpCache = m_rfAmpCache;
+    staged->rfPhCache = m_rfPhCache;
+    staged->gradShapeCache = m_gradShapeCache;
+    staged->rfAgg = m_rfAgg;
+    for (int c = 0; c < 3; ++c)
+    {
+        staged->gradAgg[c] = m_gradAgg[c];
+        staged->gradTrapMaxPosScale[c] = m_gradTrapMaxPosScale[c];
+        staged->gradTrapMinNegScale[c] = m_gradTrapMinNegScale[c];
+        staged->gradExtTrapGlobalMin[c] = m_gradExtTrapGlobalMin[c];
+        staged->gradExtTrapGlobalMax[c] = m_gradExtTrapGlobalMax[c];
+    }
+    staged->labelSnapshots = m_labelSnapshots;
+    staged->usedExtensions = m_usedExtensions;
+    staged->tridIdNames = m_tridIdNames;
+    staged->maxAccumulatedCounter = m_maxAccumulatedCounter;
+    staged->hasRepetitionTime = m_bHasRepetitionTime;
+    staged->repetitionTime_us = m_dRepetitionTime_us;
+    staged->trCount = m_nTrCount;
+    staged->trBlockIndices = m_vecTrBlockIndices;
+    staged->blockRangeStart = nBlockRangeStart;
+    staged->blockRangeEnd = nBlockRangeEnd;
+    staged->supportsRfUseMetadata = m_supportsRfUseMetadata;
+    staged->hasEchoTimeDefinition = m_hasEchoTimeDefinition;
+    staged->teTime_us = m_teTime_us;
+    staged->teDurationAxis = m_teDurationAxis;
+    staged->teDurationsAxis = m_teDurationsAxis;
+    staged->excitationCentersAxis = m_excitationCentersAxis;
+    staged->refocusingCentersAxis = m_refocusingCentersAxis;
+    staged->rfUseGuessed = m_rfUseGuessed;
+    staged->rfGuessWarning = m_rfGuessWarning;
+
+    m_stagedDerivedState = std::move(staged);
+    clearTransientLiveStateAfterStaging();
+    return true;
+}
+
+void PulseqLoader::commitStagedDerivedState()
+{
+    if (!m_stagedDerivedState)
+        return;
+
+    StagedDerivedState& staged = *m_stagedDerivedState;
+    m_rfTimeAmp = std::move(staged.rfTimeAmp);
+    m_rfAmp = std::move(staged.rfAmp);
+    m_rfTimePh = std::move(staged.rfTimePh);
+    m_rfPh = std::move(staged.rfPh);
+    m_gxTime = std::move(staged.gxTime);
+    m_gxValues = std::move(staged.gxValues);
+    m_gyTime = std::move(staged.gyTime);
+    m_gyValues = std::move(staged.gyValues);
+    m_gzTime = std::move(staged.gzTime);
+    m_gzValues = std::move(staged.gzValues);
+    m_adcTime = std::move(staged.adcTime);
+    m_adcValues = std::move(staged.adcValues);
+    m_unifiedRfBlocks = std::move(staged.unifiedRfBlocks);
+    m_unifiedRfChannelCount = staged.unifiedRfChannelCount;
+    m_detectedRoosPtxHack = staged.detectedRoosPtxHack;
+    m_unifiedRfStatusMessage = std::move(staged.unifiedRfStatusMessage);
+    m_rfAmpCache = std::move(staged.rfAmpCache);
+    m_rfPhCache = std::move(staged.rfPhCache);
+    m_gradShapeCache = std::move(staged.gradShapeCache);
+    m_rfAgg = std::move(staged.rfAgg);
+    for (int c = 0; c < 3; ++c)
+    {
+        m_gradAgg[c] = std::move(staged.gradAgg[c]);
+        m_gradTrapMaxPosScale[c] = staged.gradTrapMaxPosScale[c];
+        m_gradTrapMinNegScale[c] = staged.gradTrapMinNegScale[c];
+        m_gradExtTrapGlobalMin[c] = staged.gradExtTrapGlobalMin[c];
+        m_gradExtTrapGlobalMax[c] = staged.gradExtTrapGlobalMax[c];
+    }
+    m_labelSnapshots = std::move(staged.labelSnapshots);
+    m_usedExtensions = std::move(staged.usedExtensions);
+    m_tridIdNames = std::move(staged.tridIdNames);
+    m_maxAccumulatedCounter = staged.maxAccumulatedCounter;
+    m_bHasRepetitionTime = staged.hasRepetitionTime;
+    m_dRepetitionTime_us = staged.repetitionTime_us;
+    m_nTrCount = staged.trCount;
+    m_vecTrBlockIndices = std::move(staged.trBlockIndices);
+    nBlockRangeStart = staged.blockRangeStart;
+    nBlockRangeEnd = staged.blockRangeEnd;
+    m_supportsRfUseMetadata = staged.supportsRfUseMetadata;
+    m_hasEchoTimeDefinition = staged.hasEchoTimeDefinition;
+    m_teTime_us = staged.teTime_us;
+    m_teDurationAxis = staged.teDurationAxis;
+    m_teDurationsAxis = std::move(staged.teDurationsAxis);
+    m_excitationCentersAxis = std::move(staged.excitationCentersAxis);
+    m_refocusingCentersAxis = std::move(staged.refocusingCentersAxis);
+    m_rfUseGuessed = staged.rfUseGuessed;
+    m_rfGuessWarning = std::move(staged.rfGuessWarning);
+    m_stagedDerivedState.reset();
+}
+
+void PulseqLoader::clearTransientLiveStateAfterStaging()
+{
+    m_spPulseqSeq.reset();
+    m_vecDecodeSeqBlocks.clear();
+    vecBlockEdges.clear();
+    m_dTotalDuration_us = 0.0;
+    m_pulseqVersionString.clear();
+    m_rfTimeAmp.clear(); m_rfAmp.clear(); m_rfTimePh.clear(); m_rfPh.clear();
+    m_gxTime.clear(); m_gxValues.clear();
+    m_gyTime.clear(); m_gyValues.clear();
+    m_gzTime.clear(); m_gzValues.clear();
+    m_adcTime.clear(); m_adcValues.clear();
+    m_unifiedRfBlocks.clear();
+    m_unifiedRfChannelCount = 1;
+    m_detectedRoosPtxHack = false;
+    m_unifiedRfStatusMessage.clear();
+    m_rfAmpCache.clear();
+    m_rfPhCache.clear();
+    m_gradShapeCache.clear();
+    m_rfAgg.clear();
+    for (int c = 0; c < 3; ++c)
+    {
+        m_gradAgg[c].clear();
+        m_gradTrapMaxPosScale[c] = 0.0;
+        m_gradTrapMinNegScale[c] = 0.0;
+        m_gradExtTrapGlobalMin[c] = std::numeric_limits<double>::infinity();
+        m_gradExtTrapGlobalMax[c] = -std::numeric_limits<double>::infinity();
+    }
+    m_labelSnapshots.clear();
+    m_usedExtensions.clear();
+    m_tridIdNames.clear();
+    m_maxAccumulatedCounter = 0;
+    m_bHasRepetitionTime = false;
+    m_dRepetitionTime_us = 0.0;
+    m_nTrCount = 0;
+    m_vecTrBlockIndices.clear();
+    nBlockRangeStart = 0;
+    nBlockRangeEnd = 0;
+    m_supportsRfUseMetadata = false;
+    m_hasEchoTimeDefinition = false;
+    m_teTime_us = 0.0;
+    m_teDurationAxis = 0.0;
+    m_teDurationsAxis.clear();
+    m_excitationCentersAxis.clear();
+    m_refocusingCentersAxis.clear();
+    m_rfUseGuessed = false;
+    m_rfGuessWarning.clear();
 }
 
 QPair<double, double> PulseqLoader::configureInitialViewport()
@@ -1713,6 +1889,41 @@ void PulseqLoader::applyTrajectoryResult(const KSpaceTrajectory::Result& result)
     emit trajectoryDataUpdated();
 }
 
+void PulseqLoader::injectTrajectoryResultForTesting(const KSpaceTrajectory::Result& result,
+                                                    std::uint64_t generation,
+                                                    std::uint64_t requestId)
+{
+    if (m_trajectorySequenceGeneration != generation)
+        return;
+    if (m_activeTrajectoryRequestId != requestId)
+        return;
+    applyTrajectoryResult(result);
+}
+
+void PulseqLoader::injectPnsResultForTesting(const PnsCalculator::Result& result,
+                                             std::uint64_t generation,
+                                             std::uint64_t requestId)
+{
+    if (m_trajectorySequenceGeneration != generation)
+        return;
+    if (m_activePnsRequestId != requestId)
+        return;
+    m_pnsResult = result;
+    setPnsState(m_pnsResult.valid ? PnsState::Ready : PnsState::Failed);
+    emit pnsDataUpdated();
+}
+
+void PulseqLoader::injectM1ResultForTesting(const M1Calculator::Result& result,
+                                            std::uint64_t generation,
+                                            std::uint64_t requestId)
+{
+    if (m_trajectorySequenceGeneration != generation)
+        return;
+    if (m_activeM1RequestId != requestId)
+        return;
+    applyM1Result(result);
+}
+
 void PulseqLoader::computeKSpaceTrajectory()
 {
     if (!m_spPulseqSeq || m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2)
@@ -2387,12 +2598,14 @@ void PulseqLoader::startM1ComputationAsync()
                                      gradRasterUs,
                                      adcEventTimes,
                                      b0Tesla };
+    const std::uint64_t sequenceGeneration = m_trajectorySequenceGeneration;
     const std::uint64_t requestId = ++m_m1RequestSerial;
+    m_activeM1RequestId = requestId;
     setM1State(M1State::Calculating);
 
     QPointer<PulseqLoader> self(this);
     const auto blockBundle = m_blockBundle;
-    std::thread([self, input, requestId, blockBundle]() mutable {
+    std::thread([self, input, sequenceGeneration, requestId, blockBundle]() mutable {
         M1Calculator::Result result;
         bool ok = true;
         try {
@@ -2404,11 +2617,13 @@ void PulseqLoader::startM1ComputationAsync()
         if (!self)
             return;
 
-        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, requestId]() mutable {
+        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, sequenceGeneration, requestId]() mutable {
             if (!self)
                 return;
-            if (self->m_m1RequestSerial != requestId)
-                return; // superseded by a newer request
+            if (self->m_trajectorySequenceGeneration != sequenceGeneration)
+                return;
+            if (self->m_activeM1RequestId != requestId)
+                return;
             if (!ok)
             {
                 self->m_m1Result = M1Calculator::Result{};
