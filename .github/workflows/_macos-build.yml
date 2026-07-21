@@ -1,0 +1,107 @@
+name: Build macOS (Reusable)
+
+on:
+  workflow_call:
+    outputs:
+      artifact_name_arm64:
+        description: "Name of the macOS arm64 artifact"
+        value: ${{ jobs.build.outputs.artifact_name_arm64 }}
+      artifact_name_x86_64:
+        description: "Name of the macOS x86_64 artifact"
+        value: ${{ jobs.build.outputs.artifact_name_x86_64 }}
+
+jobs:
+  build:
+    name: Build macOS (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    outputs:
+      artifact_name_arm64: seqeyes-ci-macos-arm64
+      artifact_name_x86_64: seqeyes-ci-macos-x86_64
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: arm64
+            os: macos-15
+            cmake_arch: arm64
+            expected_arch: arm64
+          - name: x86_64
+            os: macos-15-intel
+            cmake_arch: x86_64
+            expected_arch: x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Qt 6.9.2
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.2'
+          cache: true
+
+      - name: Clean build directories
+        shell: bash
+        run: rm -rf _cmake_build macos-stage
+
+      - name: Configure
+        shell: bash
+        run: >
+          cmake -S . -B _cmake_build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="${{ matrix.cmake_arch }}"
+          -DSEQEYES_BUILD_TESTS=OFF
+          -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/macos-stage"
+
+      - name: Build
+        run: cmake --build _cmake_build --config Release --verbose
+
+      - name: Install app bundle
+        run: cmake --install _cmake_build --config Release
+
+      - name: Ad-hoc sign app bundle
+        if: matrix.name == 'arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="macos-stage/seqeyes/bin/seqeyes.app"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+      - name: Verify app bundle linkage
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="macos-stage/seqeyes/bin/seqeyes.app"
+          EXE="$APP/Contents/MacOS/seqeyes"
+          test -d "$APP"
+          test -x "$EXE"
+          test -d "$APP/Contents/Frameworks"
+          echo "Runner machine: $(uname -m)"
+          file "$EXE"
+          lipo -archs "$EXE"
+          if ! lipo -archs "$EXE" | tr ' ' '\n' | grep -qx "${{ matrix.expected_arch }}"; then
+            echo "Expected ${{ matrix.expected_arch }} binary, got: $(lipo -archs "$EXE")"
+            exit 1
+          fi
+          while IFS= read -r -d '' item; do
+            if file "$item" | grep -q "Mach-O"; then
+              archs="$(lipo -archs "$item" 2>/dev/null || true)"
+              echo "$archs  $item"
+              if ! printf "%s\n" "$archs" | tr ' ' '\n' | grep -qx "${{ matrix.expected_arch }}"; then
+                echo "Expected ${{ matrix.expected_arch }} in $item, got: $archs"
+                exit 1
+              fi
+            fi
+          done < <(find "$APP" -type f -print0)
+          otool -l "$EXE" | grep -A2 LC_RPATH
+          otool -L "$EXE"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seqeyes-ci-macos-${{ matrix.name }}
+          path: macos-stage/

@@ -1,4 +1,4 @@
-name: Build & Validate (Windows + Linux)
+name: Build & Validate (Windows + Linux + macOS)
 
 on:
   push:
@@ -20,6 +20,9 @@ jobs:
 
   build_linux:
     uses: ./.github/workflows/_appimage-build.yml
+
+  build_macos:
+    uses: ./.github/workflows/_macos-build.yml
 
   visual_regression:
     needs: build_windows
@@ -263,7 +266,7 @@ jobs:
 
   cleanup_internal_artifacts:
     if: ${{ always() }}
-    needs: [build_windows, build_linux, visual_regression, trajectory_regression, headless_load, qt_cpp_tests, performance, package_windows_artifact]
+    needs: [build_windows, build_linux, build_macos, visual_regression, trajectory_regression, headless_load, qt_cpp_tests, performance, package_windows_artifact]
     runs-on: windows-latest
     permissions:
       actions: write
