@@ -161,6 +161,9 @@ set(HEADER_LIST
     ${PROJECT_ROOT}/src/LogManager.h
     ${PROJECT_ROOT}/src/mainwindow.h
     ${PROJECT_ROOT}/src/seqeyes_version.h
+    ${PROJECT_ROOT}/src/IPulseqLoadUi.h
+    ${PROJECT_ROOT}/src/LoadResult.h
+    ${PROJECT_ROOT}/src/OpenResult.h
     ${PROJECT_ROOT}/src/PulseqLoadTransaction.h
     ${PROJECT_ROOT}/src/PulseqLoadUiAdapter.h
     ${PROJECT_ROOT}/src/PulseqLoader.h

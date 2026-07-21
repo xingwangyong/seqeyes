@@ -132,6 +132,34 @@ target_link_libraries(${PULSEQ_LOADER_STATE_TEST_NAME} PRIVATE
 add_test(NAME ${PULSEQ_LOADER_STATE_TEST_NAME} COMMAND ${PULSEQ_LOADER_STATE_TEST_NAME})
 
 
+# PulseqOpenControllerFakeUiTest: structured OpenResult and fake UI warning behavior.
+set(PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME PulseqOpenControllerFakeUiTest)
+add_executable(${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME}
+    ${PROJECT_SOURCE_DIR}/test/PulseqOpenControllerFakeUiTest.cpp
+    ${SEQEYES_TEST_APP_SOURCES}
+)
+
+target_include_directories(${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME} PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+    ${EXTERNAL_PULSEQ_DIR}
+    ${EXTERNAL_QCP_DIR}
+)
+
+target_compile_definitions(${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME} PRIVATE
+    SEQ_FILES_DIR="${PROJECT_SOURCE_DIR}/test/seq_files"
+)
+
+target_link_libraries(${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME} PRIVATE
+    Qt6::Test
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::PrintSupport
+)
+
+add_test(NAME ${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME} COMMAND ${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME})
+
+
 # RfMultichannelDetectionTest: RoosPtxHack detection and RF_SHIMS conflict checks
 set(RF_MULTICHANNEL_TEST_NAME RfMultichannelDetectionTest)
 add_executable(${RF_MULTICHANNEL_TEST_NAME}

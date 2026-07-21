@@ -1,5 +1,7 @@
 #include "PulseqLoadTransaction.h"
 
+#include "PulseqLoader.h"
+
 PulseqLoadTransaction::PulseqLoadTransaction(PulseqLoader& loader)
     : m_loader(loader)
 {
@@ -41,4 +43,3 @@ bool PulseqLoadTransaction::rollback()
 {
     return m_loader.failLoad(m_error);
 }
-

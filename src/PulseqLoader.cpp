@@ -271,7 +271,7 @@ void PulseqLoader::OpenPulseqFile()
 
 bool PulseqLoader::OpenPulseqFilePath(QString candidatePath)
 {
-    return m_openController ? m_openController->openPath(candidatePath) : false;
+    return m_openController ? m_openController->openPath(candidatePath).ok : false;
 }
 
 void PulseqLoader::ReOpenPulseqFile()
