@@ -19,6 +19,7 @@ public:
     {
         QString alias;
         QString ascPath;
+        double b0Tesla {3.0};
         double maxGrad {0.0}; // Stored in mT/m; NaN means unset
         double maxSlew {0.0}; // Stored in T/m/s; NaN means unset
         double maxB1 {0.0};   // Stored in uT; NaN means unset
@@ -32,6 +33,7 @@ public:
             };
             return alias == other.alias &&
                    ascPath == other.ascPath &&
+                   sameDouble(b0Tesla, other.b0Tesla) &&
                    sameDouble(maxGrad, other.maxGrad) &&
                    sameDouble(maxSlew, other.maxSlew) &&
                    sameDouble(maxB1, other.maxB1);

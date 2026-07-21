@@ -21,6 +21,7 @@
 #include <QSet>
 #include <algorithm>
 #include <limits>
+#include <memory>
 #include "mainwindow.h"
 #include "WaveformDrawer.h"
 #include "PnsCalculator.h"
@@ -43,6 +44,7 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_removeSystemProfileButton(nullptr)
     , m_systemAliasEdit(nullptr)
     , m_systemAscPathEdit(nullptr)
+    , m_systemB0Edit(nullptr)
     , m_systemAscBrowseButton(nullptr)
     , m_systemAscClearButton(nullptr)
     , m_systemMaxGradEdit(nullptr)
@@ -392,7 +394,11 @@ void SettingsDialog::setupUI()
 
     m_systemAliasEdit = new QLineEdit(systemGroup);
     m_systemAliasEdit->setPlaceholderText("Optional, auto-generated as systemN");
-    systemForm->addRow("Alias:", m_systemAliasEdit);
+    systemForm->addRow("Name:", m_systemAliasEdit);
+
+    m_systemB0Edit = new QLineEdit(systemGroup);
+    m_systemB0Edit->setPlaceholderText("3.0");
+    systemForm->addRow("B0 (T):", m_systemB0Edit);
 
     m_systemMaxGradEdit = new QLineEdit(systemGroup);
     m_systemMaxGradEdit->setPlaceholderText("Optional, mT/m");
@@ -491,6 +497,8 @@ void SettingsDialog::setupUI()
     connect(m_systemAliasEdit, &QLineEdit::textChanged,
             this, [this]() { syncCurrentSystemProfileDraft(true); });
     connect(m_systemAscPathEdit, &QLineEdit::textChanged,
+            this, [this]() { syncCurrentSystemProfileDraft(false); });
+    connect(m_systemB0Edit, &QLineEdit::textChanged,
             this, [this]() { syncCurrentSystemProfileDraft(false); });
     connect(m_systemMaxGradEdit, &QLineEdit::textChanged,
             this, [this]() { syncCurrentSystemProfileDraft(false); });
@@ -732,8 +740,8 @@ bool SettingsDialog::applySettings()
         if (aliases.contains(aliasKey))
         {
             QMessageBox::warning(this,
-                                 tr("Duplicate system alias"),
-                                 tr("System alias \"%1\" is used more than once. Please choose unique aliases.")
+                                 tr("Duplicate system name"),
+                                 tr("System name \"%1\" is used more than once. Please choose unique names.")
                                      .arg(profile.alias));
             return false;
         }
@@ -1229,6 +1237,7 @@ Settings::SystemProfile SettingsDialog::buildCurrentSystemProfileFromEditor(bool
     Settings::SystemProfile profile;
     profile.alias = m_systemAliasEdit ? m_systemAliasEdit->text().trimmed() : QString();
     profile.ascPath = m_systemAscPathEdit ? m_systemAscPathEdit->text().trimmed() : QString();
+    profile.b0Tesla = 3.0;
     profile.maxGrad = std::numeric_limits<double>::quiet_NaN();
     profile.maxSlew = std::numeric_limits<double>::quiet_NaN();
     profile.maxB1 = std::numeric_limits<double>::quiet_NaN();
@@ -1251,6 +1260,23 @@ Settings::SystemProfile SettingsDialog::buildCurrentSystemProfileFromEditor(bool
         return true;
     };
 
+    if (m_systemB0Edit)
+    {
+        const QString text = m_systemB0Edit->text().trimmed();
+        if (!text.isEmpty())
+        {
+            bool okLocal = false;
+            const double value = text.toDouble(&okLocal);
+            if (!okLocal || !std::isfinite(value) || value <= 0.0)
+            {
+                if (error)
+                    *error = tr("B0 must be a positive number or left empty.");
+                return profile;
+            }
+            profile.b0Tesla = value;
+        }
+    }
+
     if (!parseOptionalPositive(m_systemMaxGradEdit, tr("maxGrad"), profile.maxGrad))
         return profile;
     if (!parseOptionalPositive(m_systemMaxSlewEdit, tr("maxSlew"), profile.maxSlew))
@@ -1268,8 +1294,17 @@ void SettingsDialog::loadCurrentSystemProfileIntoEditor()
     const bool hasProfile = idx >= 0 && idx < m_systemProfilesDraft.size();
     const Settings::SystemProfile profile = hasProfile ? m_systemProfilesDraft[idx] : Settings::SystemProfile{};
 
+    const std::unique_ptr<QSignalBlocker> aliasBlocker(m_systemAliasEdit ? new QSignalBlocker(m_systemAliasEdit) : nullptr);
+    const std::unique_ptr<QSignalBlocker> ascBlocker(m_systemAscPathEdit ? new QSignalBlocker(m_systemAscPathEdit) : nullptr);
+    const std::unique_ptr<QSignalBlocker> b0Blocker(m_systemB0Edit ? new QSignalBlocker(m_systemB0Edit) : nullptr);
+    const std::unique_ptr<QSignalBlocker> maxGradBlocker(m_systemMaxGradEdit ? new QSignalBlocker(m_systemMaxGradEdit) : nullptr);
+    const std::unique_ptr<QSignalBlocker> maxSlewBlocker(m_systemMaxSlewEdit ? new QSignalBlocker(m_systemMaxSlewEdit) : nullptr);
+    const std::unique_ptr<QSignalBlocker> maxB1Blocker(m_systemMaxB1Edit ? new QSignalBlocker(m_systemMaxB1Edit) : nullptr);
+
     if (m_systemAliasEdit) m_systemAliasEdit->setText(hasProfile ? profile.alias : QString());
     if (m_systemAscPathEdit) m_systemAscPathEdit->setText(hasProfile ? profile.ascPath : QString());
+    if (m_systemB0Edit)
+        m_systemB0Edit->setText(hasProfile ? QString::number(profile.b0Tesla) : QString());
     if (m_systemMaxGradEdit)
         m_systemMaxGradEdit->setText(std::isfinite(profile.maxGrad) ? QString::number(profile.maxGrad) : QString());
     if (m_systemMaxSlewEdit)
@@ -1279,6 +1314,7 @@ void SettingsDialog::loadCurrentSystemProfileIntoEditor()
 
     if (m_systemAliasEdit) m_systemAliasEdit->setEnabled(hasProfile);
     if (m_systemAscPathEdit) m_systemAscPathEdit->setEnabled(hasProfile);
+    if (m_systemB0Edit) m_systemB0Edit->setEnabled(hasProfile);
     if (m_systemAscBrowseButton) m_systemAscBrowseButton->setEnabled(hasProfile);
     if (m_systemAscClearButton) m_systemAscClearButton->setEnabled(hasProfile);
     if (m_systemMaxGradEdit) m_systemMaxGradEdit->setEnabled(hasProfile);
@@ -1297,6 +1333,7 @@ void SettingsDialog::onAddSystemProfileClicked()
 {
     Settings::SystemProfile profile;
     profile.alias.clear();
+    profile.b0Tesla = 3.0;
     profile.maxGrad = std::numeric_limits<double>::quiet_NaN();
     profile.maxSlew = std::numeric_limits<double>::quiet_NaN();
     profile.maxB1 = std::numeric_limits<double>::quiet_NaN();

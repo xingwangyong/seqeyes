@@ -102,6 +102,7 @@ private:
     QPushButton* m_removeSystemProfileButton;
     QLineEdit* m_systemAliasEdit;
     QLineEdit* m_systemAscPathEdit;
+    QLineEdit* m_systemB0Edit;
     QPushButton* m_systemAscBrowseButton;
     QPushButton* m_systemAscClearButton;
     QLineEdit* m_systemMaxGradEdit;

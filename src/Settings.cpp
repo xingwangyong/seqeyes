@@ -15,6 +15,7 @@
 namespace {
 constexpr int kMaxAscHistoryItems = 16;
 constexpr double kUnsetLimit = std::numeric_limits<double>::quiet_NaN();
+constexpr double kDefaultB0Tesla = 3.0;
 }
 
 Settings& Settings::getInstance()
@@ -437,6 +438,7 @@ void Settings::saveSettings()
             QJsonObject profileObj;
             profileObj["alias"] = profile.alias.trimmed();
             profileObj["ascPath"] = profile.ascPath.trimmed();
+            profileObj["b0Tesla"] = profile.b0Tesla;
             if (isLimitConfigured(profile.maxGrad))
                 profileObj["maxGrad"] = profile.maxGrad;
             if (isLimitConfigured(profile.maxSlew))
@@ -586,6 +588,7 @@ void Settings::loadSettings()
             SystemProfile profile;
             profile.alias = profileObj.value("alias").toString().trimmed();
             profile.ascPath = profileObj.value("ascPath").toString().trimmed();
+            profile.b0Tesla = profileObj.value("b0Tesla").toDouble(kDefaultB0Tesla);
             profile.maxGrad = profileObj.contains("maxGrad") ? profileObj.value("maxGrad").toDouble(kUnsetLimit) : kUnsetLimit;
             profile.maxSlew = profileObj.contains("maxSlew") ? profileObj.value("maxSlew").toDouble(kUnsetLimit) : kUnsetLimit;
             profile.maxB1 = profileObj.contains("maxB1") ? profileObj.value("maxB1").toDouble(kUnsetLimit) : kUnsetLimit;
@@ -887,6 +890,7 @@ void Settings::setPnsAscPath(const QString& path)
         SystemProfile profile;
         profile.alias = generateNextSystemProfileAlias();
         profile.ascPath = normalized;
+        profile.b0Tesla = kDefaultB0Tesla;
         profile.maxGrad = kUnsetLimit;
         profile.maxSlew = kUnsetLimit;
         profile.maxB1 = kUnsetLimit;
@@ -910,6 +914,7 @@ void Settings::setPnsAscPath(const QString& path)
         SystemProfile profile;
         profile.alias = generateNextSystemProfileAlias();
         profile.ascPath = normalized;
+        profile.b0Tesla = kDefaultB0Tesla;
         profile.maxGrad = kUnsetLimit;
         profile.maxSlew = kUnsetLimit;
         profile.maxB1 = kUnsetLimit;
@@ -944,6 +949,7 @@ void Settings::setPnsAscHistory(const QStringList& history)
             SystemProfile profile;
             profile.alias = generateNextSystemProfileAlias();
             profile.ascPath = path;
+            profile.b0Tesla = kDefaultB0Tesla;
             profile.maxGrad = kUnsetLimit;
             profile.maxSlew = kUnsetLimit;
             profile.maxB1 = kUnsetLimit;
@@ -972,6 +978,7 @@ void Settings::setPnsAscNickname(const QString& path, const QString& nickname)
     SystemProfile profile;
     profile.alias = nickname.trimmed();
     profile.ascPath = key;
+    profile.b0Tesla = kDefaultB0Tesla;
     profile.maxGrad = kUnsetLimit;
     profile.maxSlew = kUnsetLimit;
     profile.maxB1 = kUnsetLimit;
@@ -1062,6 +1069,8 @@ void Settings::sanitizeSystemProfiles()
         SystemProfile profile = original;
         profile.ascPath = profile.ascPath.trimmed();
         profile.alias = normalizeSystemAlias(profile.alias);
+        if (!std::isfinite(profile.b0Tesla) || profile.b0Tesla <= 0.0)
+            profile.b0Tesla = kDefaultB0Tesla;
 
         if (!isLimitConfigured(profile.maxGrad))
             profile.maxGrad = kUnsetLimit;
@@ -1141,6 +1150,7 @@ void Settings::migrateLegacyPnsSettings(const QJsonObject& obj)
         SystemProfile profile;
         profile.alias = nicknames.value(path).trimmed();
         profile.ascPath = path;
+        profile.b0Tesla = kDefaultB0Tesla;
         profile.maxGrad = kUnsetLimit;
         profile.maxSlew = kUnsetLimit;
         profile.maxB1 = kUnsetLimit;

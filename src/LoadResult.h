@@ -58,6 +58,8 @@ struct LoadedSequenceState
     double totalDuration_us = 0.0;
     QString versionString;
     double b0Tesla = 0.0;
+    QString systemName;
+    QString b0Warning;
     int versionMajor = 0;
     int versionMinor = 0;
 };

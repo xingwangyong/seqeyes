@@ -87,6 +87,91 @@ qint64 quantizedPhaseKey(double phase)
     return quantizeKey(wrapPhase0ToTau(phase), 1e6);
 }
 
+double effectiveFrequencyOffsetHz(double freqOffsetHz, double freqPPM, double b0Tesla)
+{
+    return freqOffsetHz + freqPPM * 1e-6 * Settings::getInstance().getGamma() * b0Tesla;
+}
+
+double effectivePhaseOffsetRad(double phaseOffsetRad, double phasePPM, double b0Tesla)
+{
+    return phaseOffsetRad + phasePPM * 1e-6 * Settings::getInstance().getGamma() * b0Tesla;
+}
+
+struct ResolvedB0
+{
+    double b0Tesla {3.0};
+    QString systemName;
+    QString matchedProfileAlias;
+    bool sequenceDefinesB0 {false};
+    bool profileDefinesB0 {false};
+    QStringList warnings;
+};
+
+QString normalizedSystemName(const QString& name)
+{
+    return name.trimmed().toCaseFolded();
+}
+
+ResolvedB0 resolveB0Tesla(const std::shared_ptr<ExternalSequence>& sequence)
+{
+    ResolvedB0 resolved;
+    double seqB0Tesla = 0.0;
+    if (sequence) {
+        std::vector<double> defB0 = sequence->GetDefinition("B0");
+        if (!defB0.empty() && std::isfinite(defB0[0]) && defB0[0] > 0.0) {
+            seqB0Tesla = defB0[0];
+            resolved.sequenceDefinesB0 = true;
+        }
+        resolved.systemName = QString::fromStdString(sequence->GetDefinitionStr("SystemName")).trimmed();
+    }
+
+    Settings::SystemProfile profile;
+    bool hasProfile = false;
+    const QVector<Settings::SystemProfile> profiles = Settings::getInstance().getSystemProfiles();
+    if (!resolved.systemName.isEmpty()) {
+        const QString requested = normalizedSystemName(resolved.systemName);
+        for (const Settings::SystemProfile& candidate : profiles) {
+            if (normalizedSystemName(candidate.alias) == requested) {
+                profile = candidate;
+                hasProfile = true;
+                break;
+            }
+        }
+        if (!hasProfile) {
+            resolved.warnings.append(
+                QStringLiteral("Sequence requests SystemName \"%1\", but no matching system profile was found.")
+                    .arg(resolved.systemName));
+        }
+    }
+
+    if (!hasProfile) {
+        profile = Settings::getInstance().getActiveSystemProfile();
+        hasProfile = !profile.alias.trimmed().isEmpty();
+    }
+
+    if (hasProfile && std::isfinite(profile.b0Tesla) && profile.b0Tesla > 0.0) {
+        resolved.profileDefinesB0 = true;
+        resolved.matchedProfileAlias = profile.alias.trimmed();
+    }
+
+    if (resolved.sequenceDefinesB0) {
+        resolved.b0Tesla = seqB0Tesla;
+        if (resolved.profileDefinesB0 && std::abs(seqB0Tesla - profile.b0Tesla) > 1e-6) {
+            resolved.warnings.append(
+                QStringLiteral("The sequence defines B0 = %1 T, but system profile \"%2\" defines B0 = %3 T. SeqEyes will use the sequence-defined B0.")
+                    .arg(seqB0Tesla, 0, 'g', 12)
+                    .arg(resolved.matchedProfileAlias)
+                    .arg(profile.b0Tesla, 0, 'g', 12));
+        }
+    } else if (resolved.profileDefinesB0) {
+        resolved.b0Tesla = profile.b0Tesla;
+    } else {
+        resolved.b0Tesla = 3.0;
+    }
+
+    return resolved;
+}
+
 QString makeRfRoosTemplateKey(const RFEvent& rf, int rfLength, float dwellUs)
 {
     return QStringLiteral("rf:%1:%2:%3:%4:%5:%6:%7:%8:%9:%10")
@@ -368,6 +453,8 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
     
     // Reset B0 to default
     m_b0Tesla = 0.0;
+    m_sequenceSystemName.clear();
+    m_b0Warning.clear();
 
     if (nullptr != m_spPulseqSeq.get())
     {
@@ -623,6 +710,16 @@ bool PulseqLoader::loadParserFile(const QString& path, LoadedSequenceState& stat
 
     // Do not use setWindowFilePath for the main window title, because it can auto-compose
     // "file - AppName" which conflicts with our explicit "SeqEyes - file.seq" title.
+    const ResolvedB0 resolvedB0 = resolveB0Tesla(state.sequence);
+    state.b0Tesla = resolvedB0.b0Tesla;
+    state.systemName = resolvedB0.systemName;
+    state.b0Warning = resolvedB0.warnings.join(QStringLiteral("\n"));
+    for (const QString& warning : resolvedB0.warnings) {
+        LogManager::getInstance().appendStructured(
+            QtWarningMsg,
+            QStringLiteral("PulseqLoader"),
+            warning);
+    }
     if (m_loadUi) { m_loadUi->clearWindowFilePath(); }
     return true;
 }
@@ -779,6 +876,9 @@ void PulseqLoader::commitStagedSequence(LoadedSequenceState& state)
     vecBlockEdges = state.blockEdges;
     m_dTotalDuration_us = state.totalDuration_us;
     m_pulseqVersionString = state.versionString;
+    m_b0Tesla = state.b0Tesla;
+    m_sequenceSystemName = state.systemName;
+    m_b0Warning = state.b0Warning;
 
     m_blockBundle = std::make_shared<BlockBundle>();
     if (state.blockBundle)
@@ -1056,6 +1156,12 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
     }
 
     computeSafetyAnalysis(true);
+
+    if (!m_silentMode && m_mainWindow && !m_b0Warning.isEmpty()) {
+            QMessageBox::warning(m_mainWindow,
+                                 QStringLiteral("System profile warning"),
+                                 m_b0Warning);
+    }
 
     // PNS is always queued automatically after load. It is lower priority than
     // trajectory computation, so startPnsComputationIfEnabled() will defer while
@@ -1452,10 +1558,12 @@ void PulseqLoader::setBlockInfoContent(EventBlockInfoDialog* dialog, int current
     {
         blockInfo += QString("|-----------------------------------------------------------------------------------------------|\n");
         const RFEvent& rf = pSeqBlock->GetRFEvent();
+        const double fullFreqOffset = effectiveFrequencyOffsetHz(rf.freqOffset, rf.freqPPM, m_b0Tesla);
+        const double fullPhaseOffset = effectivePhaseOffsetRad(rf.phaseOffset, rf.phasePPM, m_b0Tesla);
         blockInfo += QString("RF Event:\nAmplitude: %1 Hz\nFrequency Offset: %2 Hz\nPhase Offset: %3 rad\nDelay: %4 us\n")
             .arg(rf.amplitude)
-            .arg(rf.freqOffset)
-            .arg(rf.phaseOffset)
+            .arg(fullFreqOffset)
+            .arg(fullPhaseOffset)
             .arg(rf.delay);
     }
 
@@ -1463,12 +1571,14 @@ void PulseqLoader::setBlockInfoContent(EventBlockInfoDialog* dialog, int current
     {
         blockInfo += QString("|-----------------------------------------------------------------------------------------------|\n");
         const ADCEvent& adc = pSeqBlock->GetADCEvent();
+        const double fullFreqOffset = effectiveFrequencyOffsetHz(adc.freqOffset, adc.freqPPM, m_b0Tesla);
+        const double fullPhaseOffset = effectivePhaseOffsetRad(adc.phaseOffset, adc.phasePPM, m_b0Tesla);
         blockInfo += QString("ADC Event:\nNumber of Samples: %1\nDwell Time: %2 ns\nDelay: %3 us\nFrequency Offset: %4 Hz\nPhase Offset: %5 rad\n")
             .arg(adc.numSamples)
             .arg(adc.dwellTime)
             .arg(adc.delay)
-            .arg(adc.freqOffset)
-            .arg(adc.phaseOffset);
+            .arg(fullFreqOffset)
+            .arg(fullPhaseOffset);
     }
 
     if (pSeqBlock->isTrigger())
@@ -1746,15 +1856,7 @@ KSpaceTrajectory::Input PulseqLoader::buildKSpaceTrajectoryInput() const
         }
     }
 
-    double b0Tesla = 0.0;
-    if (m_spPulseqSeq) {
-        std::vector<double> defB0 = m_spPulseqSeq->GetDefinition("B0");
-        if (!defB0.empty())
-            b0Tesla = defB0[0];
-    }
-    if (b0Tesla == 0.0) {
-        b0Tesla = 3.0;
-    }
+    const double b0Tesla = m_b0Tesla > 0.0 ? m_b0Tesla : resolveB0Tesla(m_spPulseqSeq).b0Tesla;
 
     return KSpaceTrajectory::Input { m_vecDecodeSeqBlocks,
                                      vecBlockEdges,
@@ -2477,15 +2579,7 @@ void PulseqLoader::startM1ComputationAsync()
         }
     }
 
-    double b0Tesla = 0.0;
-    if (m_spPulseqSeq) {
-        std::vector<double> defB0 = m_spPulseqSeq->GetDefinition("B0");
-        if (!defB0.empty())
-            b0Tesla = defB0[0];
-    }
-    if (b0Tesla == 0.0) {
-        b0Tesla = 3.0;
-    }
+    const double b0Tesla = m_b0Tesla > 0.0 ? m_b0Tesla : resolveB0Tesla(m_spPulseqSeq).b0Tesla;
 
     const M1Calculator::Input input { m_vecDecodeSeqBlocks,
                                      vecBlockEdges,

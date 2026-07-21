@@ -490,6 +490,8 @@ private:
 
     // B0 field strength from [DEFINITIONS] (Tesla); needed for PPM phase terms
     double m_b0Tesla {0.0};
+    QString m_sequenceSystemName;
+    QString m_b0Warning;
 
     // Echo-time / excitation overlay cache
     bool m_supportsRfUseMetadata {false};
