@@ -183,6 +183,7 @@ public:
     void setSilentMode(bool silent) { m_silentMode = silent; }
     bool isSilentMode() const { return m_silentMode; }
     void setLoadUiForTesting(std::unique_ptr<IPulseqLoadUi> ui);
+    void setForceDerivedMetadataFailureForTesting(bool enabled) { m_forceDerivedMetadataFailureForTesting = enabled; }
 
     // RF on-demand rendering API (Phase 1)
     // Build viewport RF amplitude/phase series using per-shape cache and per-block scaling.
@@ -379,6 +380,7 @@ private:
     bool decodeBlocks(LoadedSequenceState& state, LoadError* error);
     void commitStagedSequence(LoadedSequenceState& state);
     bool buildLoadedWaveformCaches(LoadError* error);
+    bool buildLoadedMetadata(const LoadedSequenceState& state, LoadError* error);
     bool stageLoadedDerivedState(LoadedSequenceState& state, LoadError* error);
     void commitStagedDerivedState();
     void clearTransientLiveStateAfterStaging();
@@ -483,6 +485,7 @@ private:
 
     // Test/CLI behavior
     bool m_silentMode {false};
+    bool m_forceDerivedMetadataFailureForTesting {false};
     LoadError m_lastLoadError;
 
     // B0 field strength from [DEFINITIONS] (Tesla); needed for PPM phase terms

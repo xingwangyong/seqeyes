@@ -262,6 +262,26 @@ private slots:
         verifyBlank(loader);
     }
 
+    void derivedMetadataFailure_afterValidLoad_returnsBlankAndPreservesReopenPath()
+    {
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileA), qPrintable(m_fileA));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, m_fileA);
+        const QString reopenPath = loader->getReopenPulseqFilePath();
+
+        loader->setForceDerivedMetadataFailureForTesting(true);
+        const OpenResult result = loader->LoadPulseqFileResult(m_fileB);
+        loader->setForceDerivedMetadataFailureForTesting(false);
+
+        QVERIFY(!result.ok);
+        QCOMPARE(result.errorTitle, QStringLiteral("Pulseq Load Error"));
+        QVERIFY(result.errorMessage.contains(QStringLiteral("derived Pulseq metadata")));
+        verifyBlank(loader, reopenPath);
+    }
+
     void openSuccessAndFailure_leaveWindowEnabled()
     {
         std::unique_ptr<MainWindow> window(makeWindow());
@@ -384,6 +404,22 @@ private slots:
         action->trigger();
         QVERIFY(loader->waitForBackgroundComputations());
         verifyLoaded(loader, m_fileA);
+    }
+
+    void reopenAction_commitsSameState()
+    {
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileA), qPrintable(m_fileA));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, m_fileA);
+        const int firstBlockCount = static_cast<int>(loader->getDecodedSeqBlocks().size());
+
+        loader->ReOpenPulseqFile();
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, m_fileA);
+        QCOMPARE(static_cast<int>(loader->getDecodedSeqBlocks().size()), firstBlockCount);
     }
 
     void recentListOrder_isMostRecentFirst()

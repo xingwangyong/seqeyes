@@ -7,12 +7,14 @@ PulseqLoadTransaction::PulseqLoadTransaction(PulseqLoader& loader)
 {
 }
 
-bool PulseqLoadTransaction::load(const QString& path)
+LoadResult PulseqLoadTransaction::load(const QString& path)
 {
     m_loader.beginLoad();
     if (!prepare(path))
         return rollback();
-    return commit(path);
+    if (!commit(path))
+        return {false, LoadedSequenceState {}, m_error};
+    return {true, LoadedSequenceState {}, LoadError {}};
 }
 
 bool PulseqLoadTransaction::prepare(const QString& path)
@@ -41,7 +43,8 @@ bool PulseqLoadTransaction::commit(const QString& path)
     return true;
 }
 
-bool PulseqLoadTransaction::rollback()
+LoadResult PulseqLoadTransaction::rollback()
 {
-    return m_loader.failLoad(m_error);
+    m_loader.failLoad(m_error);
+    return {false, LoadedSequenceState {}, m_error};
 }

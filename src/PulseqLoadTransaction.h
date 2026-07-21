@@ -19,7 +19,7 @@ public:
     explicit PulseqLoadTransaction(PulseqLoader& loader);
 
     // Run the full load pipeline: prepare -> commit, or rollback on failure.
-    bool load(const QString& path);
+    LoadResult load(const QString& path);
 
 private:
     // Build the staged sequence state without publishing it to live members.
@@ -29,7 +29,7 @@ private:
     bool commit(const QString& path);
 
     // Ensure the loader is in a clean blank state after a failed prepare.
-    bool rollback();
+    LoadResult rollback();
 
     PulseqLoader& m_loader;
     LoadError m_error;

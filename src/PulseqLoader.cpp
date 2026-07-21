@@ -815,6 +815,24 @@ bool PulseqLoader::buildLoadedWaveformCaches(LoadError* error)
     return true;
 }
 
+bool PulseqLoader::buildLoadedMetadata(const LoadedSequenceState& state, LoadError* error)
+{
+    if (m_forceDerivedMetadataFailureForTesting)
+    {
+        if (error) {
+            *error = {
+                QStringLiteral("Pulseq Load Error"),
+                QStringLiteral("Failed to build derived Pulseq metadata.")
+            };
+        }
+        return false;
+    }
+
+    updateEchoAndExcitationMetadata(state.versionMajor, state.versionMinor);
+    updateRepetitionTimeMetadata();
+    return true;
+}
+
 bool PulseqLoader::stageLoadedDerivedState(LoadedSequenceState& state, LoadError* error)
 {
     m_spPulseqSeq = state.sequence;
@@ -823,13 +841,16 @@ bool PulseqLoader::stageLoadedDerivedState(LoadedSequenceState& state, LoadError
     m_dTotalDuration_us = state.totalDuration_us;
     m_pulseqVersionString = state.versionString;
 
-    updateEchoAndExcitationMetadata(state.versionMajor, state.versionMinor);
+    if (!buildLoadedMetadata(state, error))
+    {
+        clearTransientLiveStateAfterStaging();
+        return false;
+    }
     if (!buildLoadedWaveformCaches(error))
     {
         clearTransientLiveStateAfterStaging();
         return false;
     }
-    updateRepetitionTimeMetadata();
 
     auto staged = std::make_unique<StagedDerivedState>();
     staged->rfTimeAmp = m_rfTimeAmp;
@@ -1185,11 +1206,11 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
 OpenResult PulseqLoader::LoadPulseqFileResult(QString sPulseqFilePath)
 {
     PulseqLoadTransaction transaction(*this);
-    const bool ok = transaction.load(sPulseqFilePath);
-    if (ok)
+    const LoadResult result = transaction.load(sPulseqFilePath);
+    if (result.ok)
         return {true, QFileInfo(sPulseqFilePath).absoluteFilePath(), QString(), QString()};
-    if (!m_lastLoadError.title.isEmpty() || !m_lastLoadError.message.isEmpty())
-        return {false, QString(), m_lastLoadError.title, m_lastLoadError.message};
+    if (!result.error.title.isEmpty() || !result.error.message.isEmpty())
+        return {false, QString(), result.error.title, result.error.message};
     return {false, QString(),
             QStringLiteral("Load Error"),
             QStringLiteral("Failed to load file: %1").arg(sPulseqFilePath)};
