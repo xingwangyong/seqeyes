@@ -1,13 +1,13 @@
 import argparse
-import os
 import subprocess
 import sys
 import threading
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+from qt_test_utils import REPO, default_qt_bin, detect_exe, print_qt_test_header, qt_test_env
+
+
 SEQ_DIR = REPO / "test" / "seq_files"
-QT_BIN_DEFAULT = Path(r"C:\Qt\6.5.3\msvc2019_64\bin")
 
 
 def _pump(stream, sink):
@@ -19,51 +19,10 @@ def _pump(stream, sink):
         stream.close()
 
 
-def detect_exe(bin_dir: Path) -> Path:
-    for c in [
-        bin_dir / "ReopenEquivalenceTest.exe",
-        bin_dir / "test" / "ReopenEquivalenceTest.exe",
-        bin_dir / "test" / "Release" / "ReopenEquivalenceTest.exe",
-        bin_dir.parent / "test" / "Release" / "ReopenEquivalenceTest.exe",
-        bin_dir.parent / "test" / "Debug" / "ReopenEquivalenceTest.exe",
-        bin_dir / "ReopenEquivalenceTest",
-        bin_dir / "test" / "ReopenEquivalenceTest",
-    ]:
-        if c.exists():
-            return c
-    raise FileNotFoundError(f"ReopenEquivalenceTest not found under {bin_dir}")
-
-
-def detect_platform_plugin(bin_dir: Path, qt_bin: Path) -> tuple[str, Path | None, list[Path]]:
-    platform_dirs = [
-        bin_dir / "platforms",
-        qt_bin / "platforms",
-        qt_bin.parent / "plugins" / "platforms",
-    ]
-    plugins: list[Path] = []
-    seen: set[str] = set()
-    for d in platform_dirs:
-        if d.exists():
-            for plugin in sorted(d.glob("q*.dll")):
-                key = str(plugin.resolve()).lower()
-                if key not in seen:
-                    seen.add(key)
-                    plugins.append(plugin)
-
-    by_name = {p.name.lower(): p for p in plugins}
-    if "qoffscreen.dll" in by_name:
-        return "offscreen", by_name["qoffscreen.dll"], plugins
-    if "qminimal.dll" in by_name:
-        return "minimal", by_name["qminimal.dll"], plugins
-    if "qwindows.dll" in by_name:
-        return "windows", by_name["qwindows.dll"], plugins
-    return "windows", None, plugins
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bin-dir", type=Path, default=REPO / "out" / "build" / "x64-Release")
-    ap.add_argument("--qt-bin", type=Path, default=QT_BIN_DEFAULT,
+    ap.add_argument("--qt-bin", type=Path, default=default_qt_bin(),
                     help="Qt bin dir; put on PATH so the test finds Qt DLLs/plugins")
     ap.add_argument("--file-a", type=Path, default=SEQ_DIR / "writeGradientEcho_label.seq",
                     help="First sequence (the one opened earlier)")
@@ -73,43 +32,17 @@ def main():
                     help="Whole-test timeout in seconds")
     args = ap.parse_args()
 
-    exe = detect_exe(args.bin_dir)
-
-    # Same setup as test_visual_regression.py: native window platform, fixed DPI
-    # for determinism, and Qt bin on PATH so the test finds Qt DLLs. The seq files
-    # go through env vars so changing files never needs a recompile.
-    env = os.environ.copy()
-    env["QT_ENABLE_HIGHDPI_SCALING"] = "0"
-    env["QT_SCALE_FACTOR"] = "1"
-    env["QT_AUTO_SCREEN_SCALE_FACTOR"] = "0"
-    # Prefer minimal when it is actually deployed, but windeployqt usually ships
-    # qwindows.dll only. Forcing a missing platform plugin can block in
-    # QApplication startup on hosted Windows before QtTest prints anything.
-    platform, platform_plugin, platform_plugins = detect_platform_plugin(args.bin_dir, args.qt_bin)
-    env.setdefault("QT_QPA_PLATFORM", platform)
-    if platform_plugin is not None:
-        env["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(platform_plugin.parent.resolve())
-    path_entries = []
-    if args.bin_dir.exists():
-        path_entries.append(str(args.bin_dir.resolve()))
-    if args.qt_bin.exists():
-        path_entries.append(str(args.qt_bin.resolve()))
-    if path_entries:
-        env["PATH"] = os.pathsep.join(path_entries + [env.get("PATH", "")])
+    exe = detect_exe(args.bin_dir, "ReopenEquivalenceTest")
+    env, _platform, platform_plugins = qt_test_env(exe, args.bin_dir, args.qt_bin)
     env["REOPEN_SEQ_A"] = str(args.file_a.resolve())
     env["REOPEN_SEQ_B"] = str(args.file_b.resolve())
     env["REOPEN_TEST_VERBOSE"] = "1"
     env.setdefault("REOPEN_TEST_INTERNAL_TIMEOUT_MS", str(max(args.timeout - 5, 1) * 1000))
 
-    print(f"[TEST reopen] exe={exe}", flush=True)
+    print_qt_test_header("reopen", exe, env, platform_plugins)
     print(f"[TEST reopen] file_a={env['REOPEN_SEQ_A']}", flush=True)
     print(f"[TEST reopen] file_b={env['REOPEN_SEQ_B']}", flush=True)
-    print(f"[TEST reopen] QT_QPA_PLATFORM={env.get('QT_QPA_PLATFORM', '')}", flush=True)
-    print(f"[TEST reopen] QT_QPA_PLATFORM_PLUGIN_PATH={env.get('QT_QPA_PLATFORM_PLUGIN_PATH', '')}", flush=True)
-    if platform_plugins:
-        print("[TEST reopen] platform_plugins=" + ";".join(str(p) for p in platform_plugins), flush=True)
-    else:
-        print("[TEST reopen] platform_plugins=<none>", flush=True)
+
     proc = subprocess.Popen(
         [str(exe), "-o", "-,txt", "-v1"],
         env=env,

@@ -153,6 +153,7 @@ def main():
     parser.add_argument("--threshold", type=float, default=0.005, help="Mean pixel diff threshold (default: 0.005 => 0.5%)")
     parser.add_argument("--changed-threshold", type=float, default=0.0001, help="Changed-pixel ratio threshold (default: 0.0001 => 0.01%)")
     parser.add_argument("--targets-config", type=str, default="test/visual_targets.yaml", help="YAML file containing visual regression targets")
+    parser.add_argument("--fail-on-missing-baseline", action="store_true", help="Treat missing baseline images as failures")
     
     args = parser.parse_args()
     
@@ -289,7 +290,7 @@ def main():
                 elif res == "SKIP":
                     has_skip = True
                     
-        if has_fail:
+        if has_fail or (has_skip and args.fail_on_missing_baseline):
             total_failed += 1
             failed_seq_names.append(base_name)
         elif has_skip:

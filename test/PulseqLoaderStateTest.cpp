@@ -153,6 +153,19 @@ private slots:
         verifyLoaded(loader, m_fileB);
     }
 
+    void successfulOpen_updatesLastOpenDirectory()
+    {
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileA), qPrintable(m_fileA));
+        QVERIFY(loader->waitForBackgroundComputations());
+
+        QSettings settings;
+        QCOMPARE(settings.value(QStringLiteral("LastOpenDirectory")).toString(),
+                 QFileInfo(m_fileA).absolutePath());
+    }
+
     void loadSameFileTwice_isStable()
     {
         std::unique_ptr<MainWindow> window(makeWindow());

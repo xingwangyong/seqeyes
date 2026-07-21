@@ -1100,13 +1100,7 @@ OpenResult PulseqLoader::LoadPulseqFileResult(QString sPulseqFilePath)
 {
     PulseqLoadTransaction transaction(*this);
     const LoadResult result = transaction.load(sPulseqFilePath);
-    if (result.ok)
-        return {true, QFileInfo(sPulseqFilePath).absoluteFilePath(), QString(), QString()};
-    if (!result.error.title.isEmpty() || !result.error.message.isEmpty())
-        return {false, QString(), result.error.title, result.error.message};
-    return {false, QString(),
-            QStringLiteral("Load Error"),
-            QStringLiteral("Failed to load file: %1").arg(sPulseqFilePath)};
+    return OpenResult::fromLoadResult(result, sPulseqFilePath);
 }
 
 void PulseqLoader::loadRecentFiles()

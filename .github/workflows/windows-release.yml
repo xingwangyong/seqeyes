@@ -47,12 +47,20 @@ jobs:
           GDRIVE_BASELINE_FOLDER_ID: "1Lhbd8zXQlI6z_o0f6HQPDb1umb_zLush"
         run: |
           mkdir test/baselines -ErrorAction SilentlyContinue
-          gdown --folder "https://drive.google.com/drive/folders/$env:GDRIVE_BASELINE_FOLDER_ID" -O test/baselines/
+          mkdir test/baseline_downloads -ErrorAction SilentlyContinue
+          gdown --folder "https://drive.google.com/drive/folders/$env:GDRIVE_BASELINE_FOLDER_ID" -O test/baseline_downloads/
+          $visual = Get-ChildItem -Path test/baseline_downloads -Recurse -File | Where-Object { $_.Name -match '^traj-seq-pngs(\.zip)?$' -or $_.Name -match '^traj-seq-pngs.*\.zip$' } | Select-Object -First 1
+          if (-not $visual) {
+            Write-Error "Cannot find visual baseline zip named like 'traj-seq-pngs' in downloaded folder."
+            exit 1
+          }
+          Copy-Item -Path $visual.FullName -Destination test/visual-baselines.zip -Force
+          python -c "import zipfile; zipfile.ZipFile('test/visual-baselines.zip').extractall('test/baselines')"
 
       - name: Run Visual Regression Test
         id: visual_test
         run: |
-          python test/test_visual_regression.py --bin-dir runtime/seqeyes --threshold 0.005 --changed-threshold 0.0001
+          python test/test_visual_regression.py --bin-dir runtime/seqeyes --threshold 0.005 --changed-threshold 0.0001 --fail-on-missing-baseline
 
       - name: Upload Visual Diff Artifacts on Failure
         if: failure() && steps.visual_test.outcome == 'failure'

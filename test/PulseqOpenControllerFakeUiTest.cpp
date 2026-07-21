@@ -94,6 +94,7 @@ private slots:
         const OpenResult result = controller.openPath(QStringLiteral("  "));
 
         QVERIFY(!result.ok);
+        QVERIFY(result.isNoOp());
         QVERIFY(result.errorTitle.isEmpty());
         QVERIFY(ui.warnings.isEmpty());
         QVERIFY(ui.criticals.isEmpty());
@@ -112,6 +113,7 @@ private slots:
         const OpenResult result = controller.openPath(missingPath);
 
         QVERIFY(!result.ok);
+        QCOMPARE(result.status, OpenResult::Status::Warning);
         QCOMPARE(result.errorTitle, QStringLiteral("File Error"));
         QVERIFY(result.errorMessage.contains(QStringLiteral("File does not exist")));
         QCOMPARE(ui.warnings.size(), 1);
@@ -138,6 +140,7 @@ private slots:
         const OpenResult result = controller.openPath(textPath);
 
         QVERIFY(!result.ok);
+        QCOMPARE(result.status, OpenResult::Status::Warning);
         QCOMPARE(result.errorTitle, QStringLiteral("File Error"));
         QVERIFY(result.errorMessage.contains(QStringLiteral("Please select a .seq file")));
         QCOMPARE(ui.warnings.size(), 1);
@@ -164,6 +167,7 @@ private slots:
         const OpenResult result = controller.openPath(path);
 
         QVERIFY(result.ok);
+        QCOMPARE(result.status, OpenResult::Status::Success);
         QCOMPARE(result.loadedPath, path);
         QCOMPARE(ui->busyStates, QVector<bool>({true, false}));
         QCOMPARE(ui->showProgressCount, 1);
@@ -198,6 +202,7 @@ private slots:
         const OpenResult result = controller.openPath(path);
 
         QVERIFY(!result.ok);
+        QCOMPARE(result.status, OpenResult::Status::Error);
         QCOMPARE(result.errorTitle, QStringLiteral("Load Error"));
         QVERIFY(result.errorMessage.contains(QStringLiteral("Failed to read version information")));
         QCOMPARE(ui->busyStates, QVector<bool>({true, false}));

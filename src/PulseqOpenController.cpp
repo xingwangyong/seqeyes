@@ -16,7 +16,7 @@ OpenResult PulseqOpenController::openPath(QString candidatePath)
 {
     candidatePath = candidatePath.trimmed();
     if (candidatePath.isEmpty())
-        return {};
+        return OpenResult::noOp();
 
     QFileInfo fileInfo(candidatePath);
     const QString normalizedPath = fileInfo.absoluteFilePath();
@@ -27,7 +27,7 @@ OpenResult PulseqOpenController::openPath(QString candidatePath)
         qWarning().noquote() << message;
         if (!m_loader.isSilentMode())
             m_ui.showWarning(QStringLiteral("File Error"), message);
-        return {false, QString(), QStringLiteral("File Error"), message};
+        return OpenResult::warning(QStringLiteral("File Error"), message);
     }
 
     if (!fileInfo.isFile() || fileInfo.suffix().compare(QStringLiteral("seq"), Qt::CaseInsensitive) != 0)
@@ -36,7 +36,7 @@ OpenResult PulseqOpenController::openPath(QString candidatePath)
         qWarning().noquote() << message;
         if (!m_loader.isSilentMode())
             m_ui.showWarning(QStringLiteral("File Error"), message);
-        return {false, QString(), QStringLiteral("File Error"), message};
+        return OpenResult::warning(QStringLiteral("File Error"), message);
     }
 
     m_loader.m_sLastOpenDirectory = fileInfo.absolutePath();
@@ -57,6 +57,6 @@ OpenResult PulseqOpenController::reopen()
 {
     const QString reopenPath = m_reopenPath;
     if (reopenPath.isEmpty())
-        return {};
+        return OpenResult::noOp();
     return openPath(reopenPath);
 }

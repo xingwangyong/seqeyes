@@ -33,6 +33,12 @@ function(seqeyes_configure_qt_app_test TEST_NAME TARGET_NAME)
     endif()
 endfunction()
 
+function(seqeyes_add_app_source_dependencies TARGET_NAME)
+    if(TARGET gen_version)
+        add_dependencies(${TARGET_NAME} gen_version)
+    endif()
+endfunction()
+
 # External libraries from the main project
 set(EXTERNAL_PULSEQ_DIR ${PROJECT_SOURCE_DIR}/src/external/pulseq)
 set(EXTERNAL_QCP_DIR ${PROJECT_SOURCE_DIR}/src/external/qcustomplot)
@@ -75,6 +81,7 @@ add_executable(${TEST_NAME}
     ${PROJECT_SOURCE_DIR}/test/TimeSliderSyncTest.cpp
     ${SEQEYES_TEST_APP_SOURCES}
 )
+seqeyes_add_app_source_dependencies(${TEST_NAME})
 
 target_include_directories(${TEST_NAME} PRIVATE
     ${PROJECT_SOURCE_DIR}/src
@@ -102,6 +109,7 @@ add_executable(${REOPEN_TEST_NAME}
     ${PROJECT_SOURCE_DIR}/test/ReopenEquivalenceTest.cpp
     ${SEQEYES_TEST_APP_SOURCES}
 )
+seqeyes_add_app_source_dependencies(${REOPEN_TEST_NAME})
 
 target_include_directories(${REOPEN_TEST_NAME} PRIVATE
     ${PROJECT_SOURCE_DIR}/src
@@ -133,6 +141,7 @@ add_executable(${PULSEQ_LOADER_STATE_TEST_NAME}
     ${PROJECT_SOURCE_DIR}/test/PulseqLoaderStateTest.cpp
     ${SEQEYES_TEST_APP_SOURCES}
 )
+seqeyes_add_app_source_dependencies(${PULSEQ_LOADER_STATE_TEST_NAME})
 
 target_include_directories(${PULSEQ_LOADER_STATE_TEST_NAME} PRIVATE
     ${PROJECT_SOURCE_DIR}/src
@@ -162,6 +171,7 @@ add_executable(${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME}
     ${PROJECT_SOURCE_DIR}/test/PulseqOpenControllerFakeUiTest.cpp
     ${SEQEYES_TEST_APP_SOURCES}
 )
+seqeyes_add_app_source_dependencies(${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME})
 
 target_include_directories(${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME} PRIVATE
     ${PROJECT_SOURCE_DIR}/src
@@ -191,6 +201,7 @@ add_executable(${RF_MULTICHANNEL_TEST_NAME}
     ${PROJECT_SOURCE_DIR}/test/RfMultichannelDetectionTest.cpp
     ${SEQEYES_TEST_APP_SOURCES}
 )
+seqeyes_add_app_source_dependencies(${RF_MULTICHANNEL_TEST_NAME})
 
 target_include_directories(${RF_MULTICHANNEL_TEST_NAME} PRIVATE
     ${PROJECT_SOURCE_DIR}/src
@@ -220,6 +231,7 @@ add_executable(${PERF_TEST_NAME}
     ${PROJECT_SOURCE_DIR}/test/PerfZoomTest.cpp
     ${SEQEYES_TEST_APP_SOURCES}
 )
+seqeyes_add_app_source_dependencies(${PERF_TEST_NAME})
 
 target_include_directories(${PERF_TEST_NAME} PRIVATE
     ${PROJECT_SOURCE_DIR}/src
