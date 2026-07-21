@@ -116,6 +116,9 @@ jobs:
       - name: Run ReopenEquivalenceTest
         run: python test/test_reopen.py --bin-dir runtime/seqeyes --qt-bin runtime/seqeyes
 
+      - name: Run PulseqLoaderStateTest
+        run: python test/test_loader_state.py --bin-dir runtime/seqeyes --qt-bin runtime/seqeyes
+
       - name: Run RfMultichannelDetectionTest
         shell: pwsh
         timeout-minutes: 5
