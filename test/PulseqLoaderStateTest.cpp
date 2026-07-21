@@ -32,7 +32,10 @@ private:
     static MainWindow* makeWindow()
     {
         MainWindow* window = new MainWindow();
-        window->getPulseqLoader()->setSilentMode(true);
+        PulseqLoader* loader = window->getPulseqLoader();
+        loader->setSilentMode(true);
+        loader->setAutoStartTrajectoryAfterLoad(false);
+        loader->setAutoStartPnsAfterLoad(false);
         window->show();
         QTest::qWait(50);
         return window;
@@ -59,6 +62,43 @@ private:
                 return action;
         }
         return nullptr;
+    }
+
+    static QStringList recentActionPaths(MainWindow* window)
+    {
+        QStringList paths;
+        if (!window || !window->ui || !window->ui->menuRecent_Files)
+            return paths;
+
+        for (QAction* action : window->ui->menuRecent_Files->actions()) {
+            const QString path = action->data().toString();
+            if (!path.isEmpty())
+                paths << QFileInfo(path).absoluteFilePath();
+        }
+        return paths;
+    }
+
+    static void dropFileOnWindow(MainWindow* window, const QString& path)
+    {
+        auto mimeData = std::make_unique<QMimeData>();
+        mimeData->setUrls({QUrl::fromLocalFile(path)});
+
+        QDragEnterEvent dragEnterEvent(
+            QPoint(10, 10),
+            Qt::CopyAction,
+            mimeData.get(),
+            Qt::LeftButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(window, &dragEnterEvent);
+        QVERIFY(dragEnterEvent.isAccepted());
+
+        QDropEvent dropEvent(
+            QPointF(10, 10),
+            Qt::CopyAction,
+            mimeData.get(),
+            Qt::LeftButton,
+            Qt::NoModifier);
+        QApplication::sendEvent(window, &dropEvent);
     }
 
 private slots:
@@ -128,6 +168,99 @@ private slots:
         QVERIFY(loader->getDecodedSeqBlocks().empty());
     }
 
+    void failedLoad_fromBlankDoesNotCommitCandidatePath()
+    {
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QTemporaryDir dir;
+        QVERIFY2(dir.isValid(), "Could not create temporary directory");
+        const QString invalidPath = dir.filePath(QStringLiteral("invalid.seq"));
+        QFile invalidFile(invalidPath);
+        QVERIFY2(invalidFile.open(QIODevice::WriteOnly | QIODevice::Text), qPrintable(invalidPath));
+        invalidFile.write("[DEFINITIONS]\nName invalid\n");
+        invalidFile.close();
+
+        QVERIFY(!loader->OpenPulseqFilePath(invalidPath));
+        QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Blank);
+        QVERIFY(loader->getLoadedPulseqFilePath().isEmpty());
+        QVERIFY(loader->getReopenPulseqFilePath().isEmpty());
+        QVERIFY(!loader->getSequence());
+        QVERIFY(loader->getDecodedSeqBlocks().empty());
+    }
+
+    void openSuccessAndFailure_leaveWindowEnabled()
+    {
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+        QVERIFY(window->isEnabled());
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileA), qPrintable(m_fileA));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, m_fileA);
+        QVERIFY(window->isEnabled());
+
+        QTemporaryDir dir;
+        QVERIFY2(dir.isValid(), "Could not create temporary directory");
+        const QString invalidPath = dir.filePath(QStringLiteral("invalid.seq"));
+        QFile invalidFile(invalidPath);
+        QVERIFY2(invalidFile.open(QIODevice::WriteOnly | QIODevice::Text), qPrintable(invalidPath));
+        invalidFile.write("[DEFINITIONS]\nName invalid\n");
+        invalidFile.close();
+
+        QVERIFY(!loader->OpenPulseqFilePath(invalidPath));
+        QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Blank);
+        QVERIFY(window->isEnabled());
+    }
+
+    void progressHidden_afterSuccessAndFailure()
+    {
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileA), qPrintable(m_fileA));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, m_fileA);
+        QVERIFY(window->getProgressBar());
+        QVERIFY(!window->getProgressBar()->isVisible());
+
+        QTemporaryDir dir;
+        QVERIFY2(dir.isValid(), "Could not create temporary directory");
+        const QString invalidPath = dir.filePath(QStringLiteral("invalid.seq"));
+        QFile invalidFile(invalidPath);
+        QVERIFY2(invalidFile.open(QIODevice::WriteOnly | QIODevice::Text), qPrintable(invalidPath));
+        invalidFile.write("[DEFINITIONS]\nName invalid\n");
+        invalidFile.close();
+
+        QVERIFY(!loader->OpenPulseqFilePath(invalidPath));
+        QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Blank);
+        QVERIFY(!window->getProgressBar()->isVisible());
+    }
+
+    void titleSetOnlyAfterSuccessAndClearedOnBlankFailure()
+    {
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+        QCOMPARE(window->windowTitle(), QStringLiteral("SeqEyes"));
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileA), qPrintable(m_fileA));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, m_fileA);
+        QVERIFY(window->windowTitle().startsWith(QStringLiteral("SeqEyes - ")));
+
+        QTemporaryDir dir;
+        QVERIFY2(dir.isValid(), "Could not create temporary directory");
+        const QString invalidPath = dir.filePath(QStringLiteral("invalid.seq"));
+        QFile invalidFile(invalidPath);
+        QVERIFY2(invalidFile.open(QIODevice::WriteOnly | QIODevice::Text), qPrintable(invalidPath));
+        invalidFile.write("[DEFINITIONS]\nName invalid\n");
+        invalidFile.close();
+
+        QVERIFY(!loader->OpenPulseqFilePath(invalidPath));
+        QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Blank);
+        QCOMPARE(window->windowTitle(), QStringLiteral("SeqEyes"));
+    }
+
     void emptyPath_isNoOp()
     {
         std::unique_ptr<MainWindow> window(makeWindow());
@@ -155,6 +288,20 @@ private slots:
         verifyLoaded(loader, m_fileB);
     }
 
+    void dragDropOpen_commitsSameState()
+    {
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileA), qPrintable(m_fileA));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, m_fileA);
+
+        dropFileOnWindow(window.get(), m_fileB);
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, m_fileB);
+    }
+
     void recentFileAction_commitsSameState()
     {
         std::unique_ptr<MainWindow> window(makeWindow());
@@ -173,6 +320,25 @@ private slots:
         action->trigger();
         QVERIFY(loader->waitForBackgroundComputations());
         verifyLoaded(loader, m_fileA);
+    }
+
+    void recentListOrder_isMostRecentFirst()
+    {
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileA), qPrintable(m_fileA));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, m_fileA);
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileB), qPrintable(m_fileB));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, m_fileB);
+
+        const QStringList paths = recentActionPaths(window.get());
+        QVERIFY2(paths.size() >= 2, qPrintable(QStringLiteral("Recent path count: %1").arg(paths.size())));
+        QCOMPARE(paths[0], QFileInfo(m_fileB).absoluteFilePath());
+        QCOMPARE(paths[1], QFileInfo(m_fileA).absoluteFilePath());
     }
 
 private:

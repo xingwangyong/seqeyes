@@ -353,7 +353,7 @@ private:
                              QVector<double>& tPh,
                              QVector<double>& vPh) const;
     QString rfSourceTypeToString(RfSourceType type) const;
-    void beginLoad(const QString& path);
+    void beginLoad();
     bool readAndCreateVersionedLoader(const QString& path, LoadError* error);
     bool loadParserFile(const QString& path, LoadError* error);
     bool validateRequiredDefinitions(LoadError* error) const;

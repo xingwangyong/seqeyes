@@ -527,7 +527,7 @@ bool PulseqLoader::failLoad(const LoadError& error)
     return false;
 }
 
-void PulseqLoader::beginLoad(const QString& path)
+void PulseqLoader::beginLoad()
 {
     m_mainWindow->setEnabled(false);
     m_sequenceLoadState = SequenceLoadState::Loading;
@@ -543,10 +543,6 @@ void PulseqLoader::beginLoad(const QString& path)
     ClearPulseqCache();
 
     m_sequenceLoadState = SequenceLoadState::Loading;
-
-    // Keep the canonical loaded path for all loading entry points
-    // (file dialog, drag/drop, command line, reopen).
-    m_sPulseqFilePath = path;
 }
 
 bool PulseqLoader::readAndCreateVersionedLoader(const QString& path, LoadError* error)
@@ -957,6 +953,7 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
     trManager->updateTrControls();
     trManager->refreshShowTeOverlay();
 
+    m_sPulseqFilePath = path;
     m_sequenceLoadState = SequenceLoadState::Loaded;
 
     QCPRange finalRange(initialRange.first, initialRange.second);
@@ -1013,7 +1010,7 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
 
 bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
 {
-    beginLoad(sPulseqFilePath);
+    beginLoad();
 
     LoadError error;
     if (!readAndCreateVersionedLoader(sPulseqFilePath, &error))

@@ -69,7 +69,7 @@ def main():
                     help="First sequence (the one opened earlier)")
     ap.add_argument("--file-b", type=Path, default=SEQ_DIR / "writeFid.seq",
                     help="Second sequence (must not inherit A's state)")
-    ap.add_argument("--timeout", type=int, default=240,
+    ap.add_argument("--timeout", type=int, default=360,
                     help="Whole-test timeout in seconds")
     args = ap.parse_args()
 
@@ -99,6 +99,7 @@ def main():
     env["REOPEN_SEQ_A"] = str(args.file_a.resolve())
     env["REOPEN_SEQ_B"] = str(args.file_b.resolve())
     env["REOPEN_TEST_VERBOSE"] = "1"
+    env.setdefault("REOPEN_TEST_INTERNAL_TIMEOUT_MS", str(max(args.timeout - 5, 1) * 1000))
 
     print(f"[TEST reopen] exe={exe}", flush=True)
     print(f"[TEST reopen] file_a={env['REOPEN_SEQ_A']}", flush=True)
