@@ -42,13 +42,13 @@ OpenResult PulseqOpenController::openPath(QString candidatePath)
     m_loader.m_sLastOpenDirectory = fileInfo.absolutePath();
     m_loader.saveLastOpenDirectory();
 
-    const bool loaded = m_loader.LoadPulseqFile(normalizedPath);
-    if (!loaded)
+    OpenResult result = m_loader.LoadPulseqFileResult(normalizedPath);
+    if (!result.ok)
     {
         qWarning() << "Failed to load file:" << normalizedPath;
-        return {false, QString(), QStringLiteral("Load Error"), QStringLiteral("Failed to load file: %1").arg(normalizedPath)};
+        return result;
     }
-    return {true, normalizedPath, QString(), QString()};
+    return result;
 }
 
 OpenResult PulseqOpenController::reopen()

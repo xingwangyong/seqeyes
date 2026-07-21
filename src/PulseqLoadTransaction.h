@@ -10,9 +10,9 @@ class PulseqLoader;
 
 // Transaction wrapper for Pulseq sequence loading.
 //
-// This currently wraps PulseqLoader's existing prepare/commit/rollback phases.
-// Full local staging will be introduced after decoded block ownership is
-// separated from the live loader members.
+// prepare() builds version/parser/decode results in local staged state. commit()
+// is the only point that publishes that staged sequence into PulseqLoader live
+// members before the remaining cache/UI work runs.
 class PulseqLoadTransaction
 {
 public:
@@ -22,8 +22,7 @@ public:
     bool load(const QString& path);
 
 private:
-    // Run the existing prepare phases. These still write live loader members
-    // until LoadedSequenceState staging is completed.
+    // Build the staged sequence state without publishing it to live members.
     bool prepare(const QString& path);
 
     // Finalize the successfully prepared state.
@@ -36,7 +35,6 @@ private:
     LoadError m_error;
     QPair<double, double> m_initialRange;
 
-    // Reserved for the next step: fully staged sequence state.
     LoadedSequenceState m_staged;
 };
 

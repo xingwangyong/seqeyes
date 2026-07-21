@@ -227,6 +227,12 @@ PulseqLoader::~PulseqLoader()
     ClearPulseqCache(false);
 }
 
+void PulseqLoader::setLoadUiForTesting(std::unique_ptr<IPulseqLoadUi> ui)
+{
+    m_loadUi = std::move(ui);
+    m_openController = std::make_unique<PulseqOpenController>(*this, *m_loadUi);
+}
+
 void PulseqLoader::OpenPulseqFile()
 {
 #ifdef Q_OS_MAC
@@ -294,6 +300,7 @@ void PulseqLoader::ClearPulseqCache(bool withUi)
 
     m_dTotalDuration_us = 0.;
     m_sPulseqFilePath.clear();
+    vecBlockEdges.clear();
     m_bHasRepetitionTime = false;
     m_dRepetitionTime_us = 0.0;
     m_nTrCount = 0;
@@ -473,6 +480,7 @@ std::pair<int, int> PulseqLoader::ReadFileVersion(const std::string& filename)
 
 bool PulseqLoader::failLoad(const LoadError& error)
 {
+    m_lastLoadError = error;
     m_sequenceLoadState = SequenceLoadState::Blank;
     ClearPulseqCache();
     if (m_loadUi)
@@ -489,6 +497,7 @@ bool PulseqLoader::failLoad(const LoadError& error)
 
 void PulseqLoader::beginLoad()
 {
+    m_lastLoadError = {};
     if (m_loadUi)
         m_loadUi->setBusy(true);
     m_sequenceLoadState = SequenceLoadState::Loading;
@@ -506,7 +515,7 @@ void PulseqLoader::beginLoad()
     m_sequenceLoadState = SequenceLoadState::Loading;
 }
 
-bool PulseqLoader::readAndCreateVersionedLoader(const QString& path, LoadError* error)
+bool PulseqLoader::readAndCreateVersionedLoader(const QString& path, LoadedSequenceState& state, LoadError* error)
 {
     // First, read version information without loading the full file
     std::pair<int, int> version = ReadFileVersion(path.toStdString());
@@ -523,10 +532,12 @@ bool PulseqLoader::readAndCreateVersionedLoader(const QString& path, LoadError* 
 
     int version_major = version.first;
     int version_minor = version.second;
+    state.versionMajor = version_major;
+    state.versionMinor = version_minor;
 
     // Create appropriate loader based on file version
-    m_spPulseqSeq = CreateLoaderForVersion(version_major, version_minor);
-    if (!m_spPulseqSeq)
+    state.sequence = std::shared_ptr<ExternalSequence>(std::move(CreateLoaderForVersion(version_major, version_minor)));
+    if (!state.sequence)
     {
         if (error) {
             *error = {
@@ -543,7 +554,7 @@ bool PulseqLoader::readAndCreateVersionedLoader(const QString& path, LoadError* 
     return true;
 }
 
-bool PulseqLoader::loadParserFile(const QString& path, LoadError* error)
+bool PulseqLoader::loadParserFile(const QString& path, LoadedSequenceState& state, LoadError* error)
 {
     // ============================================================================
     // PULSEQ FILE LOADING WITH ERROR HANDLING
@@ -576,7 +587,7 @@ bool PulseqLoader::loadParserFile(const QString& path, LoadError* error)
     // Setup time units and factor before loading
     updateTimeUnitFromSettings();
 
-    if (!m_spPulseqSeq || !m_spPulseqSeq->load(path.toStdString()))
+    if (!state.sequence || !state.sequence->load(path.toStdString()))
     {
         if (error) {
             *error = {
@@ -604,10 +615,10 @@ bool PulseqLoader::loadParserFile(const QString& path, LoadError* error)
     return true;
 }
 
-bool PulseqLoader::validateRequiredDefinitions(LoadError* error) const
+bool PulseqLoader::validateRequiredDefinitions(const LoadedSequenceState& state, LoadError* error) const
 {
     // Enforce presence of GradientRasterTime. If missing, abort load and inform user.
-    std::vector<double> gradDef = m_spPulseqSeq ? m_spPulseqSeq->GetDefinition("GradientRasterTime") : std::vector<double>();
+    std::vector<double> gradDef = state.sequence ? state.sequence->GetDefinition("GradientRasterTime") : std::vector<double>();
     bool ok = !gradDef.empty() && std::isfinite(gradDef[0]) && gradDef[0] > 0.0;
     if (!ok)
     {
@@ -625,13 +636,13 @@ bool PulseqLoader::validateRequiredDefinitions(LoadError* error) const
     return true;
 }
 
-bool PulseqLoader::decodeBlocks(LoadError* error)
+bool PulseqLoader::decodeBlocks(LoadedSequenceState& state, LoadError* error)
 {
     LogManager::getInstance().appendStructured(
         QtInfoMsg,
         QStringLiteral("PulseqLoader"),
         QStringLiteral("Decoding blocks..."));
-    qDebug() << "Total blocks:" << m_spPulseqSeq->GetNumberOfBlocks();
+    qDebug() << "Total blocks:" << state.sequence->GetNumberOfBlocks();
     
     // Debug: Check gradient library loading
     if (WaveformDrawer::DEBUG_GRADIENT_LIBRARY) {
@@ -640,7 +651,7 @@ bool PulseqLoader::decodeBlocks(LoadError* error)
         
         // Check gradient raster time
         // For v151 version, use GetDefinition to get gradient raster time
-        auto def = m_spPulseqSeq->GetDefinition("GradientRasterTime");
+        auto def = state.sequence->GetDefinition("GradientRasterTime");
         if (!def.empty()) {
             double gradRaster_us = 1e6 * def[0]; // Convert from seconds to microseconds
             qDebug() << "Gradient raster time:" << gradRaster_us << "us";
@@ -650,7 +661,7 @@ bool PulseqLoader::decodeBlocks(LoadError* error)
         
         // We need to access the gradient library from the sequence
         // Let's check a few sample blocks to see what gradient events are loaded
-        int totalBlocks = m_spPulseqSeq->GetNumberOfBlocks();
+        int totalBlocks = state.sequence->GetNumberOfBlocks();
         const int MAX_DEBUG_BLOCKS = 20; // Maximum number of blocks to check for debugging
         int blocksToCheck = qMin(MAX_DEBUG_BLOCKS, totalBlocks);
         
@@ -658,7 +669,7 @@ bool PulseqLoader::decodeBlocks(LoadError* error)
         qDebug() << "Checking first" << blocksToCheck << "blocks for gradient library debugging";
         
         for (int i = 0; i < blocksToCheck; i++) {
-            auto block = m_spPulseqSeq->GetBlock(i);
+            auto block = state.sequence->GetBlock(i);
             if (block) {
                 qDebug() << "Block" << i << "gradient events:";
                 for (int ch = 0; ch < 3; ch++) {
@@ -678,28 +689,29 @@ bool PulseqLoader::decodeBlocks(LoadError* error)
         qDebug() << "=== END GRADIENT LIBRARY DEBUG ===";
     }
 
-    const int& shVersion = m_spPulseqSeq->GetVersion();
+    const int& shVersion = state.sequence->GetVersion();
     const int& shVersionMajor = shVersion / 1000000L;
     const int& shVersionMinor = (shVersion / 1000L) % 1000L;
     const int& shVersionRevision = shVersion % 1000L;
     QString sVersion = QString::number(shVersionMajor) + "." + QString::number(shVersionMinor) + "." + QString::number(shVersionRevision);
-    m_pulseqVersionString = "v" + sVersion;
+    state.versionString = "v" + sVersion;
     // Do not show redundant version label in status bar; keep cached string only
     if (m_loadUi) m_loadUi->hideVersionLabel();
 
-    const int64_t& lSeqBlockNum = m_spPulseqSeq->GetNumberOfBlocks();
+    const int64_t& lSeqBlockNum = state.sequence->GetNumberOfBlocks();
     std::cout << lSeqBlockNum << " blocks detected!\n";
-    m_vecDecodeSeqBlocks.resize(lSeqBlockNum);
+    std::vector<SeqBlock*> decodedBlocks;
+    decodedBlocks.resize(lSeqBlockNum, nullptr);
     if (m_loadUi) {
         m_loadUi->showProgress();
         m_loadUi->setProgressValue(0);
     }
-    vecBlockEdges.clear();
-    vecBlockEdges.resize(lSeqBlockNum + 1, 0);
+    state.blockEdges.clear();
+    state.blockEdges.resize(lSeqBlockNum + 1, 0);
     for (int64_t ushBlockIndex = 0; ushBlockIndex < lSeqBlockNum; ushBlockIndex++)
     {
-        m_vecDecodeSeqBlocks[ushBlockIndex] = m_spPulseqSeq->GetBlock(ushBlockIndex);
-        if (!m_spPulseqSeq->decodeBlock(m_vecDecodeSeqBlocks[ushBlockIndex]))
+        decodedBlocks[ushBlockIndex] = state.sequence->GetBlock(ushBlockIndex);
+        if (!state.sequence->decodeBlock(decodedBlocks[ushBlockIndex]))
         {
             const QString message = QStringLiteral("Decode SeqBlock failed, block index: %1").arg(ushBlockIndex);
             LogManager::getInstance().appendStructured(
@@ -710,20 +722,22 @@ bool PulseqLoader::decodeBlocks(LoadError* error)
             if (error) {
                 *error = {QStringLiteral("File Error"), message};
             }
+            for (SeqBlock* block : decodedBlocks)
+                delete block;
             return false;
         }
         int progress = (ushBlockIndex + 1) * 100 / lSeqBlockNum;
         if (m_loadUi) m_loadUi->setProgressValue(progress);
-        vecBlockEdges[ushBlockIndex + 1] = vecBlockEdges[ushBlockIndex] + m_vecDecodeSeqBlocks[ushBlockIndex]->GetDuration() * tFactor;
+        state.blockEdges[ushBlockIndex + 1] = state.blockEdges[ushBlockIndex] + decodedBlocks[ushBlockIndex]->GetDuration() * tFactor;
     }
     // Decode succeeded: take shared ownership of the blocks. From here on the
     // bundle (not m_vecDecodeSeqBlocks) owns/deletes the SeqBlock*, and async
     // trajectory/PNS tasks keep a copy of this shared_ptr alive for as long as
     // they read the blocks. m_vecDecodeSeqBlocks remains a raw view used by the
     // synchronous code paths.
-    m_blockBundle = std::make_shared<BlockBundle>();
-    m_blockBundle->blocks = m_vecDecodeSeqBlocks;
-    updateEchoAndExcitationMetadata(shVersionMajor, shVersionMinor);
+    state.blockBundle = std::make_shared<LoadBlockBundle>();
+    state.blockBundle->blocks = std::move(decodedBlocks);
+    state.decodedBlocks = state.blockBundle->blocks;
     LogManager::getInstance().appendStructured(
         QtInfoMsg,
         QStringLiteral("PulseqLoader"),
@@ -731,19 +745,35 @@ bool PulseqLoader::decodeBlocks(LoadError* error)
 
     // Prefer explicit TotalDuration from definitions if available
     // Otherwise, fall back to accumulated block edges
-    std::vector<double> totalDurationDef = m_spPulseqSeq->GetDefinition("TotalDuration");
+    std::vector<double> totalDurationDef = state.sequence->GetDefinition("TotalDuration");
     if (!totalDurationDef.empty())
     {
         // TotalDuration is in seconds → convert to microseconds
-        m_dTotalDuration_us = totalDurationDef[0] * 1e6;
+        state.totalDuration_us = totalDurationDef[0] * 1e6;
     }
     else
     {
-        m_dTotalDuration_us = vecBlockEdges[lSeqBlockNum] / tFactor;
+        state.totalDuration_us = state.blockEdges[lSeqBlockNum] / tFactor;
     }
-    std::cout << "Sequence total duration: " << m_dTotalDuration_us / 1e6 << " seconds" << std::endl;
+    std::cout << "Sequence total duration: " << state.totalDuration_us / 1e6 << " seconds" << std::endl;
     if (m_loadUi) m_loadUi->hideProgress();
     return true;
+}
+
+void PulseqLoader::commitStagedSequence(LoadedSequenceState& state)
+{
+    m_spPulseqSeq = std::move(state.sequence);
+    m_vecDecodeSeqBlocks = state.decodedBlocks;
+    vecBlockEdges = state.blockEdges;
+    m_dTotalDuration_us = state.totalDuration_us;
+    m_pulseqVersionString = state.versionString;
+
+    m_blockBundle = std::make_shared<BlockBundle>();
+    if (state.blockBundle)
+        m_blockBundle->blocks = std::move(state.blockBundle->blocks);
+    state.decodedBlocks.clear();
+
+    updateEchoAndExcitationMetadata(state.versionMajor, state.versionMinor);
 }
 
 bool PulseqLoader::buildLoadedWaveformCaches(LoadError* error)
@@ -973,8 +1003,20 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
 
 bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
 {
+    return LoadPulseqFileResult(sPulseqFilePath).ok;
+}
+
+OpenResult PulseqLoader::LoadPulseqFileResult(QString sPulseqFilePath)
+{
     PulseqLoadTransaction transaction(*this);
-    return transaction.load(sPulseqFilePath);
+    const bool ok = transaction.load(sPulseqFilePath);
+    if (ok)
+        return {true, QFileInfo(sPulseqFilePath).absoluteFilePath(), QString(), QString()};
+    if (!m_lastLoadError.title.isEmpty() || !m_lastLoadError.message.isEmpty())
+        return {false, QString(), m_lastLoadError.title, m_lastLoadError.message};
+    return {false, QString(),
+            QStringLiteral("Load Error"),
+            QStringLiteral("Failed to load file: %1").arg(sPulseqFilePath)};
 }
 
 void PulseqLoader::loadRecentFiles()

@@ -1,11 +1,16 @@
 #include <QtTest/QtTest>
 
 #include "IPulseqLoadUi.h"
+#include "mainwindow.h"
 #include "PulseqLoader.h"
 #include "PulseqOpenController.h"
 
 #include <QTemporaryDir>
 #include <QFile>
+#include <QApplication>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
 
 class FakePulseqLoadUi : public IPulseqLoadUi
 {
@@ -18,7 +23,11 @@ public:
 
     QWidget* dialogParent() const override { return nullptr; }
     void setBusy(bool busy) override { busyStates.append(busy); }
-    void clearLoadedState() override { ++clearLoadedStateCount; }
+    void clearLoadedState() override
+    {
+        ++clearLoadedStateCount;
+        hideProgress();
+    }
     void clearWindowFilePath() override { ++clearWindowFilePathCount; }
     void hideVersionLabel() override { ++hideVersionLabelCount; }
     void showProgress() override { ++showProgressCount; }
@@ -45,6 +54,24 @@ public:
 class PulseqOpenControllerFakeUiTest : public QObject
 {
     Q_OBJECT
+
+private:
+    static QString resolveSeq(const QString& name)
+    {
+#ifdef SEQ_FILES_DIR
+        {
+            const QString path = QStringLiteral(SEQ_FILES_DIR) + "/" + name;
+            if (QFile::exists(path))
+                return QFileInfo(path).absoluteFilePath();
+        }
+#endif
+        QString path = QCoreApplication::applicationDirPath() + "/../test/seq_files/" + name;
+        if (!QFile::exists(path)) {
+            path = QDir(QCoreApplication::applicationDirPath() + "/../../")
+                       .absoluteFilePath("test/seq_files/" + name);
+        }
+        return QFileInfo(path).absoluteFilePath();
+    }
 
 private slots:
     void emptyPath_isNoOpWithoutUi()
@@ -107,11 +134,98 @@ private slots:
         QVERIFY(ui.criticals.isEmpty());
         QVERIFY(ui.busyStates.isEmpty());
     }
+
+    void successPath_drivesBusyProgressAndTitleInOrder()
+    {
+        MainWindow window;
+        PulseqLoader* loader = window.getPulseqLoader();
+        loader->setAutoStartTrajectoryAfterLoad(false);
+        loader->setAutoStartPnsAfterLoad(false);
+
+        auto fakeUi = std::make_unique<FakePulseqLoadUi>();
+        FakePulseqLoadUi* ui = fakeUi.get();
+        loader->setLoadUiForTesting(std::move(fakeUi));
+        PulseqOpenController controller(*loader, *ui);
+
+        const QString path = resolveSeq(QStringLiteral("writeFid.seq"));
+        QVERIFY2(QFile::exists(path), qPrintable(path));
+
+        const OpenResult result = controller.openPath(path);
+
+        QVERIFY(result.ok);
+        QCOMPARE(result.loadedPath, path);
+        QCOMPARE(ui->busyStates, QVector<bool>({true, false}));
+        QCOMPARE(ui->showProgressCount, 1);
+        QVERIFY(!ui->progressValues.isEmpty());
+        QCOMPARE(ui->progressValues.first(), 0);
+        QCOMPARE(ui->progressValues.last(), 100);
+        QVERIFY(ui->hideProgressCount >= 1);
+        QCOMPARE(ui->loadedTitles.size(), 1);
+        QCOMPARE(ui->loadedTitles[0], path);
+        QVERIFY(ui->warnings.isEmpty());
+        QVERIFY(ui->criticals.isEmpty());
+        QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Loaded);
+    }
+
+    void failurePath_restoresBusyHidesProgressAndShowsCritical()
+    {
+        MainWindow window;
+        PulseqLoader* loader = window.getPulseqLoader();
+        loader->setAutoStartTrajectoryAfterLoad(false);
+        loader->setAutoStartPnsAfterLoad(false);
+
+        auto fakeUi = std::make_unique<FakePulseqLoadUi>();
+        FakePulseqLoadUi* ui = fakeUi.get();
+        loader->setLoadUiForTesting(std::move(fakeUi));
+        PulseqOpenController controller(*loader, *ui);
+
+        const QString path = resolveSeq(QStringLiteral("no_version.seq"));
+        QVERIFY2(QFile::exists(path), qPrintable(path));
+
+        const OpenResult result = controller.openPath(path);
+
+        QVERIFY(!result.ok);
+        QCOMPARE(result.errorTitle, QStringLiteral("Load Error"));
+        QVERIFY(result.errorMessage.contains(QStringLiteral("Failed to read version information")));
+        QCOMPARE(ui->busyStates, QVector<bool>({true, false}));
+        QVERIFY(ui->hideProgressCount >= 1);
+        QVERIFY(ui->loadedTitles.isEmpty());
+        QCOMPARE(ui->warnings.size(), 0);
+        QCOMPARE(ui->criticals.size(), 1);
+        QCOMPARE(ui->criticals[0].title, QStringLiteral("Load Error"));
+        QVERIFY(ui->criticals[0].text.contains(QStringLiteral("Failed to read version information")));
+        QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Blank);
+    }
+
+    void criticalError_usesUiAdapter()
+    {
+        MainWindow window;
+        PulseqLoader* loader = window.getPulseqLoader();
+        loader->setAutoStartTrajectoryAfterLoad(false);
+        loader->setAutoStartPnsAfterLoad(false);
+
+        auto fakeUi = std::make_unique<FakePulseqLoadUi>();
+        FakePulseqLoadUi* ui = fakeUi.get();
+        loader->setLoadUiForTesting(std::move(fakeUi));
+        PulseqOpenController controller(*loader, *ui);
+
+        const QString path = resolveSeq(QStringLiteral("unsupported_version.seq"));
+        QVERIFY2(QFile::exists(path), qPrintable(path));
+
+        const OpenResult result = controller.openPath(path);
+
+        QVERIFY(!result.ok);
+        QCOMPARE(result.errorTitle, QStringLiteral("Load Error"));
+        QVERIFY(result.errorMessage.contains(QStringLiteral("Unsupported Pulseq file version")));
+        QCOMPARE(ui->criticals.size(), 1);
+        QCOMPARE(ui->criticals[0].title, QStringLiteral("Load Error"));
+        QVERIFY(ui->criticals[0].text.contains(QStringLiteral("Unsupported Pulseq file version")));
+    }
 };
 
 int main(int argc, char** argv)
 {
-    QCoreApplication app(argc, argv);
+    QApplication app(argc, argv);
     PulseqOpenControllerFakeUiTest tc;
     return QTest::qExec(&tc, argc, argv);
 }

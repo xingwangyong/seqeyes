@@ -18,6 +18,7 @@
 #include "ExternalSequence.h" // For ExternalSequence factory and SeqBlock
 #include "KSpaceTrajectory.h"
 #include "LoadResult.h"
+#include "OpenResult.h"
 #include "PnsCalculator.h"
 #include "M1Calculator.h"
 #include "Settings.h"
@@ -28,6 +29,7 @@ class EventBlockInfoDialog;
 class PulseqLoadTransaction;
 class PulseqLoadUiAdapter;
 class PulseqOpenController;
+class IPulseqLoadUi;
 
 class PulseqLoader : public QObject
 {
@@ -118,6 +120,7 @@ public:
     // Public API for other classes
     bool OpenPulseqFilePath(QString candidatePath);
     bool LoadPulseqFile(QString sPulseqFilePath);
+    OpenResult LoadPulseqFileResult(QString sPulseqFilePath);
     void setBlockInfoContent(EventBlockInfoDialog* dialog, int currentBlock);
     void setRawBlockInfoContent(EventBlockInfoDialog* dialog, int currentBlock);
 
@@ -179,6 +182,7 @@ public:
     // Test/CLI: suppress GUI dialogs during load failures
     void setSilentMode(bool silent) { m_silentMode = silent; }
     bool isSilentMode() const { return m_silentMode; }
+    void setLoadUiForTesting(std::unique_ptr<IPulseqLoadUi> ui);
 
     // RF on-demand rendering API (Phase 1)
     // Build viewport RF amplitude/phase series using per-shape cache and per-block scaling.
@@ -354,10 +358,11 @@ private:
                              QVector<double>& vPh) const;
     QString rfSourceTypeToString(RfSourceType type) const;
     void beginLoad();
-    bool readAndCreateVersionedLoader(const QString& path, LoadError* error);
-    bool loadParserFile(const QString& path, LoadError* error);
-    bool validateRequiredDefinitions(LoadError* error) const;
-    bool decodeBlocks(LoadError* error);
+    bool readAndCreateVersionedLoader(const QString& path, LoadedSequenceState& state, LoadError* error);
+    bool loadParserFile(const QString& path, LoadedSequenceState& state, LoadError* error);
+    bool validateRequiredDefinitions(const LoadedSequenceState& state, LoadError* error) const;
+    bool decodeBlocks(LoadedSequenceState& state, LoadError* error);
+    void commitStagedSequence(LoadedSequenceState& state);
     bool buildLoadedWaveformCaches(LoadError* error);
     QPair<double, double> configureInitialViewport();
     void updateRepetitionTimeMetadata();
@@ -398,7 +403,7 @@ private:
 
 private:
     MainWindow* m_mainWindow;
-    std::unique_ptr<PulseqLoadUiAdapter> m_loadUi;
+    std::unique_ptr<IPulseqLoadUi> m_loadUi;
     std::unique_ptr<PulseqOpenController> m_openController;
 
     // Member variables moved from MainWindow
@@ -460,6 +465,7 @@ private:
 
     // Test/CLI behavior
     bool m_silentMode {false};
+    LoadError m_lastLoadError;
 
     // B0 field strength from [DEFINITIONS] (Tesla); needed for PPM phase terms
     double m_b0Tesla {0.0};

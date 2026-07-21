@@ -51,6 +51,17 @@ private:
         QVERIFY(!loader->getDecodedSeqBlocks().empty());
     }
 
+    static void verifyBlank(PulseqLoader* loader, const QString& expectedReopenPath = QString())
+    {
+        QCOMPARE(loader->getSequenceLoadState(), PulseqLoader::SequenceLoadState::Blank);
+        QVERIFY(loader->getLoadedPulseqFilePath().isEmpty());
+        QCOMPARE(loader->getReopenPulseqFilePath(), expectedReopenPath);
+        QVERIFY(!loader->getSequence());
+        QVERIFY(loader->getDecodedSeqBlocks().empty());
+        QVERIFY(loader->getBlockEdges().isEmpty());
+        QCOMPARE(loader->getTotalDuration_us(), 0.0);
+    }
+
     static QAction* findRecentAction(MainWindow* window, const QString& path)
     {
         const QString normalized = QFileInfo(path).absoluteFilePath();
@@ -187,6 +198,102 @@ private slots:
         QVERIFY(loader->getReopenPulseqFilePath().isEmpty());
         QVERIFY(!loader->getSequence());
         QVERIFY(loader->getDecodedSeqBlocks().empty());
+    }
+
+    void failureMatrix_fromBlankLeavesSameBlankSnapshot_data()
+    {
+        QTest::addColumn<QString>("fileName");
+
+        QTest::newRow("no version") << QStringLiteral("no_version.seq");
+        QTest::newRow("unsupported version") << QStringLiteral("unsupported_version.seq");
+        QTest::newRow("parser load failure") << QStringLiteral("bad_blocks.seq");
+        QTest::newRow("missing GradientRasterTime") << QStringLiteral("missing_grad_raster.seq");
+    }
+
+    void failureMatrix_fromBlankLeavesSameBlankSnapshot()
+    {
+        QFETCH(QString, fileName);
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        const QString path = resolveSeq(fileName);
+        QVERIFY2(QFile::exists(path), qPrintable("Missing failure fixture: " + path));
+
+        QVERIFY(!loader->OpenPulseqFilePath(path));
+        verifyBlank(loader);
+    }
+
+    void decodeFailure_fromBlankLeavesSameBlankSnapshot()
+    {
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QTemporaryDir dir;
+        QVERIFY2(dir.isValid(), "Could not create temporary directory");
+        const QString path = dir.filePath(QStringLiteral("decode_failure.seq"));
+        QFile file(path);
+        QVERIFY2(file.open(QIODevice::WriteOnly | QIODevice::Text), qPrintable(path));
+        file.write(
+            "[VERSION]\n"
+            "major 1\n"
+            "minor 5\n"
+            "revision 1\n\n"
+            "[DEFINITIONS]\n"
+            "AdcRasterTime 1e-07\n"
+            "BlockDurationRaster 1e-05\n"
+            "GradientRasterTime 1e-05\n"
+            "RadiofrequencyRasterTime 1e-06\n\n"
+            "[BLOCKS]\n"
+            "1 10 1 0 0 0 0 0\n\n"
+            "[RF]\n"
+            "1 1 1 2 3 0 0 0 0 0 0 e\n\n"
+            "[SHAPES]\n"
+            "shape_id 1\n"
+            "num_samples 5\n"
+            "0\n"
+            "0\n"
+            "0.5\n"
+            "\n"
+            "shape_id 2\n"
+            "num_samples 2\n"
+            "0\n"
+            "0\n"
+            "\n"
+            "shape_id 3\n"
+            "num_samples 2\n"
+            "0\n"
+            "1\n"
+            "\n"
+            "[SIGNATURE]\n"
+            "Type md5\n"
+            "Hash ignored\n");
+        file.close();
+
+        QVERIFY(!loader->OpenPulseqFilePath(path));
+        verifyBlank(loader);
+    }
+
+    void failureMatrix_afterValidLoadLeavesSameBlankSnapshotAndPreservesReopen_data()
+    {
+        failureMatrix_fromBlankLeavesSameBlankSnapshot_data();
+    }
+
+    void failureMatrix_afterValidLoadLeavesSameBlankSnapshotAndPreservesReopen()
+    {
+        QFETCH(QString, fileName);
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QVERIFY2(loader->OpenPulseqFilePath(m_fileA), qPrintable(m_fileA));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, m_fileA);
+        const QString reopenPath = loader->getReopenPulseqFilePath();
+
+        const QString path = resolveSeq(fileName);
+        QVERIFY2(QFile::exists(path), qPrintable("Missing failure fixture: " + path));
+
+        QVERIFY(!loader->OpenPulseqFilePath(path));
+        verifyBlank(loader, reopenPath);
     }
 
     void openSuccessAndFailure_leaveWindowEnabled()
