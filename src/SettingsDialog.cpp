@@ -181,10 +181,10 @@ void SettingsDialog::setupUI()
     
     QGroupBox* fileMonitoringGroup = new QGroupBox("File Monitoring", miscTab);
     QFormLayout* fileMonitoringForm = new QFormLayout(fileMonitoringGroup);
-    m_autoReloadOnFileChangeCheck = new QCheckBox("Auto reload after file changed", miscTab);
+    m_autoReloadOnFileChangeCheck = new QCheckBox("Auto reload when the current .seq file changes", miscTab);
     m_autoReloadOnFileChangeCheck->setToolTip(
         "Automatically reload the current .seq file after another program changes it.");
-    fileMonitoringForm->addRow("Current file:", m_autoReloadOnFileChangeCheck);
+    fileMonitoringForm->addRow(m_autoReloadOnFileChangeCheck);
 
     miscLayout->addWidget(loggingGroup);
     miscLayout->addWidget(fileMonitoringGroup);
