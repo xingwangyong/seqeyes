@@ -306,6 +306,7 @@ public:
     std::uint64_t activeTrajectoryRequestIdForTesting() const { return m_activeTrajectoryRequestId; }
     std::uint64_t activePnsRequestIdForTesting() const { return m_activePnsRequestId; }
     std::uint64_t activeM1RequestIdForTesting() const { return m_activeM1RequestId; }
+    void simulateWatchedFileChangeForTesting(const QString& path) { onWatchedFileChanged(path); }
     void injectTrajectoryResultForTesting(const KSpaceTrajectory::Result& result,
                                           std::uint64_t generation,
                                           std::uint64_t requestId);

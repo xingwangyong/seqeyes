@@ -24,6 +24,12 @@ private:
         return invalidPath;
     }
 
+    static bool copyFileReplacing(const QString& sourcePath, const QString& targetPath)
+    {
+        QFile::remove(targetPath);
+        return QFile::copy(sourcePath, targetPath);
+    }
+
     static QString resolveSeq(const QString& name)
     {
 #ifdef SEQ_FILES_DIR
@@ -137,6 +143,7 @@ private slots:
     {
         QSettings settings;
         settings.clear();
+        Settings::getInstance().setAutoReloadOnFileChange(false);
     }
 
     void loadAThenLoadB_commitsB()
@@ -558,6 +565,87 @@ private slots:
         staleM1.m1z = {99.0};
         loader->injectM1ResultForTesting(staleM1, oldGeneration, oldM1Request);
         QCOMPARE(loader->getM1X(), QVector<double>({2.0}));
+    }
+
+    void autoReload_afterWatchedFileContentChanges_reloadsSamePath()
+    {
+        Settings::getInstance().setAutoReloadOnFileChange(true);
+
+        QTemporaryDir dir;
+        QVERIFY2(dir.isValid(), "Could not create temporary directory");
+        const QString watchedPath = dir.filePath(QStringLiteral("watched.seq"));
+        QVERIFY2(copyFileReplacing(m_fileA, watchedPath), qPrintable("Could not copy test file to: " + watchedPath));
+
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QVERIFY2(loader->OpenPulseqFilePath(watchedPath), qPrintable(watchedPath));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, watchedPath);
+        const double firstDuration = loader->getTotalDuration_us();
+        const std::uint64_t firstGeneration = loader->asyncSequenceGenerationForTesting();
+
+        QVERIFY2(copyFileReplacing(m_fileB, watchedPath), qPrintable("Could not replace watched file: " + watchedPath));
+        loader->simulateWatchedFileChangeForTesting(watchedPath);
+
+        QTRY_VERIFY_WITH_TIMEOUT(loader->asyncSequenceGenerationForTesting() != firstGeneration, 4000);
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, watchedPath);
+        QVERIFY(loader->getTotalDuration_us() > firstDuration * 10.0);
+    }
+
+    void autoReload_afterMtimeOnlyChange_doesNotReload()
+    {
+        Settings::getInstance().setAutoReloadOnFileChange(true);
+
+        QTemporaryDir dir;
+        QVERIFY2(dir.isValid(), "Could not create temporary directory");
+        const QString watchedPath = dir.filePath(QStringLiteral("watched.seq"));
+        QVERIFY2(copyFileReplacing(m_fileA, watchedPath), qPrintable("Could not copy test file to: " + watchedPath));
+
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QVERIFY2(loader->OpenPulseqFilePath(watchedPath), qPrintable(watchedPath));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, watchedPath);
+        const double firstDuration = loader->getTotalDuration_us();
+        const std::uint64_t firstGeneration = loader->asyncSequenceGenerationForTesting();
+
+        QVERIFY2(copyFileReplacing(m_fileA, watchedPath), qPrintable("Could not rewrite watched file: " + watchedPath));
+        loader->simulateWatchedFileChangeForTesting(watchedPath);
+        QTest::qWait(1600);
+
+        verifyLoaded(loader, watchedPath);
+        QCOMPARE(loader->asyncSequenceGenerationForTesting(), firstGeneration);
+        QCOMPARE(loader->getTotalDuration_us(), firstDuration);
+    }
+
+    void autoReload_onWindowActivatedDetectsMissedReplaceSave()
+    {
+        Settings::getInstance().setAutoReloadOnFileChange(true);
+
+        QTemporaryDir dir;
+        QVERIFY2(dir.isValid(), "Could not create temporary directory");
+        const QString watchedPath = dir.filePath(QStringLiteral("watched.seq"));
+        QVERIFY2(copyFileReplacing(m_fileA, watchedPath), qPrintable("Could not copy test file to: " + watchedPath));
+
+        std::unique_ptr<MainWindow> window(makeWindow());
+        PulseqLoader* loader = window->getPulseqLoader();
+
+        QVERIFY2(loader->OpenPulseqFilePath(watchedPath), qPrintable(watchedPath));
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, watchedPath);
+        const double firstDuration = loader->getTotalDuration_us();
+        const std::uint64_t firstGeneration = loader->asyncSequenceGenerationForTesting();
+
+        QVERIFY2(copyFileReplacing(m_fileB, watchedPath), qPrintable("Could not replace watched file: " + watchedPath));
+        loader->onWindowActivated();
+
+        QTRY_VERIFY_WITH_TIMEOUT(loader->asyncSequenceGenerationForTesting() != firstGeneration, 4000);
+        QVERIFY(loader->waitForBackgroundComputations());
+        verifyLoaded(loader, watchedPath);
+        QVERIFY(loader->getTotalDuration_us() > firstDuration * 10.0);
     }
 
 private:
