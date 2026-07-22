@@ -1292,7 +1292,7 @@ bool PulseqLoader::loadParserFile(const QString& path, LoadedSequenceState& stat
                     "   - BlockDurationRaster (Block duration raster time)\n\n"
                     "2. File format issues or corruption\n"
                     "3. Unsupported Pulseq version\n\n"
-                    "Please check the console output for detailed error messages.")
+                    "Please check the log in View-->Log for detailed error messages.")
                     .arg(path)
             };
         }
