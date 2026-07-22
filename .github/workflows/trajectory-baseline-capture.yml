@@ -47,7 +47,7 @@ jobs:
     - name: Pack Baselines as Single Zip
       shell: pwsh
       run: |
-        $zip = "trajectory-baselines-windows-latest.zip"
+        $zip = "trajectory-baselines-windows-2022.zip"
         if (Test-Path $zip) { Remove-Item $zip -Force }
         Compress-Archive -Path test/trajectory_baselines/* -DestinationPath $zip
         Write-Host "Packed $zip"
@@ -55,5 +55,5 @@ jobs:
     - name: Upload Trajectory Baseline Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: trajectory-baselines-windows-latest
-        path: trajectory-baselines-windows-latest.zip
+        name: trajectory-baselines-windows-2022
+        path: trajectory-baselines-windows-2022.zip

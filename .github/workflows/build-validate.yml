@@ -26,7 +26,7 @@ jobs:
 
   visual_regression:
     needs: build_windows
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: read
 
@@ -85,7 +85,7 @@ jobs:
 
   trajectory_regression:
     needs: build_windows
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: read
 
@@ -128,7 +128,7 @@ jobs:
 
   headless_load:
     needs: build_windows
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: read
 
@@ -160,7 +160,7 @@ jobs:
 
   qt_cpp_tests:
     needs: build_windows
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: read
 
@@ -218,7 +218,7 @@ jobs:
 
   performance:
     needs: build_windows
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: read
 
@@ -243,7 +243,7 @@ jobs:
 
   package_windows_artifact:
     needs: build_windows
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       contents: read
 
@@ -273,7 +273,7 @@ jobs:
   cleanup_internal_artifacts:
     if: ${{ always() }}
     needs: [build_windows, build_linux, build_macos, visual_regression, trajectory_regression, headless_load, qt_cpp_tests, performance, package_windows_artifact]
-    runs-on: windows-latest
+    runs-on: windows-2022
     permissions:
       actions: write
       contents: read
