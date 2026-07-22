@@ -40,6 +40,7 @@
 #include <limits>
 #include <algorithm>
 #include <QPainter>
+#include <QVariantAnimation>
 #include <cmath>
 
 namespace
@@ -238,6 +239,40 @@ private:
     MainWindow* m_owner;
     int m_x {0};
     bool m_visible {false};
+};
+
+class AutoReloadFlashOverlay : public QWidget
+{
+public:
+    explicit AutoReloadFlashOverlay(QWidget* parent = nullptr)
+        : QWidget(parent)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        setAttribute(Qt::WA_NoSystemBackground, true);
+        setAttribute(Qt::WA_TranslucentBackground, true);
+        setVisible(false);
+    }
+
+    void setFlashOpacity(double opacity)
+    {
+        m_opacity = std::clamp(opacity, 0.0, 1.0);
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        if (m_opacity <= 0.0)
+            return;
+
+        QPainter p(this);
+        QColor color(Qt::white);
+        color.setAlphaF(m_opacity);
+        p.fillRect(rect(), color);
+    }
+
+private:
+    double m_opacity {0.0};
 };
 
 MainWindow::MainWindow(QWidget* parent)
@@ -893,6 +928,8 @@ void MainWindow::resizeEvent(QResizeEvent* event)
     QMainWindow::resizeEvent(event);
     if (m_pWaveformGuideOverlay && ui && ui->customPlot)
         m_pWaveformGuideOverlay->setGeometry(ui->customPlot->rect());
+    if (m_pAutoReloadFlashOverlay && ui && ui->customPlot)
+        m_pAutoReloadFlashOverlay->setGeometry(ui->customPlot->rect());
     scheduleTrajectoryAspectUpdate();
     refreshTrajectoryCursor();
 }
@@ -1149,9 +1186,48 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     m_pWaveformGuideOverlay->setGeometry(ui->customPlot->rect());
     m_pWaveformGuideOverlay->hide();
 
+    m_pAutoReloadFlashOverlay = new AutoReloadFlashOverlay(ui->customPlot);
+    m_pAutoReloadFlashOverlay->setGeometry(ui->customPlot->rect());
+    m_pAutoReloadFlashOverlay->hide();
+    m_pAutoReloadFlashAnimation = new QVariantAnimation(this);
+    m_pAutoReloadFlashAnimation->setDuration(260);
+    m_pAutoReloadFlashAnimation->setStartValue(0.32);
+    m_pAutoReloadFlashAnimation->setEndValue(0.0);
+    m_pAutoReloadFlashAnimation->setEasingCurve(QEasingCurve::OutCubic);
+    connect(m_pAutoReloadFlashAnimation, &QVariantAnimation::valueChanged,
+            this, [this](const QVariant& value) {
+                if (auto* overlay = static_cast<AutoReloadFlashOverlay*>(m_pAutoReloadFlashOverlay))
+                    overlay->setFlashOpacity(value.toDouble());
+            });
+    connect(m_pAutoReloadFlashAnimation, &QVariantAnimation::finished,
+            this, [this]() {
+                if (!m_pAutoReloadFlashOverlay)
+                    return;
+                if (auto* overlay = static_cast<AutoReloadFlashOverlay*>(m_pAutoReloadFlashOverlay))
+                    overlay->setFlashOpacity(0.0);
+                m_pAutoReloadFlashOverlay->hide();
+            });
+
     QList<int> sizes;
     sizes << 1 << 0;
     m_plotSplitter->setSizes(sizes);
+}
+
+void MainWindow::playAutoReloadRefreshFlash()
+{
+    if (!ui || !ui->customPlot || !m_pAutoReloadFlashOverlay || !m_pAutoReloadFlashAnimation)
+        return;
+
+    m_pAutoReloadFlashOverlay->setGeometry(ui->customPlot->rect());
+    m_pAutoReloadFlashOverlay->raise();
+    m_pAutoReloadFlashOverlay->show();
+    if (auto* overlay = static_cast<AutoReloadFlashOverlay*>(m_pAutoReloadFlashOverlay))
+        overlay->setFlashOpacity(0.32);
+
+    m_pAutoReloadFlashAnimation->stop();
+    m_pAutoReloadFlashAnimation->setStartValue(0.32);
+    m_pAutoReloadFlashAnimation->setEndValue(0.0);
+    m_pAutoReloadFlashAnimation->start();
 }
 
 void MainWindow::setInteractionFastMode(bool enabled)

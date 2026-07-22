@@ -1605,6 +1605,8 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
     startM1ComputationAsync();
     if (m_loadUi)
         m_loadUi->setBusy(false);
+    if (m_isFileWatcherReload && m_mainWindow)
+        m_mainWindow->playAutoReloadRefreshFlash();
     if (m_isFileWatcherReload)
         m_isFileWatcherReload = false;
     startFileWatching();

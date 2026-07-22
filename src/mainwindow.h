@@ -32,6 +32,7 @@ class QWheelEvent;
 class QEvent;
 class QMouseEvent;
 class QCommandLineParser;
+class QVariantAnimation;
 
 #define SAFE_DELETE(p) { if(p) { delete p; p = nullptr; } }
 
@@ -108,6 +109,7 @@ public:
     QString getPnsStatusText() const;
     QString getM1StatusText() const;
     void updatePnsStatusIndicator();
+    void playAutoReloadRefreshFlash();
 
 protected:
     // Overridden event handlers to delegate to InteractionHandler
@@ -231,6 +233,8 @@ private:
     QWidget* m_pTrajectoryCursorMarker {nullptr};
     QWidget* m_pTrajectoryCrosshairOverlay {nullptr};
     QWidget* m_pWaveformGuideOverlay {nullptr};
+    QWidget* m_pAutoReloadFlashOverlay {nullptr};
+    QVariantAnimation* m_pAutoReloadFlashAnimation {nullptr};
     bool m_showTrajectory {false};
     bool m_pendingTrajectoryAspectUpdate {false};
     QCPRange m_trajectoryBaseXRange {0.0, 1.0};
