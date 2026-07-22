@@ -4230,7 +4230,7 @@ void PulseqLoader::getUnifiedRfViewport(double visibleStart, double visibleEnd, 
 
 QPair<double,double> PulseqLoader::getRfGlobalRangeAmp()
 {
-    double mn = std::numeric_limits<double>::infinity();
+    double mn = 0.0;
     double mx = -std::numeric_limits<double>::infinity();
     for (const UnifiedRfBlock& block : m_unifiedRfBlocks) {
         for (const UnifiedRfChannel& channel : block.channels) {
