@@ -75,6 +75,10 @@ static void applyZoomSettingsToManager(ZoomManager* zm)
 #include <complex>
 
 // Debug logging removed for cleaner output in tests and runtime
+namespace {
+constexpr double kPhaseAxisLower = -3.5;
+constexpr double kPhaseAxisUpper =  3.5;
+}
 
 WaveformDrawer::WaveformDrawer(MainWindow* mainWindow)
     : QObject(mainWindow),
@@ -1124,27 +1128,14 @@ void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
     if (!m_lockYAxisRanges) {
         double minMag = std::numeric_limits<double>::infinity();
         double maxMag = -std::numeric_limits<double>::infinity();
-        double minPh = std::numeric_limits<double>::infinity();
-        double maxPh = -std::numeric_limits<double>::infinity();
         computeMinMax(rfViewport.ampValueByChannel, minMag, maxMag);
-        computeMinMax(rfViewport.phaseValueByChannel, minPh, maxPh);
-        for (double value : vAdcPh) {
-            if (!std::isfinite(value)) continue;
-            minPh = std::min(minPh, value);
-            maxPh = std::max(maxPh, value);
-        }
         if (std::isfinite(minMag) && std::isfinite(maxMag) && m_vecRects.size() > 1 && m_vecRects[1]) {
             double pad = (maxMag - minMag) * 0.05;
             if (pad == 0.0) pad = 1.0;
             m_vecRects[1]->axis(QCPAxis::atLeft)->setRange(minMag - pad, maxMag + pad);
         }
-        if (std::isfinite(minPh) && std::isfinite(maxPh) && m_vecRects.size() > 2 && m_vecRects[2]) {
-            minPh = std::min(minPh, -3.2);
-            maxPh = std::max(maxPh, 3.2);
-            double pad = (maxPh - minPh) * 0.05;
-            if (pad == 0.0) pad = 1.0;
-            m_vecRects[2]->axis(QCPAxis::atLeft)->setRange(minPh - pad, maxPh + pad);
-        }
+        if (m_vecRects.size() > 2 && m_vecRects[2])
+            m_vecRects[2]->axis(QCPAxis::atLeft)->setRange(kPhaseAxisLower, kPhaseAxisUpper);
     } else {
         if (m_vecRects.size() > 1 && m_vecRects[1]) m_vecRects[1]->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[1].first, m_fixedYRanges[1].second);
         if (m_vecRects.size() > 2 && m_vecRects[2]) m_vecRects[2]->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[2].first, m_fixedYRanges[2].second);
@@ -1872,11 +1863,9 @@ void WaveformDrawer::computeAndLockYAxisRanges()
     // 1: RF mag, 2: RF/ADC phase (use on-demand global ranges without needing merged arrays)
     {
         auto rAmp = loader->getRfGlobalRangeAmp();
-        auto rPh  = loader->getRfGlobalRangePh();
         double padA = (rAmp.second - rAmp.first) * 0.05; if (padA == 0) padA = 1.0;
-        double padP = (rPh.second  - rPh.first)  * 0.05; if (padP == 0) padP = 1.0;
         m_fixedYRanges[1] = qMakePair(rAmp.first - padA, rAmp.second + padA);
-        m_fixedYRanges[2] = qMakePair(rPh.first  - padP, rPh.second  + padP);
+        m_fixedYRanges[2] = qMakePair(kPhaseAxisLower, kPhaseAxisUpper);
     }
 
     // 3: Gx, 4: Gy, 5: Gz (convert from internal standard Hz/m to display unit)
