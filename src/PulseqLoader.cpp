@@ -95,6 +95,13 @@ qint64 quantizedPhaseKey(double phase)
 }
 
 constexpr qint64 kSynchronousFileHashThresholdBytes = 16LL * 1024LL * 1024LL;
+constexpr int kFileReloadDebounceMs = 500;
+
+bool fileMetadataIsOlderThanDebounce(const QDateTime& modified)
+{
+    return modified.isValid() &&
+           modified.msecsTo(QDateTime::currentDateTime()) >= kFileReloadDebounceMs;
+}
 
 double effectiveFrequencyOffsetHz(double freqOffsetHz, double freqPPM, double b0Tesla)
 {
@@ -351,7 +358,7 @@ PulseqLoader::PulseqLoader(MainWindow* mainWindow)
     m_fileWatcher = new QFileSystemWatcher(this);
     m_fileReloadDebounceTimer = new QTimer(this);
     m_fileReloadDebounceTimer->setSingleShot(true);
-    m_fileReloadDebounceTimer->setInterval(500);
+    m_fileReloadDebounceTimer->setInterval(kFileReloadDebounceMs);
     m_fileHashWatcher = new QFutureWatcher<FileHashResult>(this);
     connect(m_fileWatcher, &QFileSystemWatcher::fileChanged,
             this, [this](const QString& path) { onWatchedFileChanged(path); });
@@ -406,7 +413,19 @@ void PulseqLoader::onWindowActivated()
 {
     if (!m_pendingChangedPath.isEmpty() && m_fileReloadDebounceTimer)
     {
-        m_fileReloadDebounceTimer->start();
+        QFileInfo pendingInfo(m_pendingChangedPath);
+        if (pendingInfo.exists() && pendingInfo.isFile() &&
+            fileMetadataIsOlderThanDebounce(pendingInfo.lastModified()))
+        {
+            m_pendingFileSize = pendingInfo.size();
+            m_pendingLastModified = pendingInfo.lastModified();
+            m_fileReloadDebounceTimer->stop();
+            QTimer::singleShot(0, this, [this]() { processFileChangeNotification(); });
+        }
+        else
+        {
+            m_fileReloadDebounceTimer->start();
+        }
         return;
     }
 
@@ -425,11 +444,22 @@ void PulseqLoader::onWindowActivated()
             QStringLiteral("AutoReload"),
             QStringLiteral("Window activation detected a modified file: %1").arg(path));
         m_pendingChangedPath = path;
-        m_pendingFileSize = -1;
-        m_pendingLastModified = QDateTime();
+        const bool alreadyStable = fileMetadataIsOlderThanDebounce(info.lastModified());
+        m_pendingFileSize = alreadyStable ? info.size() : -1;
+        m_pendingLastModified = alreadyStable ? info.lastModified() : QDateTime();
         m_fileReloadRetryCount = 0;
         if (m_fileReloadDebounceTimer)
-            m_fileReloadDebounceTimer->start();
+        {
+            if (alreadyStable)
+            {
+                m_fileReloadDebounceTimer->stop();
+                QTimer::singleShot(0, this, [this]() { processFileChangeNotification(); });
+            }
+            else
+            {
+                m_fileReloadDebounceTimer->start();
+            }
+        }
     }
 }
 
@@ -713,6 +743,15 @@ void PulseqLoader::processFileChangeNotification()
     {
         m_pendingFileSize = size;
         m_pendingLastModified = modified;
+        if (fileMetadataIsOlderThanDebounce(modified))
+        {
+            LogManager::getInstance().appendStructured(
+                QtDebugMsg,
+                QStringLiteral("AutoReload"),
+                QStringLiteral("File metadata is already stable; processing immediately: %1 (%2 bytes)").arg(path).arg(size));
+            startPendingFileHash(path, size, modified);
+            return;
+        }
         LogManager::getInstance().appendStructured(
             QtDebugMsg,
             QStringLiteral("AutoReload"),
