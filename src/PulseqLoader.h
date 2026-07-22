@@ -445,7 +445,8 @@ private:
     void onPendingFileHashReady();
     void handleFileHashResult(const FileHashResult& result);
     bool captureCurrentViewport(QPair<double, double>& outRange) const;
-    void promptForChangedFileReload(const QString& path, const QByteArray& newHash);
+    void promptForChangedFileReload(const QString& path, const QByteArray& newHash,
+                                    qint64 hashSize, const QDateTime& hashLastModified);
     void executeFileWatcherReload(const QString& path, bool silent);
     void onWatchedFileChanged(const QString& path);
     void processFileChangeNotification();
@@ -471,6 +472,7 @@ private:
     bool m_hasSavedViewport {false};
     QPair<double, double> m_savedViewportRange;
     bool m_savedWasTrMode {false};
+    bool m_fileChangePromptVisible {false};
 
     // Member variables moved from MainWindow
     QString m_sPulseqFilePath;
