@@ -81,15 +81,15 @@ private:
     // Physics Parameters tab
     QComboBox* m_gammaCombo;
 
-    // Logging tab
+    // Misc tab
     QComboBox* m_logLevelCombo;
     QLabel* m_settingsPathValue;
+    QCheckBox* m_autoReloadOnFileChangeCheck;
 
     // Interaction tab
     QComboBox* m_zoomModeCombo;
     QCheckBox* m_panDragCheck;
     QCheckBox* m_panWheelCheck;
-    QCheckBox* m_autoReloadOnFileChangeCheck;
     QLabel* m_shortcutInfoLabel;
 
     // Extension tab - label visibility controls

@@ -158,20 +158,17 @@ void SettingsDialog::setupUI()
     displayUnitsLayout->addWidget(trajAppearanceGroup);
     displayUnitsLayout->addStretch();
     
-    m_tabWidget->addTab(displayUnitsTab, "Display Units");
-    
     // ============================================================================
-    // Logging Tab
+    // Misc Tab
     // ============================================================================
-    QWidget* loggingTab = new QWidget();
-    QVBoxLayout* loggingLayout = new QVBoxLayout(loggingTab);
-    
-    // Logging Settings group (no title since it's already in the tab)
-    QGroupBox* loggingGroup = new QGroupBox("", loggingTab);
+    QWidget* miscTab = new QWidget();
+    QVBoxLayout* miscLayout = new QVBoxLayout(miscTab);
+
+    QGroupBox* loggingGroup = new QGroupBox("Logging", miscTab);
     QFormLayout* loggingFormLayout = new QFormLayout(loggingGroup);
     
     // Log level combo (minimum level semantics), ordered: Debug < Info < Warning < Critical < Fatal
-    m_logLevelCombo = new QComboBox(loggingTab);
+    m_logLevelCombo = new QComboBox(miscTab);
     m_logLevelCombo->addItem("Debug",   static_cast<int>(Settings::LogLevel::Debug));
     m_logLevelCombo->addItem("Info",    static_cast<int>(Settings::LogLevel::Info));
     m_logLevelCombo->addItem("Warning", static_cast<int>(Settings::LogLevel::Warning));
@@ -182,10 +179,16 @@ void SettingsDialog::setupUI()
     // Show settings file path (read-only)
 	// Moved to the top of the dialog (above tabs)
     
-    loggingLayout->addWidget(loggingGroup);
-    loggingLayout->addStretch();
-    
-    m_tabWidget->addTab(loggingTab, "Logging");
+    QGroupBox* fileMonitoringGroup = new QGroupBox("File Monitoring", miscTab);
+    QFormLayout* fileMonitoringForm = new QFormLayout(fileMonitoringGroup);
+    m_autoReloadOnFileChangeCheck = new QCheckBox("Auto reload after file changed", miscTab);
+    m_autoReloadOnFileChangeCheck->setToolTip(
+        "Automatically reload the current .seq file after another program changes it.");
+    fileMonitoringForm->addRow("Current file:", m_autoReloadOnFileChangeCheck);
+
+    miscLayout->addWidget(loggingGroup);
+    miscLayout->addWidget(fileMonitoringGroup);
+    miscLayout->addStretch();
 
     // ============================================================================
     // Interactions Tab
@@ -213,11 +216,6 @@ void SettingsDialog::setupUI()
     panLayout->addWidget(m_panDragCheck);
     panLayout->addWidget(m_panWheelCheck);
     interactionsForm->addRow("Pan:", panOpts);
-
-    m_autoReloadOnFileChangeCheck = new QCheckBox("Auto reload after file changed", interactionsTab);
-    m_autoReloadOnFileChangeCheck->setToolTip(
-        "Automatically reload the current .seq file after another program changes it.");
-    interactionsForm->addRow("File monitoring:", m_autoReloadOnFileChangeCheck);
 
     // Keyboard shortcuts info (fixed, not editable; full-width block under the form)
     m_shortcutInfoLabel = new QLabel(interactionsTab);
@@ -255,8 +253,6 @@ void SettingsDialog::setupUI()
     interactionsLayout->addWidget(interactionsGroup);
     interactionsLayout->addWidget(kbWidget);
     interactionsLayout->addStretch();
-
-    m_tabWidget->addTab(interactionsTab, "Interactions");
 
     // ============================================================================
     // Layout Tab
@@ -300,8 +296,6 @@ void SettingsDialog::setupUI()
     layoutLayout->addWidget(axisOrderWidget);
     layoutLayout->addStretch();
 
-    m_tabWidget->addTab(layoutTab, "Layout");
-
     // ============================================================================
     // Extensions Tab
     // ============================================================================
@@ -340,8 +334,6 @@ void SettingsDialog::setupUI()
 
     extensionsLayout->addWidget(labelsGroup);
     extensionsLayout->addStretch();
-
-    m_tabWidget->addTab(extensionsTab, "Extensions");
 
     // ============================================================================
     // Experimental Tab
@@ -455,8 +447,13 @@ void SettingsDialog::setupUI()
     safetyLayout->addWidget(systemGroup);
     safetyLayout->addStretch();
 
-    m_tabWidget->addTab(safetyTab, "Safety");
+    m_tabWidget->addTab(displayUnitsTab, "Display Units");
     m_tabWidget->addTab(experimentalTab, "Experimental");
+    m_tabWidget->addTab(extensionsTab, "Extensions");
+    m_tabWidget->addTab(interactionsTab, "Interactions");
+    m_tabWidget->addTab(layoutTab, "Layout");
+    m_tabWidget->addTab(miscTab, "Misc");
+    m_tabWidget->addTab(safetyTab, "Safety");
     
     // Add tab widget to main layout
     mainLayout->addWidget(m_tabWidget);
