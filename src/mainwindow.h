@@ -115,6 +115,7 @@ protected:
     void dropEvent(QDropEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
     bool eventFilter(QObject* obj, QEvent* event) override;
+    void changeEvent(QEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
 private:

@@ -652,6 +652,12 @@ void InteractionHandler::exitMeasureDtMode()
     plot->replot();
 }
 
+void InteractionHandler::closeBlockInfoDialog()
+{
+    if (m_pBlockInfoDialog && m_pBlockInfoDialog->isVisible())
+        m_pBlockInfoDialog->hide();
+}
+
 
 void InteractionHandler::onMouseWheel(QWheelEvent* event)
 {

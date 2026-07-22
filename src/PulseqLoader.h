@@ -3,6 +3,8 @@
 
 #include <QObject>
 #include <QPair>
+#include <QByteArray>
+#include <QDateTime>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -30,6 +32,8 @@ class PulseqLoadTransaction;
 class PulseqLoadUiAdapter;
 class PulseqOpenController;
 class IPulseqLoadUi;
+class QFileSystemWatcher;
+class QTimer;
 
 class PulseqLoader : public QObject
 {
@@ -183,6 +187,8 @@ public:
     bool isSilentMode() const { return m_silentMode; }
     void setLoadUiForTesting(std::unique_ptr<IPulseqLoadUi> ui);
     void setForceDerivedMetadataFailureForTesting(bool enabled) { m_forceDerivedMetadataFailureForTesting = enabled; }
+    void refreshFileWatcherFromSettings();
+    void onWindowActivated();
 
     // RF on-demand rendering API (Phase 1)
     // Build viewport RF amplitude/phase series using per-shape cache and per-block scaling.
@@ -421,11 +427,32 @@ private:
     void addRecentFile(const QString& filePath);
     void updateRecentFilesMenu();
     void clearRecentFiles();
+    void startFileWatching();
+    void stopFileWatching();
+    QByteArray computeFileHash(const QString& path) const;
+    bool captureCurrentViewport(QPair<double, double>& outRange) const;
+    void executeFileWatcherReload(const QString& path);
+    void onWatchedFileChanged(const QString& path);
+    void processFileChangeNotification();
 
 private:
     MainWindow* m_mainWindow;
     std::unique_ptr<IPulseqLoadUi> m_loadUi;
     std::unique_ptr<PulseqOpenController> m_openController;
+    QFileSystemWatcher* m_fileWatcher {nullptr};
+    QTimer* m_fileReloadDebounceTimer {nullptr};
+    QString m_watchedFilePath;
+    QString m_pendingChangedPath;
+    QByteArray m_loadedFileHash;
+    qint64 m_loadedFileSize {-1};
+    QDateTime m_loadedLastModified;
+    qint64 m_pendingFileSize {-1};
+    QDateTime m_pendingLastModified;
+    int m_fileReloadRetryCount {0};
+    bool m_isFileWatcherReload {false};
+    bool m_hasSavedViewport {false};
+    QPair<double, double> m_savedViewportRange;
+    bool m_savedWasTrMode {false};
 
     // Member variables moved from MainWindow
     QString m_sPulseqFilePath;

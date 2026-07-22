@@ -37,6 +37,7 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_zoomModeCombo(nullptr)
     , m_panDragCheck(nullptr)
     , m_panWheelCheck(nullptr)
+    , m_autoReloadOnFileChangeCheck(nullptr)
     , m_showExtensionTooltipCheck(nullptr)
     , m_enableRoosPtxHackAutoDetectionCheck(nullptr)
     , m_systemProfileCombo(nullptr)
@@ -212,6 +213,11 @@ void SettingsDialog::setupUI()
     panLayout->addWidget(m_panDragCheck);
     panLayout->addWidget(m_panWheelCheck);
     interactionsForm->addRow("Pan:", panOpts);
+
+    m_autoReloadOnFileChangeCheck = new QCheckBox("Auto reload after file changed", interactionsTab);
+    m_autoReloadOnFileChangeCheck->setToolTip(
+        "Automatically reload the current .seq file after another program changes it.");
+    interactionsForm->addRow("File monitoring:", m_autoReloadOnFileChangeCheck);
 
     // Keyboard shortcuts info (fixed, not editable; full-width block under the form)
     m_shortcutInfoLabel = new QLabel(interactionsTab);
@@ -538,6 +544,7 @@ void SettingsDialog::loadCurrentSettings()
     m_originalZoomInputMode = settings.getZoomInputMode();
     m_originalZoomInputMode = settings.getZoomInputMode();
     m_originalPanWheelEnabled = settings.getPanWheelEnabled();
+    m_originalAutoReloadOnFileChange = settings.getAutoReloadOnFileChange();
     m_originalShowExtensionTooltip = settings.getShowExtensionTooltip();
     m_originalEnableRoosPtxHackAutoDetection = settings.getEnableRoosPtxHackAutoDetection();
     m_originalSystemProfiles = settings.getSystemProfiles();
@@ -604,6 +611,8 @@ void SettingsDialog::loadCurrentSettings()
     int zoomIndex = (m_originalZoomInputMode == Settings::ZoomInputMode::Wheel) ? 1 : 0;
     m_zoomModeCombo->setCurrentIndex(zoomIndex);
     m_panWheelCheck->setChecked(m_originalPanWheelEnabled);
+    if (m_autoReloadOnFileChangeCheck)
+        m_autoReloadOnFileChangeCheck->setChecked(m_originalAutoReloadOnFileChange);
     updateInteractionControlsForExclusivity();
 
     if (m_systemProfileCombo)
@@ -715,6 +724,8 @@ bool SettingsDialog::applySettings()
     // Enforce exclusivity: if zoom is Wheel, pan wheel must be false
     bool panWheel = (zoomMode == Settings::ZoomInputMode::Wheel) ? false : m_panWheelCheck->isChecked();
     settings.setPanWheelEnabled(panWheel);
+    if (m_autoReloadOnFileChangeCheck)
+        settings.setAutoReloadOnFileChange(m_autoReloadOnFileChangeCheck->isChecked());
 
     QVector<Settings::SystemProfile> nextProfiles = m_systemProfilesDraft;
     const int idx = currentSystemProfileIndex();
@@ -814,6 +825,7 @@ void SettingsDialog::onCancelClicked()
     settings.setTrajectoryColormap(m_originalTrajectoryColormap);
     settings.setGamma(m_originalGamma);
     settings.setLogLevel(m_originalLogLevel);
+    settings.setAutoReloadOnFileChange(m_originalAutoReloadOnFileChange);
     settings.setShowExtensionTooltip(m_originalShowExtensionTooltip);
     settings.setEnableRoosPtxHackAutoDetection(m_originalEnableRoosPtxHackAutoDetection);
     settings.setSystemProfiles(m_originalSystemProfiles);

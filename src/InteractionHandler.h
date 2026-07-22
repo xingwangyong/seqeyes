@@ -45,6 +45,7 @@ public slots:
     void synchronizeXAxes(const QCPRange& newRange);
     void toggleMeasureDtMode();
     void exitMeasureDtMode();
+    void closeBlockInfoDialog();
 
 public:
     // Pan boundary control

@@ -20,6 +20,7 @@
 #include <QLabel>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QEvent>
 #include <QWheelEvent> // For event overrides
 #include <QMenuBar>
 #include <QAction>
@@ -875,6 +876,16 @@ bool MainWindow::eventFilter(QObject* obj, QEvent* event)
     }
     // If not handled, pass to base class
     return QMainWindow::eventFilter(obj, event);
+}
+
+void MainWindow::changeEvent(QEvent* event)
+{
+    QMainWindow::changeEvent(event);
+    if (event && event->type() == QEvent::ActivationChange && isActiveWindow())
+    {
+        if (m_pulseqLoader)
+            m_pulseqLoader->onWindowActivated();
+    }
 }
 
 void MainWindow::resizeEvent(QResizeEvent* event)
@@ -2278,6 +2289,7 @@ void MainWindow::onSettingsChanged()
     updateTrajectoryProjectionUI();
     if (m_pulseqLoader)
     {
+        m_pulseqLoader->refreshFileWatcherFromSettings();
         m_pulseqLoader->recomputePnsFromSettings();
     }
     refreshTrajectoryPlotData();

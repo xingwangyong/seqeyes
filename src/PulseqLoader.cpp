@@ -14,15 +14,18 @@
 #include <QCryptographicHash>
 
 #include <QFileDialog>
+#include <QFileSystemWatcher>
 #include <QMessageBox>
 #include <QSettings>
 #include <QDir>
 #include <QFileInfo>
+#include <QFile>
 #include <QMetaObject>
 #include <QPointer>
 #include <QCoreApplication>
 #include <QEventLoop>
 #include <QElapsedTimer>
+#include <QTimer>
 #include <iostream>
 #include <sstream>
 #include <complex>
@@ -296,6 +299,14 @@ PulseqLoader::PulseqLoader(MainWindow* mainWindow)
 {
     m_loadUi = std::make_unique<PulseqLoadUiAdapter>(m_mainWindow);
     m_openController = std::make_unique<PulseqOpenController>(*this, *m_loadUi);
+    m_fileWatcher = new QFileSystemWatcher(this);
+    m_fileReloadDebounceTimer = new QTimer(this);
+    m_fileReloadDebounceTimer->setSingleShot(true);
+    m_fileReloadDebounceTimer->setInterval(500);
+    connect(m_fileWatcher, &QFileSystemWatcher::fileChanged,
+            this, [this](const QString& path) { onWatchedFileChanged(path); });
+    connect(m_fileReloadDebounceTimer, &QTimer::timeout,
+            this, [this]() { processFileChangeNotification(); });
     m_listRecentPulseqFilePaths.resize(10);
     updateTimeUnitFromSettings();
     
@@ -308,6 +319,7 @@ PulseqLoader::PulseqLoader(MainWindow* mainWindow)
 PulseqLoader::~PulseqLoader()
 {
     // Destruction can happen during MainWindow teardown; avoid touching UI here.
+    stopFileWatching();
     ClearPulseqCache(false);
 }
 
@@ -315,6 +327,220 @@ void PulseqLoader::setLoadUiForTesting(std::unique_ptr<IPulseqLoadUi> ui)
 {
     m_loadUi = std::move(ui);
     m_openController = std::make_unique<PulseqOpenController>(*this, *m_loadUi);
+}
+
+void PulseqLoader::refreshFileWatcherFromSettings()
+{
+    if (Settings::getInstance().getAutoReloadOnFileChange())
+        startFileWatching();
+    else
+        stopFileWatching();
+}
+
+void PulseqLoader::onWindowActivated()
+{
+    if (!Settings::getInstance().getAutoReloadOnFileChange())
+        return;
+
+    if (!m_pendingChangedPath.isEmpty() && m_fileReloadDebounceTimer)
+    {
+        m_fileReloadDebounceTimer->start();
+        return;
+    }
+
+    const QString path = QFileInfo(m_sPulseqFilePath).absoluteFilePath();
+    if (path.isEmpty() || !hasLoadedSequence())
+        return;
+
+    QFileInfo info(path);
+    if (!info.exists() || !info.isFile())
+        return;
+
+    if (info.size() != m_loadedFileSize || info.lastModified() != m_loadedLastModified)
+    {
+        m_pendingChangedPath = path;
+        m_pendingFileSize = -1;
+        m_pendingLastModified = QDateTime();
+        m_fileReloadRetryCount = 0;
+        if (m_fileReloadDebounceTimer)
+            m_fileReloadDebounceTimer->start();
+    }
+}
+
+void PulseqLoader::startFileWatching()
+{
+    if (!Settings::getInstance().getAutoReloadOnFileChange() || m_sPulseqFilePath.isEmpty() || !hasLoadedSequence())
+    {
+        stopFileWatching();
+        return;
+    }
+
+    if (!m_fileWatcher)
+        return;
+
+    const QString path = QFileInfo(m_sPulseqFilePath).absoluteFilePath();
+    if (path.isEmpty() || !QFileInfo::exists(path))
+    {
+        stopFileWatching();
+        return;
+    }
+
+    if (m_watchedFilePath == path && m_fileWatcher->files().contains(path))
+    {
+        QFileInfo info(path);
+        m_loadedFileSize = info.size();
+        m_loadedLastModified = info.lastModified();
+        m_loadedFileHash = computeFileHash(path);
+        return;
+    }
+
+    stopFileWatching();
+    m_watchedFilePath = path;
+    QFileInfo info(path);
+    m_loadedFileSize = info.size();
+    m_loadedLastModified = info.lastModified();
+    m_loadedFileHash = computeFileHash(path);
+    m_fileWatcher->addPath(path);
+}
+
+void PulseqLoader::stopFileWatching()
+{
+    if (m_fileReloadDebounceTimer)
+        m_fileReloadDebounceTimer->stop();
+    if (m_fileWatcher && !m_fileWatcher->files().isEmpty())
+        m_fileWatcher->removePaths(m_fileWatcher->files());
+    m_watchedFilePath.clear();
+    m_pendingChangedPath.clear();
+    m_loadedFileHash.clear();
+    m_loadedFileSize = -1;
+    m_loadedLastModified = QDateTime();
+    m_pendingFileSize = -1;
+    m_pendingLastModified = QDateTime();
+    m_fileReloadRetryCount = 0;
+}
+
+QByteArray PulseqLoader::computeFileHash(const QString& path) const
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    QCryptographicHash hash(QCryptographicHash::Md5);
+    if (!hash.addData(&file))
+        return {};
+    return hash.result();
+}
+
+bool PulseqLoader::captureCurrentViewport(QPair<double, double>& outRange) const
+{
+    if (!m_mainWindow || !m_mainWindow->getWaveformDrawer())
+        return false;
+    const auto rects = m_mainWindow->getWaveformDrawer()->getRects();
+    if (rects.isEmpty() || !rects[0])
+        return false;
+    const QCPRange range = rects[0]->axis(QCPAxis::atBottom)->range();
+    if (range.lower >= range.upper)
+        return false;
+    outRange = qMakePair(range.lower, range.upper);
+    return true;
+}
+
+void PulseqLoader::onWatchedFileChanged(const QString& path)
+{
+    const QString currentPath = QFileInfo(m_sPulseqFilePath).absoluteFilePath();
+    if (path.isEmpty() || currentPath.isEmpty() || QFileInfo(path).absoluteFilePath() != currentPath)
+        return;
+
+    m_pendingChangedPath = currentPath;
+    m_pendingFileSize = -1;
+    m_pendingLastModified = QDateTime();
+    m_fileReloadRetryCount = 0;
+    if (m_fileReloadDebounceTimer)
+        m_fileReloadDebounceTimer->start();
+}
+
+void PulseqLoader::processFileChangeNotification()
+{
+    if (!Settings::getInstance().getAutoReloadOnFileChange())
+    {
+        stopFileWatching();
+        return;
+    }
+    if (m_pendingChangedPath.isEmpty())
+        return;
+
+    const QString path = QFileInfo(m_pendingChangedPath).absoluteFilePath();
+    const QString currentPath = QFileInfo(m_sPulseqFilePath).absoluteFilePath();
+    if (path.isEmpty() || currentPath.isEmpty() || path != currentPath || isSequenceLoading())
+    {
+        if (isSequenceLoading() && m_fileReloadDebounceTimer)
+            m_fileReloadDebounceTimer->start();
+        else
+            m_pendingChangedPath.clear();
+        return;
+    }
+
+    QFileInfo info(path);
+    if (!info.exists() || !info.isFile())
+    {
+        if (++m_fileReloadRetryCount <= 3 && m_fileReloadDebounceTimer)
+        {
+            m_fileReloadDebounceTimer->start();
+            return;
+        }
+        m_pendingChangedPath.clear();
+        startFileWatching();
+        return;
+    }
+
+    const qint64 size = info.size();
+    const QDateTime modified = info.lastModified();
+    if (m_pendingFileSize != size || m_pendingLastModified != modified)
+    {
+        m_pendingFileSize = size;
+        m_pendingLastModified = modified;
+        if (m_fileReloadDebounceTimer)
+            m_fileReloadDebounceTimer->start();
+        return;
+    }
+
+    const QByteArray newHash = computeFileHash(path);
+    if (newHash.isEmpty() || newHash == m_loadedFileHash)
+    {
+        m_pendingChangedPath.clear();
+        startFileWatching();
+        return;
+    }
+
+    executeFileWatcherReload(path);
+}
+
+void PulseqLoader::executeFileWatcherReload(const QString& path)
+{
+    if (path.isEmpty() || isSequenceLoading())
+        return;
+
+    m_hasSavedViewport = captureCurrentViewport(m_savedViewportRange);
+    TRManager* trManager = m_mainWindow ? m_mainWindow->getTRManager() : nullptr;
+    m_savedWasTrMode = trManager && trManager->isTrBasedMode();
+
+    if (auto* ih = m_mainWindow ? m_mainWindow->getInteractionHandler() : nullptr)
+    {
+        ih->exitMeasureDtMode();
+        ih->closeBlockInfoDialog();
+    }
+
+    m_pendingChangedPath.clear();
+    m_isFileWatcherReload = true;
+    const bool previousSilentMode = m_silentMode;
+    m_silentMode = true;
+    const bool ok = OpenPulseqFilePath(path);
+    m_silentMode = previousSilentMode;
+    if (!ok)
+    {
+        m_isFileWatcherReload = false;
+        m_hasSavedViewport = false;
+        startFileWatching();
+    }
 }
 
 void PulseqLoader::OpenPulseqFile()
@@ -383,6 +609,7 @@ QString PulseqLoader::getReopenPulseqFilePath() const
 void PulseqLoader::ClearPulseqCache(bool withUi)
 {
     const QString closingPath = m_sPulseqFilePath;
+    stopFileWatching();
 
     m_sequenceLoadState = SequenceLoadState::Blank;
     ++m_trajectorySequenceGeneration;
@@ -1136,15 +1363,25 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
     TRManager* trManager = m_mainWindow->getTRManager();
     trManager->updateTrControls();
     trManager->refreshShowTeOverlay();
+    if (m_isFileWatcherReload && trManager && !m_savedWasTrMode && trManager->isTrBasedMode())
+    {
+        trManager->setRenderModeWholeSequence();
+    }
 
     m_sPulseqFilePath = path;
     m_sequenceLoadState = SequenceLoadState::Loaded;
 
     QCPRange finalRange(initialRange.first, initialRange.second);
+    if (m_isFileWatcherReload && m_hasSavedViewport)
+    {
+        finalRange = QCPRange(m_savedViewportRange.first, m_savedViewportRange.second);
+        m_hasSavedViewport = false;
+    }
     if (m_bHasRepetitionTime && m_mainWindow && drawer &&
         !drawer->getRects().isEmpty() && drawer->getRects()[0])
     {
-        finalRange = drawer->getRects()[0]->axis(QCPAxis::atBottom)->range();
+        if (!m_isFileWatcherReload)
+            finalRange = drawer->getRects()[0]->axis(QCPAxis::atBottom)->range();
     }
     if (auto* ih = m_mainWindow->getInteractionHandler())
     {
@@ -1195,6 +1432,9 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
     startM1ComputationAsync();
     if (m_loadUi)
         m_loadUi->setBusy(false);
+    if (m_isFileWatcherReload)
+        m_isFileWatcherReload = false;
+    startFileWatching();
 }
 
 bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
@@ -1233,6 +1473,8 @@ void PulseqLoader::addRecentFile(const QString& filePath)
 
     const QString normalized = QFileInfo(filePath).absoluteFilePath();
     if (normalized.isEmpty())
+        return;
+    if (!m_listRecentPulseqFilePaths.isEmpty() && m_listRecentPulseqFilePaths.first() == normalized)
         return;
 
     m_listRecentPulseqFilePaths.removeAll(normalized);

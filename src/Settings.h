@@ -108,6 +108,9 @@ public:
     void setPanWheelEnabled(bool enabled);
     bool getPanWheelEnabled() const;
 
+    void setAutoReloadOnFileChange(bool enabled);
+    bool getAutoReloadOnFileChange() const;
+
     // Keyboard shortcuts (pan / TR stepping)
     void setPanLeftKey(const QString& key);
     void setPanRightKey(const QString& key);
@@ -230,6 +233,7 @@ private:
     // Current settings
     ZoomInputMode m_zoomInputMode;
     bool m_panWheelEnabled;
+    bool m_autoReloadOnFileChange {false};
     QString m_panLeftKey;
     QString m_panRightKey;
     GradientUnit m_gradientUnit;

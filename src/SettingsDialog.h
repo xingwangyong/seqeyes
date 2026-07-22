@@ -89,6 +89,7 @@ private:
     QComboBox* m_zoomModeCombo;
     QCheckBox* m_panDragCheck;
     QCheckBox* m_panWheelCheck;
+    QCheckBox* m_autoReloadOnFileChangeCheck;
     QLabel* m_shortcutInfoLabel;
 
     // Extension tab - label visibility controls
@@ -139,6 +140,7 @@ private:
     Settings::LogLevel m_originalLogLevel;
     Settings::ZoomInputMode m_originalZoomInputMode;
     bool m_originalPanWheelEnabled;
+    bool m_originalAutoReloadOnFileChange {false};
     QVector<Settings::SystemProfile> m_originalSystemProfiles;
     QString m_originalActiveSystemProfileAlias;
     QVector<Settings::SystemProfile> m_systemProfilesDraft;

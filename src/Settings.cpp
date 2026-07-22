@@ -100,6 +100,20 @@ bool Settings::getPanWheelEnabled() const
     return m_panWheelEnabled;
 }
 
+void Settings::setAutoReloadOnFileChange(bool enabled)
+{
+    if (m_autoReloadOnFileChange != enabled) {
+        m_autoReloadOnFileChange = enabled;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+bool Settings::getAutoReloadOnFileChange() const
+{
+    return m_autoReloadOnFileChange;
+}
+
 void Settings::setPanLeftKey(const QString& key)
 {
     if (m_panLeftKey != key.toUpper())
@@ -457,6 +471,7 @@ void Settings::saveSettings()
     // Input behavior
     obj["zoomInputMode"] = getZoomInputModeString();
     obj["panWheelEnabled"] = m_panWheelEnabled;
+    obj["autoReloadOnFileChange"] = m_autoReloadOnFileChange;
     obj["panLeftKey"] = getPanLeftKey();
     obj["panRightKey"] = getPanRightKey();
     // Zoom & performance
@@ -569,6 +584,7 @@ void Settings::loadSettings()
     // Load input behavior
     m_zoomInputMode = stringToZoomInputMode(obj.value("zoomInputMode").toString("Wheel"));
     m_panWheelEnabled = obj.value("panWheelEnabled").toBool(false);
+    m_autoReloadOnFileChange = obj.value("autoReloadOnFileChange").toBool(false);
     m_panLeftKey = obj.value("panLeftKey").toString("A").toUpper();
     m_panRightKey = obj.value("panRightKey").toString("D").toUpper();
     // Approximate overlay dialogs (default true)
@@ -625,12 +641,14 @@ void Settings::loadSettings()
     qDebug() << "  Log Level:" << getLogLevelString();
     qDebug() << "  Zoom Input Mode:" << getZoomInputModeString();
     qDebug() << "  Pan Wheel Enabled:" << m_panWheelEnabled;
+    qDebug() << "  Auto Reload On File Change:" << m_autoReloadOnFileChange;
 }
 
 void Settings::resetToDefaults()
 {
     m_zoomInputMode = ZoomInputMode::Wheel;
     m_panWheelEnabled = false;
+    m_autoReloadOnFileChange = false;
     m_gradientUnit = GradientUnit::mTPerM;
     m_slewUnit = SlewUnit::TPerMPerS;
     m_timeUnit = TimeUnit::Milliseconds;
