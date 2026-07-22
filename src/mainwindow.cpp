@@ -1067,7 +1067,7 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     // Rasterized scatter pixmap -> replaces QCPCurve scatter for performance
     m_pTrajectoryScatterItem = new QCPItemPixmap(m_pTrajectoryPlot);
     m_pTrajectoryScatterItem->setVisible(false);
-    m_pTrajectoryScatterItem->setScaled(false);
+    m_pTrajectoryScatterItem->setScaled(true, Qt::IgnoreAspectRatio, Qt::FastTransformation);
     // Keep trajectory axis equal after any internal replot/layout
     connect(m_pTrajectoryPlot, &QCustomPlot::afterReplot, this, [this]() {
         if (!m_pTrajectoryPlot || !m_pTrajectoryPlot->isVisible())
@@ -1245,8 +1245,13 @@ void MainWindow::renderTrajectoryScatter()
     }
 
     m_pTrajectoryScatterItem->setPixmap(QPixmap::fromImage(img));
-    m_pTrajectoryScatterItem->topLeft->setType(QCPItemPosition::ptAbsolute);
-    m_pTrajectoryScatterItem->topLeft->setCoords(axRect->left(), axRect->top());
+    m_pTrajectoryScatterItem->setScaled(true, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+    m_pTrajectoryScatterItem->topLeft->setAxisRect(axRect);
+    m_pTrajectoryScatterItem->bottomRight->setAxisRect(axRect);
+    m_pTrajectoryScatterItem->topLeft->setType(QCPItemPosition::ptAxisRectRatio);
+    m_pTrajectoryScatterItem->bottomRight->setType(QCPItemPosition::ptAxisRectRatio);
+    m_pTrajectoryScatterItem->topLeft->setCoords(0.0, 0.0);
+    m_pTrajectoryScatterItem->bottomRight->setCoords(1.0, 1.0);
     m_pTrajectoryScatterItem->setVisible(true);
 }
 
