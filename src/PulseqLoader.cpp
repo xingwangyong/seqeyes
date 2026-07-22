@@ -809,7 +809,7 @@ void PulseqLoader::promptForChangedFileReload(const QString& path, const QByteAr
     const QMessageBox::StandardButton answer = QMessageBox::question(
         m_mainWindow,
         QStringLiteral("Reload changed file?"),
-        QStringLiteral("This file has been modified by another program.\n\nDo you want to reload it?"),
+        QStringLiteral("This file has been modified by another program.\n\nDo you want to reload it?\n\nThis can also be set in the settings."),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::Yes);
     m_fileChangePromptVisible = false;
