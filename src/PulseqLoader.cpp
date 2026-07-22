@@ -399,17 +399,11 @@ bool PulseqLoader::waitForFileHashForTesting(int timeoutMs)
 
 void PulseqLoader::refreshFileWatcherFromSettings()
 {
-    if (Settings::getInstance().getAutoReloadOnFileChange())
-        startFileWatching();
-    else
-        stopFileWatching();
+    startFileWatching();
 }
 
 void PulseqLoader::onWindowActivated()
 {
-    if (!Settings::getInstance().getAutoReloadOnFileChange())
-        return;
-
     if (!m_pendingChangedPath.isEmpty() && m_fileReloadDebounceTimer)
     {
         m_fileReloadDebounceTimer->start();
@@ -441,7 +435,7 @@ void PulseqLoader::onWindowActivated()
 
 void PulseqLoader::startFileWatching()
 {
-    if (!Settings::getInstance().getAutoReloadOnFileChange() || m_sPulseqFilePath.isEmpty() || !hasLoadedSequence())
+    if (m_sPulseqFilePath.isEmpty() || !hasLoadedSequence())
     {
         stopFileWatching();
         return;
@@ -575,12 +569,6 @@ void PulseqLoader::handleFileHashResult(const FileHashResult& result)
     }
     m_activeFileHashRequestSerial = 0;
 
-    if (!Settings::getInstance().getAutoReloadOnFileChange())
-    {
-        stopFileWatching();
-        return;
-    }
-
     const QString path = QFileInfo(result.path).absoluteFilePath();
     const QString currentPath = QFileInfo(m_sPulseqFilePath).absoluteFilePath();
     if (path.isEmpty() || currentPath.isEmpty() || path != currentPath)
@@ -634,7 +622,10 @@ void PulseqLoader::handleFileHashResult(const FileHashResult& result)
         return;
     }
 
-    executeFileWatcherReload(path);
+    if (Settings::getInstance().getAutoReloadOnFileChange())
+        executeFileWatcherReload(path, true);
+    else
+        promptForChangedFileReload(path, result.hash);
 }
 
 bool PulseqLoader::captureCurrentViewport(QPair<double, double>& outRange) const
@@ -671,13 +662,18 @@ void PulseqLoader::onWatchedFileChanged(const QString& path)
 
 void PulseqLoader::processFileChangeNotification()
 {
-    if (!Settings::getInstance().getAutoReloadOnFileChange())
-    {
-        stopFileWatching();
-        return;
-    }
     if (m_pendingChangedPath.isEmpty())
         return;
+
+    if (!Settings::getInstance().getAutoReloadOnFileChange() &&
+        m_mainWindow && !m_mainWindow->isActiveWindow())
+    {
+        LogManager::getInstance().appendStructured(
+            QtDebugMsg,
+            QStringLiteral("FileMonitor"),
+            QStringLiteral("Changed file detected while inactive; waiting for window activation before prompting."));
+        return;
+    }
 
     const QString path = QFileInfo(m_pendingChangedPath).absoluteFilePath();
     const QString currentPath = QFileInfo(m_sPulseqFilePath).absoluteFilePath();
@@ -729,7 +725,46 @@ void PulseqLoader::processFileChangeNotification()
     startPendingFileHash(path, size, modified);
 }
 
-void PulseqLoader::executeFileWatcherReload(const QString& path)
+void PulseqLoader::promptForChangedFileReload(const QString& path, const QByteArray& newHash)
+{
+    LogManager::getInstance().appendStructured(
+        QtInfoMsg,
+        QStringLiteral("FileMonitor"),
+        QStringLiteral("Changed file content detected; asking user whether to reload: %1").arg(path));
+
+    if (!m_mainWindow)
+    {
+        m_pendingChangedPath.clear();
+        startFileWatching();
+        return;
+    }
+
+    const QMessageBox::StandardButton answer = QMessageBox::question(
+        m_mainWindow,
+        QStringLiteral("Reload changed file?"),
+        QStringLiteral("This file has been modified by another program.\n\nDo you want to reload it?"),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::Yes);
+
+    if (answer == QMessageBox::Yes)
+    {
+        executeFileWatcherReload(path, false);
+        return;
+    }
+
+    if (!newHash.isEmpty())
+        m_loadedFileHash = newHash;
+    QFileInfo info(path);
+    if (info.exists() && info.isFile())
+    {
+        m_loadedFileSize = info.size();
+        m_loadedLastModified = info.lastModified();
+    }
+    m_pendingChangedPath.clear();
+    startFileWatching();
+}
+
+void PulseqLoader::executeFileWatcherReload(const QString& path, bool silent)
 {
     if (path.isEmpty() || isSequenceLoading())
         return;
@@ -752,7 +787,7 @@ void PulseqLoader::executeFileWatcherReload(const QString& path)
     m_pendingChangedPath.clear();
     m_isFileWatcherReload = true;
     const bool previousSilentMode = m_silentMode;
-    m_silentMode = true;
+    m_silentMode = silent;
     const bool ok = OpenPulseqFilePath(path);
     m_silentMode = previousSilentMode;
     if (!ok)

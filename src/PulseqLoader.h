@@ -445,7 +445,8 @@ private:
     void onPendingFileHashReady();
     void handleFileHashResult(const FileHashResult& result);
     bool captureCurrentViewport(QPair<double, double>& outRange) const;
-    void executeFileWatcherReload(const QString& path);
+    void promptForChangedFileReload(const QString& path, const QByteArray& newHash);
+    void executeFileWatcherReload(const QString& path, bool silent);
     void onWatchedFileChanged(const QString& path);
     void processFileChangeNotification();
 
