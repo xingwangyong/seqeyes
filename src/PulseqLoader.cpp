@@ -426,6 +426,10 @@ void PulseqLoader::onWindowActivated()
 
     if (info.size() != m_loadedFileSize || info.lastModified() != m_loadedLastModified)
     {
+        LogManager::getInstance().appendStructured(
+            QtInfoMsg,
+            QStringLiteral("AutoReload"),
+            QStringLiteral("Window activation detected a modified file: %1").arg(path));
         m_pendingChangedPath = path;
         m_pendingFileSize = -1;
         m_pendingLastModified = QDateTime();
@@ -479,6 +483,10 @@ void PulseqLoader::startFileWatching()
     m_loadedLastModified = info.lastModified();
     m_loadedFileHash.clear();
     m_fileWatcher->addPath(path);
+    LogManager::getInstance().appendStructured(
+        QtInfoMsg,
+        QStringLiteral("AutoReload"),
+        QStringLiteral("Watching file for changes: %1").arg(path));
     startPendingFileHash(path, m_loadedFileSize, m_loadedLastModified);
 }
 
@@ -518,6 +526,10 @@ void PulseqLoader::startPendingFileHash(const QString& path, qint64 size, const 
     m_activeFileHashRequestSerial = serial;
     if (size >= 0 && size <= kSynchronousFileHashThresholdBytes)
     {
+        LogManager::getInstance().appendStructured(
+            QtDebugMsg,
+            QStringLiteral("AutoReload"),
+            QStringLiteral("Hashing file synchronously: %1 (%2 bytes)").arg(path).arg(size));
         FileHashResult result;
         result.path = path;
         result.size = size;
@@ -531,6 +543,10 @@ void PulseqLoader::startPendingFileHash(const QString& path, qint64 size, const 
     if (!m_fileHashWatcher)
         return;
 
+    LogManager::getInstance().appendStructured(
+        QtDebugMsg,
+        QStringLiteral("AutoReload"),
+        QStringLiteral("Hashing large file in background: %1 (%2 bytes)").arg(path).arg(size));
     m_fileHashWatcher->setFuture(QtConcurrent::run([path, size, lastModified, serial]() {
         FileHashResult result;
         result.path = path;
@@ -577,6 +593,10 @@ void PulseqLoader::handleFileHashResult(const FileHashResult& result)
     if (!info.exists() || !info.isFile() ||
         info.size() != result.size || info.lastModified() != result.lastModified)
     {
+        LogManager::getInstance().appendStructured(
+            QtDebugMsg,
+            QStringLiteral("AutoReload"),
+            QStringLiteral("Hash result is stale; waiting for file to stabilize again: %1").arg(path));
         if (m_fileReloadDebounceTimer)
             m_fileReloadDebounceTimer->start();
         return;
@@ -601,6 +621,12 @@ void PulseqLoader::handleFileHashResult(const FileHashResult& result)
 
     if (result.hash.isEmpty() || result.hash == m_loadedFileHash)
     {
+        LogManager::getInstance().appendStructured(
+            QtInfoMsg,
+            QStringLiteral("AutoReload"),
+            result.hash.isEmpty()
+                ? QStringLiteral("Change ignored because the file hash could not be read: %1").arg(path)
+                : QStringLiteral("Change ignored because file content is unchanged: %1").arg(path));
         if (!result.hash.isEmpty())
             m_loadedFileHash = result.hash;
         m_pendingChangedPath.clear();
@@ -631,6 +657,10 @@ void PulseqLoader::onWatchedFileChanged(const QString& path)
     if (path.isEmpty() || currentPath.isEmpty() || QFileInfo(path).absoluteFilePath() != currentPath)
         return;
 
+    LogManager::getInstance().appendStructured(
+        QtInfoMsg,
+        QStringLiteral("AutoReload"),
+        QStringLiteral("File change notification received: %1").arg(currentPath));
     m_pendingChangedPath = currentPath;
     m_pendingFileSize = -1;
     m_pendingLastModified = QDateTime();
@@ -665,9 +695,17 @@ void PulseqLoader::processFileChangeNotification()
     {
         if (++m_fileReloadRetryCount <= 3 && m_fileReloadDebounceTimer)
         {
+            LogManager::getInstance().appendStructured(
+                QtDebugMsg,
+                QStringLiteral("AutoReload"),
+                QStringLiteral("Changed file is temporarily unavailable; retrying: %1").arg(path));
             m_fileReloadDebounceTimer->start();
             return;
         }
+        LogManager::getInstance().appendStructured(
+            QtWarningMsg,
+            QStringLiteral("AutoReload"),
+            QStringLiteral("Changed file is unavailable after retries; reload canceled: %1").arg(path));
         m_pendingChangedPath.clear();
         startFileWatching();
         return;
@@ -679,6 +717,10 @@ void PulseqLoader::processFileChangeNotification()
     {
         m_pendingFileSize = size;
         m_pendingLastModified = modified;
+        LogManager::getInstance().appendStructured(
+            QtDebugMsg,
+            QStringLiteral("AutoReload"),
+            QStringLiteral("Waiting for file metadata to stabilize: %1 (%2 bytes)").arg(path).arg(size));
         if (m_fileReloadDebounceTimer)
             m_fileReloadDebounceTimer->start();
         return;
@@ -691,6 +733,11 @@ void PulseqLoader::executeFileWatcherReload(const QString& path)
 {
     if (path.isEmpty() || isSequenceLoading())
         return;
+
+    LogManager::getInstance().appendStructured(
+        QtInfoMsg,
+        QStringLiteral("AutoReload"),
+        QStringLiteral("Reloading changed file: %1").arg(path));
 
     m_hasSavedViewport = captureCurrentViewport(m_savedViewportRange);
     TRManager* trManager = m_mainWindow ? m_mainWindow->getTRManager() : nullptr;
@@ -710,6 +757,10 @@ void PulseqLoader::executeFileWatcherReload(const QString& path)
     m_silentMode = previousSilentMode;
     if (!ok)
     {
+        LogManager::getInstance().appendStructured(
+            QtWarningMsg,
+            QStringLiteral("AutoReload"),
+            QStringLiteral("Auto reload failed; keeping watcher active for future changes: %1").arg(path));
         m_isFileWatcherReload = false;
         m_hasSavedViewport = false;
         startFileWatching();
@@ -1606,7 +1657,13 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
     if (m_loadUi)
         m_loadUi->setBusy(false);
     if (m_isFileWatcherReload && m_mainWindow)
+    {
+        LogManager::getInstance().appendStructured(
+            QtInfoMsg,
+            QStringLiteral("AutoReload"),
+            QStringLiteral("Auto reload completed: %1").arg(path));
         m_mainWindow->playAutoReloadRefreshFlash();
+    }
     if (m_isFileWatcherReload)
         m_isFileWatcherReload = false;
     startFileWatching();
