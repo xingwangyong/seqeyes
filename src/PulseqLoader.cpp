@@ -26,6 +26,7 @@
 #include <QEventLoop>
 #include <QElapsedTimer>
 #include <QTimer>
+#include <QtConcurrent/QtConcurrentRun>
 #include <iostream>
 #include <sstream>
 #include <complex>
@@ -35,6 +36,9 @@
 #include <utility>
 #include <QSet>
 #include <thread>
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 
 #define SAFE_DELETE(p) { if(p) { delete p; p = nullptr; } }
 
@@ -89,6 +93,8 @@ qint64 quantizedPhaseKey(double phase)
 {
     return quantizeKey(wrapPhase0ToTau(phase), 1e6);
 }
+
+constexpr qint64 kSynchronousFileHashThresholdBytes = 16LL * 1024LL * 1024LL;
 
 double effectiveFrequencyOffsetHz(double freqOffsetHz, double freqPPM, double b0Tesla)
 {
@@ -281,6 +287,49 @@ bool getRoosRawRfShapes(ExternalSequence* seq,
     }
     return true;
 }
+
+QByteArray computeFileHashForPath(const QString& path)
+{
+#ifdef Q_OS_WIN
+    HANDLE fileHandle = CreateFileW(
+        reinterpret_cast<LPCWSTR>(path.utf16()),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
+        nullptr);
+    if (fileHandle == INVALID_HANDLE_VALUE)
+        return {};
+
+    QCryptographicHash hash(QCryptographicHash::Md5);
+    QByteArray buffer;
+    buffer.resize(1024 * 1024);
+    DWORD bytesRead = 0;
+    bool ok = true;
+    while (true)
+    {
+        if (!ReadFile(fileHandle, buffer.data(), DWORD(buffer.size()), &bytesRead, nullptr))
+        {
+            ok = false;
+            break;
+        }
+        if (bytesRead == 0)
+            break;
+        hash.addData(buffer.constData(), qsizetype(bytesRead));
+    }
+    CloseHandle(fileHandle);
+    return ok ? hash.result() : QByteArray();
+#else
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    QCryptographicHash hash(QCryptographicHash::Md5);
+    if (!hash.addData(&file))
+        return {};
+    return hash.result();
+#endif
+}
 }
 
 PulseqLoader::PulseqLoader(MainWindow* mainWindow)
@@ -303,10 +352,13 @@ PulseqLoader::PulseqLoader(MainWindow* mainWindow)
     m_fileReloadDebounceTimer = new QTimer(this);
     m_fileReloadDebounceTimer->setSingleShot(true);
     m_fileReloadDebounceTimer->setInterval(500);
+    m_fileHashWatcher = new QFutureWatcher<FileHashResult>(this);
     connect(m_fileWatcher, &QFileSystemWatcher::fileChanged,
             this, [this](const QString& path) { onWatchedFileChanged(path); });
     connect(m_fileReloadDebounceTimer, &QTimer::timeout,
             this, [this]() { processFileChangeNotification(); });
+    connect(m_fileHashWatcher, &QFutureWatcher<FileHashResult>::finished,
+            this, [this]() { onPendingFileHashReady(); });
     m_listRecentPulseqFilePaths.resize(10);
     updateTimeUnitFromSettings();
     
@@ -319,6 +371,7 @@ PulseqLoader::PulseqLoader(MainWindow* mainWindow)
 PulseqLoader::~PulseqLoader()
 {
     // Destruction can happen during MainWindow teardown; avoid touching UI here.
+    ++m_fileHashRequestSerial;
     stopFileWatching();
     ClearPulseqCache(false);
 }
@@ -327,6 +380,21 @@ void PulseqLoader::setLoadUiForTesting(std::unique_ptr<IPulseqLoadUi> ui)
 {
     m_loadUi = std::move(ui);
     m_openController = std::make_unique<PulseqOpenController>(*this, *m_loadUi);
+}
+
+bool PulseqLoader::waitForFileHashForTesting(int timeoutMs)
+{
+    if (!m_fileHashWatcher || !m_fileHashWatcher->isRunning())
+        return true;
+
+    QEventLoop loop;
+    QTimer timeoutTimer;
+    timeoutTimer.setSingleShot(true);
+    connect(m_fileHashWatcher, &QFutureWatcher<FileHashResult>::finished, &loop, &QEventLoop::quit);
+    connect(&timeoutTimer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    timeoutTimer.start(timeoutMs);
+    loop.exec();
+    return !m_fileHashWatcher->isRunning();
 }
 
 void PulseqLoader::refreshFileWatcherFromSettings()
@@ -390,17 +458,28 @@ void PulseqLoader::startFileWatching()
         QFileInfo info(path);
         m_loadedFileSize = info.size();
         m_loadedLastModified = info.lastModified();
-        m_loadedFileHash = computeFileHash(path);
+        if (m_loadedFileHash.isEmpty())
+            startPendingFileHash(path, m_loadedFileSize, m_loadedLastModified);
         return;
     }
 
-    stopFileWatching();
+    if (m_fileReloadDebounceTimer)
+        m_fileReloadDebounceTimer->stop();
+    if (m_fileWatcher && !m_fileWatcher->files().isEmpty())
+        m_fileWatcher->removePaths(m_fileWatcher->files());
+    m_pendingChangedPath.clear();
+    m_pendingFileSize = -1;
+    m_pendingLastModified = QDateTime();
+    m_fileReloadRetryCount = 0;
+    ++m_fileHashRequestSerial;
+    m_activeFileHashRequestSerial = 0;
     m_watchedFilePath = path;
     QFileInfo info(path);
     m_loadedFileSize = info.size();
     m_loadedLastModified = info.lastModified();
-    m_loadedFileHash = computeFileHash(path);
+    m_loadedFileHash.clear();
     m_fileWatcher->addPath(path);
+    startPendingFileHash(path, m_loadedFileSize, m_loadedLastModified);
 }
 
 void PulseqLoader::stopFileWatching()
@@ -417,17 +496,119 @@ void PulseqLoader::stopFileWatching()
     m_pendingFileSize = -1;
     m_pendingLastModified = QDateTime();
     m_fileReloadRetryCount = 0;
+    ++m_fileHashRequestSerial;
+    m_activeFileHashRequestSerial = 0;
 }
 
 QByteArray PulseqLoader::computeFileHash(const QString& path) const
 {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return {};
-    QCryptographicHash hash(QCryptographicHash::Md5);
-    if (!hash.addData(&file))
-        return {};
-    return hash.result();
+    return computeFileHashForPath(path);
+}
+
+void PulseqLoader::startPendingFileHash(const QString& path, qint64 size, const QDateTime& lastModified)
+{
+    if (m_fileHashWatcher && m_fileHashWatcher->isRunning())
+    {
+        if (m_fileReloadDebounceTimer)
+            m_fileReloadDebounceTimer->start();
+        return;
+    }
+
+    const std::uint64_t serial = ++m_fileHashRequestSerial;
+    m_activeFileHashRequestSerial = serial;
+    if (size >= 0 && size <= kSynchronousFileHashThresholdBytes)
+    {
+        FileHashResult result;
+        result.path = path;
+        result.size = size;
+        result.lastModified = lastModified;
+        result.requestSerial = serial;
+        result.hash = computeFileHashForPath(path);
+        handleFileHashResult(result);
+        return;
+    }
+
+    if (!m_fileHashWatcher)
+        return;
+
+    m_fileHashWatcher->setFuture(QtConcurrent::run([path, size, lastModified, serial]() {
+        FileHashResult result;
+        result.path = path;
+        result.size = size;
+        result.lastModified = lastModified;
+        result.requestSerial = serial;
+        result.hash = computeFileHashForPath(path);
+        return result;
+    }));
+}
+
+void PulseqLoader::onPendingFileHashReady()
+{
+    if (!m_fileHashWatcher)
+        return;
+
+    handleFileHashResult(m_fileHashWatcher->result());
+}
+
+void PulseqLoader::handleFileHashResult(const FileHashResult& result)
+{
+    if (result.requestSerial != m_activeFileHashRequestSerial ||
+        result.requestSerial != m_fileHashRequestSerial)
+    {
+        return;
+    }
+    m_activeFileHashRequestSerial = 0;
+
+    if (!Settings::getInstance().getAutoReloadOnFileChange())
+    {
+        stopFileWatching();
+        return;
+    }
+
+    const QString path = QFileInfo(result.path).absoluteFilePath();
+    const QString currentPath = QFileInfo(m_sPulseqFilePath).absoluteFilePath();
+    if (path.isEmpty() || currentPath.isEmpty() || path != currentPath)
+    {
+        m_pendingChangedPath.clear();
+        return;
+    }
+
+    QFileInfo info(path);
+    if (!info.exists() || !info.isFile() ||
+        info.size() != result.size || info.lastModified() != result.lastModified)
+    {
+        if (m_fileReloadDebounceTimer)
+            m_fileReloadDebounceTimer->start();
+        return;
+    }
+
+    if (m_pendingChangedPath.isEmpty())
+    {
+        if (path == QFileInfo(m_sPulseqFilePath).absoluteFilePath() &&
+            result.size == m_loadedFileSize &&
+            result.lastModified == m_loadedLastModified)
+        {
+            m_loadedFileHash = result.hash;
+        }
+        return;
+    }
+
+    if (path != QFileInfo(m_pendingChangedPath).absoluteFilePath())
+    {
+        m_pendingChangedPath.clear();
+        return;
+    }
+
+    if (result.hash.isEmpty() || result.hash == m_loadedFileHash)
+    {
+        if (!result.hash.isEmpty())
+            m_loadedFileHash = result.hash;
+        m_pendingChangedPath.clear();
+        startFileWatching();
+        return;
+    }
+
+    executeFileWatcherReload(path);
 }
 
 bool PulseqLoader::captureCurrentViewport(QPair<double, double>& outRange) const
@@ -503,15 +684,7 @@ void PulseqLoader::processFileChangeNotification()
         return;
     }
 
-    const QByteArray newHash = computeFileHash(path);
-    if (newHash.isEmpty() || newHash == m_loadedFileHash)
-    {
-        m_pendingChangedPath.clear();
-        startFileWatching();
-        return;
-    }
-
-    executeFileWatcherReload(path);
+    startPendingFileHash(path, size, modified);
 }
 
 void PulseqLoader::executeFileWatcherReload(const QString& path)

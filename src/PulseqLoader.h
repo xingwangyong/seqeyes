@@ -14,6 +14,7 @@
 #include <QHash>
 #include <limits>
 #include <QSet>
+#include <QFutureWatcher>
 #include <atomic>
 #include <cstdint>
 
@@ -307,6 +308,7 @@ public:
     std::uint64_t activePnsRequestIdForTesting() const { return m_activePnsRequestId; }
     std::uint64_t activeM1RequestIdForTesting() const { return m_activeM1RequestId; }
     void simulateWatchedFileChangeForTesting(const QString& path) { onWatchedFileChanged(path); }
+    bool waitForFileHashForTesting(int timeoutMs = 5000);
     void injectTrajectoryResultForTesting(const KSpaceTrajectory::Result& result,
                                           std::uint64_t generation,
                                           std::uint64_t requestId);
@@ -343,6 +345,14 @@ private:
         QHash<QString, int> customCounters; // unknown/custom counters keyed by upper-case name
     };
     struct StagedDerivedState;
+    struct FileHashResult
+    {
+        QString path;
+        QByteArray hash;
+        qint64 size {-1};
+        QDateTime lastModified;
+        std::uint64_t requestSerial {0};
+    };
 
     void buildLabelSnapshotCache(const LoadedSequenceState& state, StagedDerivedState& staged) const;
     void parseTridIdNamesDefinition(const LoadedSequenceState& state, StagedDerivedState& staged) const;
@@ -431,6 +441,9 @@ private:
     void startFileWatching();
     void stopFileWatching();
     QByteArray computeFileHash(const QString& path) const;
+    void startPendingFileHash(const QString& path, qint64 size, const QDateTime& lastModified);
+    void onPendingFileHashReady();
+    void handleFileHashResult(const FileHashResult& result);
     bool captureCurrentViewport(QPair<double, double>& outRange) const;
     void executeFileWatcherReload(const QString& path);
     void onWatchedFileChanged(const QString& path);
@@ -442,6 +455,7 @@ private:
     std::unique_ptr<PulseqOpenController> m_openController;
     QFileSystemWatcher* m_fileWatcher {nullptr};
     QTimer* m_fileReloadDebounceTimer {nullptr};
+    QFutureWatcher<FileHashResult>* m_fileHashWatcher {nullptr};
     QString m_watchedFilePath;
     QString m_pendingChangedPath;
     QByteArray m_loadedFileHash;
@@ -450,6 +464,8 @@ private:
     qint64 m_pendingFileSize {-1};
     QDateTime m_pendingLastModified;
     int m_fileReloadRetryCount {0};
+    std::uint64_t m_fileHashRequestSerial {0};
+    std::uint64_t m_activeFileHashRequestSerial {0};
     bool m_isFileWatcherReload {false};
     bool m_hasSavedViewport {false};
     QPair<double, double> m_savedViewportRange;

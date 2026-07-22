@@ -581,6 +581,7 @@ private slots:
 
         QVERIFY2(loader->OpenPulseqFilePath(watchedPath), qPrintable(watchedPath));
         QVERIFY(loader->waitForBackgroundComputations());
+        QVERIFY(loader->waitForFileHashForTesting());
         verifyLoaded(loader, watchedPath);
         const double firstDuration = loader->getTotalDuration_us();
         const std::uint64_t firstGeneration = loader->asyncSequenceGenerationForTesting();
@@ -608,6 +609,7 @@ private slots:
 
         QVERIFY2(loader->OpenPulseqFilePath(watchedPath), qPrintable(watchedPath));
         QVERIFY(loader->waitForBackgroundComputations());
+        QVERIFY(loader->waitForFileHashForTesting());
         verifyLoaded(loader, watchedPath);
         const double firstDuration = loader->getTotalDuration_us();
         const std::uint64_t firstGeneration = loader->asyncSequenceGenerationForTesting();
@@ -635,6 +637,7 @@ private slots:
 
         QVERIFY2(loader->OpenPulseqFilePath(watchedPath), qPrintable(watchedPath));
         QVERIFY(loader->waitForBackgroundComputations());
+        QVERIFY(loader->waitForFileHashForTesting());
         verifyLoaded(loader, watchedPath);
         const double firstDuration = loader->getTotalDuration_us();
         const std::uint64_t firstGeneration = loader->asyncSequenceGenerationForTesting();

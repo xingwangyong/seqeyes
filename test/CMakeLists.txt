@@ -10,7 +10,7 @@ set(CMAKE_AUTOUIC ON)
 # Set AutoUic search paths so it can find UI files in src directory
 set(CMAKE_AUTOUIC_SEARCH_PATHS ${PROJECT_SOURCE_DIR}/src)
 
-find_package(Qt6 COMPONENTS Test Core Gui Widgets PrintSupport REQUIRED)
+find_package(Qt6 COMPONENTS Test Core Concurrent Gui Widgets PrintSupport REQUIRED)
 
 function(seqeyes_configure_qt_app_test TEST_NAME TARGET_NAME)
     set(_qt_prefix "${CMAKE_PREFIX_PATH}")
@@ -92,6 +92,7 @@ target_include_directories(${TEST_NAME} PRIVATE
 target_link_libraries(${TEST_NAME} PRIVATE
     Qt6::Test
     Qt6::Core
+    Qt6::Concurrent
     Qt6::Gui
     Qt6::Widgets
     Qt6::PrintSupport
@@ -126,6 +127,7 @@ target_compile_definitions(${REOPEN_TEST_NAME} PRIVATE
 target_link_libraries(${REOPEN_TEST_NAME} PRIVATE
     Qt6::Test
     Qt6::Core
+    Qt6::Concurrent
     Qt6::Gui
     Qt6::Widgets
     Qt6::PrintSupport
@@ -156,6 +158,7 @@ target_compile_definitions(${PULSEQ_LOADER_STATE_TEST_NAME} PRIVATE
 target_link_libraries(${PULSEQ_LOADER_STATE_TEST_NAME} PRIVATE
     Qt6::Test
     Qt6::Core
+    Qt6::Concurrent
     Qt6::Gui
     Qt6::Widgets
     Qt6::PrintSupport
@@ -186,6 +189,7 @@ target_compile_definitions(${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME} PRIVATE
 target_link_libraries(${PULSEQ_OPEN_CONTROLLER_FAKE_UI_TEST_NAME} PRIVATE
     Qt6::Test
     Qt6::Core
+    Qt6::Concurrent
     Qt6::Gui
     Qt6::Widgets
     Qt6::PrintSupport
@@ -216,6 +220,7 @@ target_compile_definitions(${RF_MULTICHANNEL_TEST_NAME} PRIVATE
 target_link_libraries(${RF_MULTICHANNEL_TEST_NAME} PRIVATE
     Qt6::Test
     Qt6::Core
+    Qt6::Concurrent
     Qt6::Gui
     Qt6::Widgets
     Qt6::PrintSupport
@@ -246,6 +251,7 @@ target_compile_definitions(${B0_SYSTEM_PROFILE_TEST_NAME} PRIVATE
 target_link_libraries(${B0_SYSTEM_PROFILE_TEST_NAME} PRIVATE
     Qt6::Test
     Qt6::Core
+    Qt6::Concurrent
     Qt6::Gui
     Qt6::Widgets
     Qt6::PrintSupport
@@ -271,6 +277,7 @@ target_include_directories(${PERF_TEST_NAME} PRIVATE
 
 target_link_libraries(${PERF_TEST_NAME} PRIVATE
     Qt6::Core
+    Qt6::Concurrent
     Qt6::Gui
     Qt6::Widgets
     Qt6::PrintSupport
