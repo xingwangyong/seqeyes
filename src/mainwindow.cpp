@@ -1190,8 +1190,9 @@ void MainWindow::setupPlotArea(QVBoxLayout* mainLayout)
     m_pAutoReloadFlashOverlay->setGeometry(ui->customPlot->rect());
     m_pAutoReloadFlashOverlay->hide();
     m_pAutoReloadFlashAnimation = new QVariantAnimation(this);
-    m_pAutoReloadFlashAnimation->setDuration(260);
-    m_pAutoReloadFlashAnimation->setStartValue(0.32);
+    m_pAutoReloadFlashAnimation->setDuration(1400);
+    m_pAutoReloadFlashAnimation->setStartValue(0.8);
+    m_pAutoReloadFlashAnimation->setKeyValueAt(0.28, 0.8);
     m_pAutoReloadFlashAnimation->setEndValue(0.0);
     m_pAutoReloadFlashAnimation->setEasingCurve(QEasingCurve::OutCubic);
     connect(m_pAutoReloadFlashAnimation, &QVariantAnimation::valueChanged,
@@ -1222,10 +1223,11 @@ void MainWindow::playAutoReloadRefreshFlash()
     m_pAutoReloadFlashOverlay->raise();
     m_pAutoReloadFlashOverlay->show();
     if (auto* overlay = static_cast<AutoReloadFlashOverlay*>(m_pAutoReloadFlashOverlay))
-        overlay->setFlashOpacity(0.32);
+        overlay->setFlashOpacity(0.8);
 
     m_pAutoReloadFlashAnimation->stop();
-    m_pAutoReloadFlashAnimation->setStartValue(0.32);
+    m_pAutoReloadFlashAnimation->setStartValue(0.8);
+    m_pAutoReloadFlashAnimation->setKeyValueAt(0.28, 0.8);
     m_pAutoReloadFlashAnimation->setEndValue(0.0);
     m_pAutoReloadFlashAnimation->start();
 }
