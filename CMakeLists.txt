@@ -1,4 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.20)
 
 project(seqeyes)
 
@@ -146,6 +146,7 @@ set(SRC_LIST
     ${PROJECT_ROOT}/src/PnsCalculator.cpp
     ${PROJECT_ROOT}/src/Settings.cpp
     ${PROJECT_ROOT}/src/SettingsDialog.cpp
+    ${PROJECT_ROOT}/src/RuntimeContext.cpp
     ${PROJECT_ROOT}/src/TRManager.cpp
     ${PROJECT_ROOT}/src/WaveformDrawer.cpp
     ${PROJECT_ROOT}/src/ExtensionPlotter.cpp

@@ -15,6 +15,8 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QDir>
+
+#include "RuntimeContext.h"
 #include <QInputDialog>
 #include <QListWidgetItem>
 #include <QSignalBlocker>
@@ -25,6 +27,7 @@
 #include "mainwindow.h"
 #include "WaveformDrawer.h"
 #include "PnsCalculator.h"
+#include "PulseqLoader.h"
 
 SettingsDialog::SettingsDialog(QWidget *parent)
     : QDialog(parent)
@@ -375,6 +378,12 @@ void SettingsDialog::setupUI()
     QGroupBox* systemGroup = new QGroupBox("", safetyTab);
     QVBoxLayout* systemGroupLayout = new QVBoxLayout(systemGroup);
 
+    m_pSystemProfileOverrideBanner = new QLabel(systemGroup);
+    m_pSystemProfileOverrideBanner->setStyleSheet("QLabel { background-color: #fff3cd; color: #856404; padding: 8px; border: 1px solid #ffeeba; border-radius: 4px; }");
+    m_pSystemProfileOverrideBanner->setWordWrap(true);
+    m_pSystemProfileOverrideBanner->setVisible(false);
+    systemGroupLayout->addWidget(m_pSystemProfileOverrideBanner);
+
     QWidget* systemMetaWidget = new QWidget(systemGroup);
     QFormLayout* systemForm = new QFormLayout(systemMetaWidget);
 
@@ -489,6 +498,8 @@ void SettingsDialog::setupUI()
             this, &SettingsDialog::onPanWheelToggled);
     connect(m_systemProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SettingsDialog::onSystemProfileChanged);
+    connect(m_systemProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SettingsDialog::updateSystemProfileWarningBanner);
     connect(m_addSystemProfileButton, &QPushButton::clicked,
             this, &SettingsDialog::onAddSystemProfileClicked);
     connect(m_removeSystemProfileButton, &QPushButton::clicked,
@@ -545,7 +556,7 @@ void SettingsDialog::loadCurrentSettings()
     m_originalShowExtensionTooltip = settings.getShowExtensionTooltip();
     m_originalEnableRoosPtxHackAutoDetection = settings.getEnableRoosPtxHackAutoDetection();
     m_originalSystemProfiles = settings.getSystemProfiles();
-    m_originalActiveSystemProfileAlias = settings.getActiveSystemProfileAlias();
+    m_originalActiveSystemProfileAlias = settings.globalSystemProfileAlias();
     m_systemProfilesDraft = m_originalSystemProfiles;
     m_originalPnsShowX = settings.getPnsChannelVisibleX();
     m_originalPnsShowY = settings.getPnsChannelVisibleY();
@@ -778,7 +789,7 @@ bool SettingsDialog::applySettings()
 
     settings.setSystemProfiles(nextProfiles);
     if (m_systemProfileCombo && m_systemProfileCombo->currentIndex() >= 0 && m_systemProfileCombo->currentIndex() < nextProfiles.size())
-        settings.setActiveSystemProfileAlias(nextProfiles[m_systemProfileCombo->currentIndex()].alias);
+        settings.setGlobalSystemProfileAlias(nextProfiles[m_systemProfileCombo->currentIndex()].alias);
     if (m_pnsShowXCheck) settings.setPnsChannelVisibleX(m_pnsShowXCheck->isChecked());
     if (m_pnsShowYCheck) settings.setPnsChannelVisibleY(m_pnsShowYCheck->isChecked());
     if (m_pnsShowZCheck) settings.setPnsChannelVisibleZ(m_pnsShowZCheck->isChecked());
@@ -826,7 +837,7 @@ void SettingsDialog::onCancelClicked()
     settings.setShowExtensionTooltip(m_originalShowExtensionTooltip);
     settings.setEnableRoosPtxHackAutoDetection(m_originalEnableRoosPtxHackAutoDetection);
     settings.setSystemProfiles(m_originalSystemProfiles);
-    settings.setActiveSystemProfileAlias(m_originalActiveSystemProfileAlias);
+    settings.setGlobalSystemProfileAlias(m_originalActiveSystemProfileAlias);
     settings.setPnsChannelVisibleX(m_originalPnsShowX);
     settings.setPnsChannelVisibleY(m_originalPnsShowY);
     settings.setPnsChannelVisibleZ(m_originalPnsShowZ);
@@ -863,6 +874,38 @@ void SettingsDialog::showEvent(QShowEvent* event)
 {
     QDialog::showEvent(event);
     loadCurrentSettings();
+    updateSystemProfileWarningBanner();
+}
+
+void SettingsDialog::updateSystemProfileWarningBanner()
+{
+    MainWindow* mw = qobject_cast<MainWindow*>(parentWidget());
+    if (!mw || !mw->getPulseqLoader()) {
+        m_pSystemProfileOverrideBanner->setVisible(false);
+        return;
+    }
+    
+    PulseqLoader* loader = mw->getPulseqLoader();
+    if (!RuntimeContext::isProfileOverridden(loader)) {
+        m_pSystemProfileOverrideBanner->setVisible(false);
+        return;
+    }
+
+    QString seqSystemName = loader->getSequenceSystemName().trimmed();
+    QString currentComboAlias = m_systemProfileCombo->currentText().trimmed();
+    
+    // Only show the banner if the user is looking at a profile that is NOT the one required by the sequence
+    if (seqSystemName.compare(currentComboAlias, Qt::CaseInsensitive) != 0) {
+        m_pSystemProfileOverrideBanner->setText(
+            QStringLiteral("<b>Warning:</b> The currently loaded sequence requires profile <b>%1</b>, "
+                           "but you are editing the global profile <b>%2</b>. "
+                           "Changes made here will NOT apply to the current sequence.")
+            .arg(seqSystemName.toHtmlEscaped())
+            .arg(currentComboAlias.toHtmlEscaped()));
+        m_pSystemProfileOverrideBanner->setVisible(true);
+    } else {
+        m_pSystemProfileOverrideBanner->setVisible(false);
+    }
 }
 
 void SettingsDialog::onGammaComboChanged(int index)

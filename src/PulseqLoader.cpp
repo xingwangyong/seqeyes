@@ -3,6 +3,8 @@
 #include "PulseqLoadUiAdapter.h"
 #include "PulseqOpenController.h"
 #include "mainwindow.h"
+#include "RuntimeContext.h"
+#include <QDebug>
 #include "ui_mainwindow.h"
 #include "WaveformDrawer.h"
 #include "TRManager.h"
@@ -161,9 +163,11 @@ ResolvedB0 resolveB0Tesla(const std::shared_ptr<ExternalSequence>& sequence)
     }
 
     if (!hasProfile) {
-        profile = Settings::getInstance().getActiveSystemProfile();
+        profile = Settings::getInstance().globalSystemProfile();
         hasProfile = !profile.alias.trimmed().isEmpty();
     }
+
+
 
     if (hasProfile && std::isfinite(profile.b0Tesla) && profile.b0Tesla > 0.0) {
         resolved.profileDefinesB0 = true;
@@ -1304,13 +1308,17 @@ bool PulseqLoader::loadParserFile(const QString& path, LoadedSequenceState& stat
     const ResolvedB0 resolvedB0 = resolveB0Tesla(state.sequence);
     state.b0Tesla = resolvedB0.b0Tesla;
     state.systemName = resolvedB0.systemName;
-    state.b0Warning = resolvedB0.warnings.join(QStringLiteral("\n"));
-    for (const QString& warning : resolvedB0.warnings) {
-        LogManager::getInstance().appendStructured(
-            QtWarningMsg,
-            QStringLiteral("PulseqLoader"),
-            warning);
+    
+    if (resolvedB0.warnings.size() > 0) {
+        state.b0Warning = resolvedB0.warnings.join(QStringLiteral("\n"));
+        for (const QString& warning : resolvedB0.warnings) {
+            LogManager::getInstance().appendStructured(
+                QtWarningMsg,
+                QStringLiteral("PulseqLoader"),
+                warning);
+        }
     }
+
     if (m_loadUi) { m_loadUi->clearWindowFilePath(); }
     return true;
 }
@@ -2413,7 +2421,7 @@ void PulseqLoader::markPnsDirty()
 
 bool PulseqLoader::shouldRecomputePns() const
 {
-    const QString ascPath = Settings::getInstance().getPnsAscPath().trimmed();
+    const QString ascPath = RuntimeContext::systemProfile(this).ascPath.trimmed();
     const double gammaHzPerT = Settings::getInstance().getGamma();
     if (m_pnsDirty)
         return true;
@@ -2636,7 +2644,7 @@ void PulseqLoader::startTrajectoryComputationIfEnabled()
 void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
 {
     m_safetyResult = SafetyResult{};
-    const Settings::SystemProfile profile = Settings::getInstance().getActiveSystemProfile();
+    const Settings::SystemProfile profile = RuntimeContext::systemProfile(this);
     m_safetyResult.profileAlias = profile.alias.trimmed();
 
     if (!m_spPulseqSeq || m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2)
@@ -2945,7 +2953,7 @@ void PulseqLoader::computePnsSynchronously()
 {
     m_pnsResult = PnsCalculator::Result{};
     m_pnsStatusMessage.clear();
-    m_pnsAscPath = Settings::getInstance().getPnsAscPath().trimmed();
+    m_pnsAscPath = RuntimeContext::systemProfile(this).ascPath.trimmed();
 
     if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2 || !m_spPulseqSeq)
     {
@@ -3019,7 +3027,7 @@ void PulseqLoader::startPnsComputationAsync()
 {
     m_pnsResult = PnsCalculator::Result{};
     m_pnsStatusMessage.clear();
-    m_pnsAscPath = Settings::getInstance().getPnsAscPath().trimmed();
+    m_pnsAscPath = RuntimeContext::systemProfile(this).ascPath.trimmed();
 
     if (m_vecDecodeSeqBlocks.empty() || vecBlockEdges.size() < 2 || !m_spPulseqSeq)
     {
@@ -5094,3 +5102,4 @@ QList<QPair<QString, int>> PulseqLoader::getActiveLabels(int blockIdx) const
     });
     return result;
 }
+

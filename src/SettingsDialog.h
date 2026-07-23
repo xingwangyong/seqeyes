@@ -50,6 +50,7 @@ private slots:
     void onMoveAxisTopClicked();
     void onMoveAxisBottomClicked();
     void onAxisOrderRowsMoved();
+    void updateSystemProfileWarningBanner();
 
 private:
     void setupUI();
@@ -98,6 +99,7 @@ private:
     QMap<QString, QCheckBox*> m_extensionLabelCheckboxes;
 
     // Safety/System tab
+    QLabel* m_pSystemProfileOverrideBanner;
     QComboBox* m_systemProfileCombo;
     QPushButton* m_addSystemProfileButton;
     QPushButton* m_removeSystemProfileButton;

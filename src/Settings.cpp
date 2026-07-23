@@ -810,12 +810,12 @@ QVector<Settings::SystemProfile> Settings::getSystemProfiles() const
     return m_systemProfiles;
 }
 
-QString Settings::getActiveSystemProfileAlias() const
+QString Settings::globalSystemProfileAlias() const
 {
     return m_activeSystemProfileAlias;
 }
 
-Settings::SystemProfile Settings::getActiveSystemProfile() const
+Settings::SystemProfile Settings::globalSystemProfile() const
 {
     for (const SystemProfile& profile : m_systemProfiles) {
         if (profile.alias == m_activeSystemProfileAlias)
@@ -836,7 +836,7 @@ void Settings::setSystemProfiles(const QVector<SystemProfile>& profiles)
     }
 }
 
-void Settings::setActiveSystemProfileAlias(const QString& alias)
+void Settings::setGlobalSystemProfileAlias(const QString& alias)
 {
     if (m_activeSystemProfileAlias == alias.trimmed())
         return;
@@ -859,10 +859,7 @@ QString Settings::generateNextSystemProfileAlias() const
     }
 }
 
-QString Settings::getPnsAscPath() const
-{
-    return getActiveSystemProfile().ascPath.trimmed();
-}
+
 
 QStringList Settings::getPnsAscHistory() const
 {

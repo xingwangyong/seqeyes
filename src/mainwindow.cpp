@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "RuntimeContext.h"
 #include "ui_mainwindow.h"
 #include "InteractionHandler.h"
 #include "PulseqLoader.h"
@@ -561,7 +562,7 @@ QString MainWindow::getPnsStatusText() const
         return QString();
     }
 
-    const QString ascPath = Settings::getInstance().getPnsAscPath().trimmed();
+    const QString ascPath = RuntimeContext::systemProfile(m_pulseqLoader).ascPath.trimmed();
     if (ascPath.isEmpty())
     {
         return QString();

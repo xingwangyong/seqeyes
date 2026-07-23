@@ -223,7 +223,7 @@ public:
 
     // B0 accessor (from sequence [DEFINITIONS])
     double getB0Tesla() const { return m_b0Tesla; }
-
+    QString getSequenceSystemName() const { return m_sequenceSystemName; }
     // Phase 2: Gradient on-demand rendering API
     void getGradViewportDecimated(int channel, double visibleStart, double visibleEnd, int pixelWidth,
                                   QVector<double>& tOut, QVector<double>& vOut);

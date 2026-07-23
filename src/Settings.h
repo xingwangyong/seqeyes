@@ -190,14 +190,14 @@ public:
 
     // System safety profiles
     QVector<SystemProfile> getSystemProfiles() const;
-    QString getActiveSystemProfileAlias() const;
-    SystemProfile getActiveSystemProfile() const;
+    QString globalSystemProfileAlias() const;
+    SystemProfile globalSystemProfile() const;
     void setSystemProfiles(const QVector<SystemProfile>& profiles);
-    void setActiveSystemProfileAlias(const QString& alias);
+    void setGlobalSystemProfileAlias(const QString& alias);
     QString generateNextSystemProfileAlias() const;
 
     // Legacy ASC/PNS compatibility accessors
-    QString getPnsAscPath() const;
+
     QStringList getPnsAscHistory() const;
     QString getPnsAscNickname(const QString& path) const;
     QMap<QString, QString> getPnsAscNicknames() const;

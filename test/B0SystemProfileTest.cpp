@@ -151,14 +151,14 @@ private:
         Settings& settings = Settings::getInstance();
         settings.setLogLevel(Settings::LogLevel::Warning);
         settings.setSystemProfiles(profiles);
-        settings.setActiveSystemProfileAlias(activeName);
+        settings.setGlobalSystemProfileAlias(activeName);
     }
 
 private slots:
     void initTestCase()
     {
         m_originalProfiles = Settings::getInstance().getSystemProfiles();
-        m_originalActiveProfile = Settings::getInstance().getActiveSystemProfileAlias();
+        m_originalActiveProfile = Settings::getInstance().globalSystemProfileAlias();
         m_originalLogLevel = Settings::getInstance().getLogLevel();
 
         m_v142Gre = resolveSeq(QStringLiteral("v142/writeGradientEcho.seq"));
@@ -171,7 +171,7 @@ private slots:
     {
         Settings& settings = Settings::getInstance();
         settings.setSystemProfiles(m_originalProfiles);
-        settings.setActiveSystemProfileAlias(m_originalActiveProfile);
+        Settings::getInstance().setGlobalSystemProfileAlias(m_originalActiveProfile);
         settings.setLogLevel(m_originalLogLevel);
     }
 

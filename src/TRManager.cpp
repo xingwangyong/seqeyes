@@ -8,6 +8,7 @@
 #include "InteractionHandler.h"
 #include "Settings.h"
 #include "ExtensionLegendDialog.h"
+#include "RuntimeContext.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -1814,7 +1815,7 @@ void TRManager::onShowPnsToggled(bool checked)
 {
     if (checked)
     {
-        const QString ascPath = Settings::getInstance().getPnsAscPath().trimmed();
+        const QString ascPath = RuntimeContext::systemProfile(m_mainWindow->getPulseqLoader()).ascPath.trimmed();
         if (ascPath.isEmpty() || !QFileInfo::exists(ascPath))
         {
             QMessageBox::warning(
