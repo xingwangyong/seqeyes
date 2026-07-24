@@ -79,6 +79,13 @@ public:
         qint64 gradTimeMs = 0;
         qint64 trigTimeMs = 0;
         qint64 edgeTimeMs = 0;
+        qint64 adcLabelInitMs = 0;
+        qint64 adcViewportMs = 0;
+        qint64 adcHeightMs = 0;
+        qint64 adcRangeCollectMs = 0;
+        qint64 adcBuildMs = 0;
+        qint64 adcSetDataMs = 0;
+        qint64 adcExtensionMs = 0;
         QString slowestStage;
     };
     
@@ -161,6 +168,13 @@ private:
 
 private:
     RenderStats m_lastRenderStats;
+    qint64 m_lastAdcLabelInitMs {0};
+    qint64 m_lastAdcViewportMs {0};
+    qint64 m_lastAdcHeightMs {0};
+    qint64 m_lastAdcRangeCollectMs {0};
+    qint64 m_lastAdcBuildMs {0};
+    qint64 m_lastAdcSetDataMs {0};
+    qint64 m_lastAdcExtensionMs {0};
     MainWindow* m_mainWindow;
 
     // Member variables moved from MainWindow

@@ -3971,7 +3971,6 @@ void PulseqLoader::getGradViewportDecimated(int channel, double visibleStart, do
 
     const double window = std::max(1e-9, visibleEnd - visibleStart);
 
-    bool haveLast = false; double lastT=0.0, lastV=0.0;
     // Global decimation gating for gradients (heavy-only)
     const int DECIMATE_TOTAL_THRESHOLD_GRAD = 150000;
     long long totalGradSamples = 0;
@@ -3986,6 +3985,47 @@ void PulseqLoader::getGradViewportDecimated(int channel, double visibleStart, do
         double pppTotal = double(std::max<long long>(1, totalGradSamples)) / double(pixelWidth);
         if (pppTotal <= 2.0) allowDecimateGrad = false;
     }
+
+    struct Segment {
+        QVector<double> t;
+        QVector<double> v;
+    };
+    QVector<Segment> segments;
+
+    struct EnvelopeBucket {
+        bool used = false;
+        double minValue = std::numeric_limits<double>::infinity();
+        double maxValue = -std::numeric_limits<double>::infinity();
+    };
+
+    const int envelopeBucketCount = std::max(1, pixelWidth);
+    QVector<EnvelopeBucket> trapEnvelope(envelopeBucketCount);
+
+    auto appendSegment = [&](QVector<double>&& t, QVector<double>&& v) {
+        if (t.isEmpty() || v.isEmpty() || t.size() != v.size()) return;
+        segments.append(Segment{std::move(t), std::move(v)});
+    };
+
+    auto addTrapToEnvelope = [&](double t0, double t3, double amplitude) {
+        if (t3 <= visibleStart || t0 >= visibleEnd) return;
+        const double clippedStart = std::max(t0, visibleStart);
+        const double clippedEnd = std::min(t3, visibleEnd);
+        if (clippedEnd <= clippedStart) return;
+
+        int b0 = static_cast<int>(std::floor((clippedStart - visibleStart) / window * envelopeBucketCount));
+        int b1 = static_cast<int>(std::ceil((clippedEnd - visibleStart) / window * envelopeBucketCount)) - 1;
+        b0 = std::max(0, std::min(envelopeBucketCount - 1, b0));
+        b1 = std::max(0, std::min(envelopeBucketCount - 1, b1));
+
+        const double low = std::min(0.0, amplitude);
+        const double high = std::max(0.0, amplitude);
+        for (int b = b0; b <= b1; ++b) {
+            EnvelopeBucket& bucket = trapEnvelope[b];
+            bucket.used = true;
+            bucket.minValue = std::min(bucket.minValue, low);
+            bucket.maxValue = std::max(bucket.maxValue, high);
+        }
+    };
 
     for (int i = startBlock; i <= endBlock; ++i) {
         SeqBlock* blk = m_vecDecodeSeqBlocks[i]; if (!blk) continue;
@@ -4003,24 +4043,14 @@ void PulseqLoader::getGradViewportDecimated(int channel, double visibleStart, do
             double t2 = t1 + flatTime;
             double t3 = t2 + rampDownTime;
             if (t3 <= visibleStart || t0 >= visibleEnd) continue;
-            // Build block arrays
-            QVector<double> tt{t0,t1,t2,t3};
-            QVector<double> vv{0.0, grad.amplitude, grad.amplitude, 0.0};
-            // Continuity at block start
-            if (!tt.isEmpty()) {
-                if (haveLast) {
-                    double dtTol = 1e-9;
-                    double dvTol = 1e-12;
-                    bool continuous = (std::abs(tt.first() - lastT) <= dtTol) && (std::abs(vv.first() - lastV) <= dvTol);
-                    if (!continuous) {
-                        // Keep x monotonic: duplicate last x as a NaN break marker.
-                        // This avoids generating a break time that is > lastT when the next segment starts at the same timestamp.
-                        tOut.append(lastT);
-                        vOut.append(std::numeric_limits<double>::quiet_NaN());
-                    }
-                }
-                tOut += tt; vOut += vv;
-                lastT = tt.last(); lastV = vv.last(); haveLast = true;
+
+            const double eventWidthPx = (t3 - t0) / window * double(pixelWidth);
+            const bool drawExactTrap = !allowDecimateGrad || eventWidthPx >= 3.0;
+            if (drawExactTrap) {
+                appendSegment(QVector<double>{t0,t1,t2,t3},
+                              QVector<double>{0.0, grad.amplitude, grad.amplitude, 0.0});
+            } else {
+                addTrapToEnvelope(t0, t3, grad.amplitude);
             }
             continue;
         }
@@ -4084,18 +4114,7 @@ void PulseqLoader::getGradViewportDecimated(int channel, double visibleStart, do
                     tBlk = dT; vBlk.reserve(dV.size()); for (double val: dV){ vBlk.append(val * double(grad.amplitude)); }
                 }
             }
-            if (!tBlk.isEmpty()) {
-                if (haveLast) {
-                    double dtTol = 1e-9; double dvTol = 1e-12;
-                    bool continuous = (std::abs(tBlk.first() - lastT) <= dtTol) && (std::abs(vBlk.first() - lastV) <= dvTol);
-                    if (!continuous) {
-                        // Duplicate last x for NaN break to keep x monotonic.
-                        tOut.append(lastT);
-                        vOut.append(std::numeric_limits<double>::quiet_NaN());
-                    }
-                }
-                tOut += tBlk; vOut += vBlk; lastT = tBlk.last(); lastV = vBlk.last(); haveLast = true;
-            }
+            appendSegment(std::move(tBlk), std::move(vBlk));
             continue;
         }
 
@@ -4113,20 +4132,45 @@ void PulseqLoader::getGradViewportDecimated(int channel, double visibleStart, do
                 double t = tStart + times[j] * tFactor;
                 tBlk.append(t); vBlk.append(double(shape[j]) * double(grad.amplitude));
             }
-            if (!tBlk.isEmpty()) {
-                if (haveLast) {
-                    double dtTol = 1e-9; double dvTol = 1e-12;
-                    bool continuous = (std::abs(tBlk.first() - lastT) <= dtTol) && (std::abs(vBlk.first() - lastV) <= dvTol);
-                    if (!continuous) {
-                        // Duplicate last x for NaN break to keep x monotonic.
-                        tOut.append(lastT);
-                        vOut.append(std::numeric_limits<double>::quiet_NaN());
-                    }
-                }
-                tOut += tBlk; vOut += vBlk; lastT = tBlk.last(); lastV = vBlk.last(); haveLast = true;
-            }
+            appendSegment(std::move(tBlk), std::move(vBlk));
             continue;
         }
+    }
+
+    const double bucketWidth = window / envelopeBucketCount;
+    for (int b = 0; b < envelopeBucketCount; ++b) {
+        const EnvelopeBucket& bucket = trapEnvelope[b];
+        if (!bucket.used) continue;
+
+        const double t = visibleStart + (double(b) + 0.5) * bucketWidth;
+        appendSegment(QVector<double>{t, t},
+                      QVector<double>{bucket.minValue, bucket.maxValue});
+    }
+
+    std::sort(segments.begin(), segments.end(), [](const Segment& a, const Segment& b) {
+        return a.t.first() < b.t.first();
+    });
+
+    bool haveLast = false;
+    double lastT = 0.0;
+    double lastV = 0.0;
+    for (const Segment& segment : segments) {
+        if (segment.t.isEmpty() || segment.v.isEmpty()) continue;
+        if (haveLast) {
+            const double dtTol = 1e-9;
+            const double dvTol = 1e-12;
+            const bool continuous = (std::abs(segment.t.first() - lastT) <= dtTol) &&
+                                    (std::abs(segment.v.first() - lastV) <= dvTol);
+            if (!continuous) {
+                tOut.append(lastT);
+                vOut.append(std::numeric_limits<double>::quiet_NaN());
+            }
+        }
+        tOut += segment.t;
+        vOut += segment.v;
+        lastT = segment.t.last();
+        lastV = segment.v.last();
+        haveLast = true;
     }
 }
 

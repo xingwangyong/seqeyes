@@ -2833,6 +2833,18 @@ void MainWindow::onAfterReplot()
                 summary.gradPoints = m_pendingLoadPerf.gradPoints;
                 summary.trigPoints = m_pendingLoadPerf.trigPoints;
                 summary.edgePoints = m_pendingLoadPerf.edgePoints;
+                summary.rfTimeMs = m_pendingLoadPerf.rfTimeMs;
+                summary.adcTimeMs = m_pendingLoadPerf.adcTimeMs;
+                summary.gradTimeMs = m_pendingLoadPerf.gradTimeMs;
+                summary.trigTimeMs = m_pendingLoadPerf.trigTimeMs;
+                summary.edgeTimeMs = m_pendingLoadPerf.edgeTimeMs;
+                summary.adcLabelInitMs = m_pendingLoadPerf.adcLabelInitMs;
+                summary.adcViewportMs = m_pendingLoadPerf.adcViewportMs;
+                summary.adcHeightMs = m_pendingLoadPerf.adcHeightMs;
+                summary.adcRangeCollectMs = m_pendingLoadPerf.adcRangeCollectMs;
+                summary.adcBuildMs = m_pendingLoadPerf.adcBuildMs;
+                summary.adcSetDataMs = m_pendingLoadPerf.adcSetDataMs;
+                summary.adcExtensionMs = m_pendingLoadPerf.adcExtensionMs;
                 summary.slowestStage = m_pendingLoadPerf.slowestStage;
                 summary.replotMs = elapsed;
                 

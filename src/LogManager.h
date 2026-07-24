@@ -46,12 +46,27 @@ public:
         int gradPoints = 0;
         int trigPoints = 0;
         int edgePoints = 0;
+        qint64 rfTimeMs = 0;
+        qint64 adcTimeMs = 0;
+        qint64 gradTimeMs = 0;
+        qint64 trigTimeMs = 0;
+        qint64 edgeTimeMs = 0;
+        qint64 adcLabelInitMs = 0;
+        qint64 adcViewportMs = 0;
+        qint64 adcHeightMs = 0;
+        qint64 adcRangeCollectMs = 0;
+        qint64 adcBuildMs = 0;
+        qint64 adcSetDataMs = 0;
+        qint64 adcExtensionMs = 0;
         QString slowestStage;
 
         QString toLogString() const {
-            return QStringLiteral("type=load traceId=%1 reason=%2 totalMs=%3 parseMs=%4 decodeMs=%5 renderDataMs=%6 replotMs=%7 visibleBlocks=%8 pointsTotal=%9 rfPoints=%10 adcRectPoints=%11 adcPhasePoints=%12 gradPoints=%13 trigPoints=%14 edgePoints=%15 slowestStage=%16")
+            return QStringLiteral("type=load traceId=%1 reason=%2 totalMs=%3 parseMs=%4 decodeMs=%5 renderDataMs=%6 replotMs=%7 visibleBlocks=%8 pointsTotal=%9 rfPoints=%10 adcRectPoints=%11 adcPhasePoints=%12 gradPoints=%13 trigPoints=%14 edgePoints=%15 rfTimeMs=%16 adcTimeMs=%17 gradTimeMs=%18 trigTimeMs=%19 edgeTimeMs=%20 adcLabelInitMs=%21 adcViewportMs=%22 adcHeightMs=%23 adcRangeCollectMs=%24 adcBuildMs=%25 adcSetDataMs=%26 adcExtensionMs=%27 slowestStage=%28")
                 .arg(traceId, reason).arg(totalMs).arg(parseMs).arg(decodeMs).arg(renderDataMs).arg(replotMs).arg(visibleBlocks).arg(pointsTotal)
-                .arg(rfPoints).arg(adcRectPoints).arg(adcPhasePoints).arg(gradPoints).arg(trigPoints).arg(edgePoints).arg(slowestStage);
+                .arg(rfPoints).arg(adcRectPoints).arg(adcPhasePoints).arg(gradPoints).arg(trigPoints).arg(edgePoints)
+                .arg(rfTimeMs).arg(adcTimeMs).arg(gradTimeMs).arg(trigTimeMs).arg(edgeTimeMs)
+                .arg(adcLabelInitMs).arg(adcViewportMs).arg(adcHeightMs).arg(adcRangeCollectMs).arg(adcBuildMs).arg(adcSetDataMs).arg(adcExtensionMs)
+                .arg(slowestStage);
         }
     };
 

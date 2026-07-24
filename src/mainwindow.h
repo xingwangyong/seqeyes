@@ -202,6 +202,18 @@ public:
         int gradPoints = 0;
         int trigPoints = 0;
         int edgePoints = 0;
+        qint64 rfTimeMs = 0;
+        qint64 adcTimeMs = 0;
+        qint64 gradTimeMs = 0;
+        qint64 trigTimeMs = 0;
+        qint64 edgeTimeMs = 0;
+        qint64 adcLabelInitMs = 0;
+        qint64 adcViewportMs = 0;
+        qint64 adcHeightMs = 0;
+        qint64 adcRangeCollectMs = 0;
+        qint64 adcBuildMs = 0;
+        qint64 adcSetDataMs = 0;
+        qint64 adcExtensionMs = 0;
         QString slowestStage;
         bool hasRenderStats = false;
     };
@@ -213,12 +225,39 @@ public:
         m_pendingLoadPerf.decodeMs = decodeMs;
         m_pendingLoadPerf.startMs = startMs;
         m_pendingLoadPerf.hasRenderStats = false;
+        m_pendingLoadPerf.renderDataMs = 0;
+        m_pendingLoadPerf.visibleBlocks = 0;
+        m_pendingLoadPerf.totalPoints = 0;
+        m_pendingLoadPerf.rfPoints = 0;
+        m_pendingLoadPerf.adcRectPoints = 0;
+        m_pendingLoadPerf.adcPhasePoints = 0;
+        m_pendingLoadPerf.gradPoints = 0;
+        m_pendingLoadPerf.trigPoints = 0;
+        m_pendingLoadPerf.edgePoints = 0;
+        m_pendingLoadPerf.rfTimeMs = 0;
+        m_pendingLoadPerf.adcTimeMs = 0;
+        m_pendingLoadPerf.gradTimeMs = 0;
+        m_pendingLoadPerf.trigTimeMs = 0;
+        m_pendingLoadPerf.edgeTimeMs = 0;
+        m_pendingLoadPerf.adcLabelInitMs = 0;
+        m_pendingLoadPerf.adcViewportMs = 0;
+        m_pendingLoadPerf.adcHeightMs = 0;
+        m_pendingLoadPerf.adcRangeCollectMs = 0;
+        m_pendingLoadPerf.adcBuildMs = 0;
+        m_pendingLoadPerf.adcSetDataMs = 0;
+        m_pendingLoadPerf.adcExtensionMs = 0;
     }
     
     // Will be called by InteractionHandler or WaveformDrawer
     void recordInitialLoadRenderStats(qint64 totalTimeMs, int visBlocks, int pts, const QString& slowest,
                                       int rfPts = 0, int adcRectPts = 0, int adcPhasePts = 0,
-                                      int gradPts = 0, int trigPts = 0, int edgePts = 0) {
+                                      int gradPts = 0, int trigPts = 0, int edgePts = 0,
+                                      qint64 rfMs = 0, qint64 adcMs = 0, qint64 gradMs = 0,
+                                      qint64 trigMs = 0, qint64 edgeMs = 0,
+                                      qint64 adcLabelInitMs = 0, qint64 adcViewportMs = 0,
+                                      qint64 adcHeightMs = 0, qint64 adcRangeCollectMs = 0,
+                                      qint64 adcBuildMs = 0, qint64 adcSetDataMs = 0,
+                                      qint64 adcExtensionMs = 0) {
         if (m_pendingLoadPerf.active) {
             m_pendingLoadPerf.renderDataMs = totalTimeMs;
             m_pendingLoadPerf.visibleBlocks = visBlocks;
@@ -229,6 +268,18 @@ public:
             m_pendingLoadPerf.gradPoints = gradPts;
             m_pendingLoadPerf.trigPoints = trigPts;
             m_pendingLoadPerf.edgePoints = edgePts;
+            m_pendingLoadPerf.rfTimeMs = rfMs;
+            m_pendingLoadPerf.adcTimeMs = adcMs;
+            m_pendingLoadPerf.gradTimeMs = gradMs;
+            m_pendingLoadPerf.trigTimeMs = trigMs;
+            m_pendingLoadPerf.edgeTimeMs = edgeMs;
+            m_pendingLoadPerf.adcLabelInitMs = adcLabelInitMs;
+            m_pendingLoadPerf.adcViewportMs = adcViewportMs;
+            m_pendingLoadPerf.adcHeightMs = adcHeightMs;
+            m_pendingLoadPerf.adcRangeCollectMs = adcRangeCollectMs;
+            m_pendingLoadPerf.adcBuildMs = adcBuildMs;
+            m_pendingLoadPerf.adcSetDataMs = adcSetDataMs;
+            m_pendingLoadPerf.adcExtensionMs = adcExtensionMs;
             m_pendingLoadPerf.slowestStage = slowest;
             m_pendingLoadPerf.hasRenderStats = true;
         }

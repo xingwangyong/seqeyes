@@ -1182,6 +1182,23 @@ void WaveformDrawer::clearAllWaveformData()
 
 void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
 {
+    QElapsedTimer adcPerfTimer;
+    adcPerfTimer.start();
+    qint64 adcPerfLastMs = 0;
+    auto markAdcPerf = [&]() {
+        const qint64 nowMs = adcPerfTimer.elapsed();
+        const qint64 deltaMs = nowMs - adcPerfLastMs;
+        adcPerfLastMs = nowMs;
+        return deltaMs;
+    };
+    m_lastAdcLabelInitMs = 0;
+    m_lastAdcViewportMs = 0;
+    m_lastAdcHeightMs = 0;
+    m_lastAdcRangeCollectMs = 0;
+    m_lastAdcBuildMs = 0;
+    m_lastAdcSetDataMs = 0;
+    m_lastAdcExtensionMs = 0;
+
     PulseqLoader* loader = m_mainWindow->getPulseqLoader();
     if (loader->getDecodedSeqBlocks().empty()) return;
     
@@ -1195,6 +1212,7 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
             }
         }
     }
+    m_lastAdcLabelInitMs = markAdcPerf();
 
     // Determine visible viewport in internal time units
     if (m_vecRects.isEmpty() || !m_vecRects[0]) {
@@ -1224,6 +1242,7 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
 
     // Use simple LOD system
     LODLevel currentLODLevel = getCurrentLODLevel();
+    m_lastAdcViewportMs = markAdcPerf();
 
     // Compute unified ADC rectangle height based on label range across the sequence
     double adcHeight = 1.0; // default when no label exists
@@ -1246,6 +1265,7 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
         if (maxAbsLabel <= 0.0) maxAbsLabel = 1.0;
         adcHeight = maxAbsLabel * 1.2;
     }
+    m_lastAdcHeightMs = markAdcPerf();
 
     QVector<double> processedTime, processedValues;
 
@@ -1279,6 +1299,7 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
             adcRanges.append({std::max(tStart, visibleStart), std::min(tEnd, visibleEnd)});
         }
     }
+    m_lastAdcRangeCollectMs = markAdcPerf();
 
     auto appendAdcRect = [&](double t0, double t1) {
         if (t1 <= t0) return;
@@ -1341,6 +1362,7 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
             appendAdcRect(range.start, range.end);
         }
     }
+    m_lastAdcBuildMs = markAdcPerf();
     
     // Draw ADC rectangles using persistent graph
     if (m_graphADC) {
@@ -1359,6 +1381,7 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
             if (m_vecRects.size() > 0 && m_vecRects[0]) m_vecRects[0]->axis(QCPAxis::atLeft)->setRange(m_fixedYRanges[0].first, m_fixedYRanges[0].second);
         }
     }
+    m_lastAdcSetDataMs = markAdcPerf();
 
     // Extension labels overlay (SLC/REP/AVG...); controlled by Settings checkboxes.
     if (m_extensionPlotter)
@@ -1414,6 +1437,7 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
             }
         }
     }
+    m_lastAdcExtensionMs = markAdcPerf();
 
     // Trigger overlay is now drawn by DrawTriggerOverlay(), called independently
     // from ensureRenderedForCurrentViewport() so it works even when ADC data is empty.
@@ -2302,7 +2326,12 @@ WaveformDrawer::RenderStats WaveformDrawer::ensureRenderedForCurrentViewport()
         if (m_mainWindow->isInitialLoadPerfActive()) {
             m_mainWindow->recordInitialLoadRenderStats(totalTimeMs, visibleBlocks, totalPoints, slowestStage,
                                                        rfPoints, adcRectPoints, adcPhasePoints,
-                                                       gradPoints, trigPoints, edgePoints);
+                                                       gradPoints, trigPoints, edgePoints,
+                                                       rfTime, adcTime, gradTime, trigTime, edgeTime,
+                                                       m_lastAdcLabelInitMs, m_lastAdcViewportMs,
+                                                       m_lastAdcHeightMs, m_lastAdcRangeCollectMs,
+                                                       m_lastAdcBuildMs, m_lastAdcSetDataMs,
+                                                       m_lastAdcExtensionMs);
             m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "initial-load", m_mainWindow->currentInitialLoadTraceId());
         } else {
             QString traceId = "";
@@ -2326,15 +2355,24 @@ WaveformDrawer::RenderStats WaveformDrawer::ensureRenderedForCurrentViewport()
         stats.gradTimeMs = gradTime;
         stats.trigTimeMs = trigTime;
         stats.edgeTimeMs = edgeTime;
+        stats.adcLabelInitMs = m_lastAdcLabelInitMs;
+        stats.adcViewportMs = m_lastAdcViewportMs;
+        stats.adcHeightMs = m_lastAdcHeightMs;
+        stats.adcRangeCollectMs = m_lastAdcRangeCollectMs;
+        stats.adcBuildMs = m_lastAdcBuildMs;
+        stats.adcSetDataMs = m_lastAdcSetDataMs;
+        stats.adcExtensionMs = m_lastAdcExtensionMs;
         stats.slowestStage = slowestStage;
         
         QString lodStr = (getCurrentLODLevel() == LODLevel::DOWNSAMPLED) ? QStringLiteral("Downsampled") : QStringLiteral("Full");
         
         if (Settings::getInstance().getPerformanceDebugEnabled()) {
-            LOG_DEBUG_CAT("Performance", QStringLiteral("Render Viewport [%1, %2] LOD=%3 VisBlocks=%4 TotalPts=%5 (RF:%6ms/%7pts, ADC:%8ms/%9pts rect=%10 phase=%11, G:%12ms/%13pts, Trig:%14ms/%15pts, Edge:%16ms/%17pts)")
+            LOG_DEBUG_CAT("Performance", QStringLiteral("Render Viewport [%1, %2] LOD=%3 VisBlocks=%4 TotalPts=%5 (RF:%6ms/%7pts, ADC:%8ms/%9pts rect=%10 phase=%11 [labelInit=%12 viewport=%13 height=%14 ranges=%15 build=%16 setData=%17 ext=%18], G:%19ms/%20pts, Trig:%21ms/%22pts, Edge:%23ms/%24pts)")
                 .arg(range.lower).arg(range.upper).arg(lodStr).arg(visibleBlocks).arg(totalPoints)
                 .arg(rfTime).arg(rfPoints)
                 .arg(adcTime).arg(adcPoints).arg(adcRectPoints).arg(adcPhasePoints)
+                .arg(m_lastAdcLabelInitMs).arg(m_lastAdcViewportMs).arg(m_lastAdcHeightMs)
+                .arg(m_lastAdcRangeCollectMs).arg(m_lastAdcBuildMs).arg(m_lastAdcSetDataMs).arg(m_lastAdcExtensionMs)
                 .arg(gradTime).arg(gradPoints)
                 .arg(trigTime).arg(trigPoints)
                 .arg(edgeTime).arg(edgePoints));
