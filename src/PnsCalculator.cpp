@@ -13,6 +13,20 @@
 #include <QElapsedTimer>
 #include "LogManager.h"
 
+namespace {
+struct ScopedPnsParseTimer {
+    QElapsedTimer timer;
+    bool isSuccess = false;
+    ScopedPnsParseTimer() { timer.start(); }
+    ~ScopedPnsParseTimer() {
+        if (isSuccess)
+            LOG_DEBUG_CAT("Performance", QString("Hardware model parsing and preparation took %1 ms").arg(timer.elapsed()));
+        else
+            LOG_DEBUG_CAT("Performance", QString("Hardware model parsing failed after %1 ms").arg(timer.elapsed()));
+    }
+};
+}
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -858,8 +872,7 @@ double interpLinearZero(const WaveSeries& wave, double t)
 
 bool PnsCalculator::parseAscFile(const QString& ascPath, Hardware& outHardware, QString* errorMessage)
 {
-    QElapsedTimer perfTimer;
-    perfTimer.start();
+    ScopedPnsParseTimer perfTimer;
     outHardware = Hardware{};
     ParsedAscValues asc;
     QString err;
@@ -996,7 +1009,7 @@ bool PnsCalculator::parseAscFile(const QString& ascPath, Hardware& outHardware, 
     outHardware.z = z;
     outHardware.valid = true;
     
-    LOG_DEBUG_CAT("Performance", QString("Hardware model parsing and preparation took %1 ms").arg(perfTimer.restart()));
+    perfTimer.isSuccess = true;
     return true;
 }
 

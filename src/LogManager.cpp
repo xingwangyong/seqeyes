@@ -26,7 +26,7 @@ LogManager& LogManager::getInstance()
 
 LogManager::LogManager(QObject* parent)
     : QObject(parent)
-    , m_currentLevel(Settings::LogLevel::Info) // Default to Info level
+    , m_currentLevel(Settings::LogLevel::Info)
 {
     // Connect to settings changes
     Settings& settings = Settings::getInstance();
@@ -40,20 +40,33 @@ LogManager::LogManager(QObject* parent)
 
 void LogManager::setLogLevel(Settings::LogLevel level)
 {
-    if (m_currentLevel != level) {
-        m_currentLevel = level;
+    if (m_currentLevel.load(std::memory_order_relaxed) != level)
+    {
+        m_currentLevel.store(level, std::memory_order_relaxed);
         emit logLevelChanged(level);
     }
 }
 
 Settings::LogLevel LogManager::getLogLevel() const
 {
-    return m_currentLevel;
+    return m_currentLevel.load(std::memory_order_relaxed);
+}
+
+QStringList LogManager::getBufferedLines() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_lines;
+}
+
+QVector<LogManager::LogEntry> LogManager::getBufferedEntries() const
+{
+    QMutexLocker locker(&m_mutex);
+    return m_entries;
 }
 
 bool LogManager::shouldLog(Settings::LogLevel messageLevel) const
 {
-    return static_cast<int>(messageLevel) <= static_cast<int>(m_currentLevel);
+    return static_cast<int>(messageLevel) <= static_cast<int>(m_currentLevel.load(std::memory_order_relaxed));
 }
 
 void LogManager::appendEntryInternal(QtMsgType type,
@@ -92,20 +105,25 @@ void LogManager::appendEntryInternal(QtMsgType type,
         line += QStringLiteral(" (%1)").arg(file);
     }
 
-    m_lines.append(line);
     LogEntry e;
     e.timestamp = ts;
     e.level = levelStr;
     e.category = category;
     e.message = message;
     e.file = file;
-    m_entries.append(e);
-    if (m_lines.size() > m_maxLines)
+
     {
-        m_lines.removeFirst();
-        if (!m_entries.isEmpty())
-            m_entries.removeFirst();
-    }
+        QMutexLocker locker(&m_mutex);
+        m_entries.append(e);
+        m_lines.append(line);
+
+        if (m_lines.size() > m_maxLines)
+        {
+            m_lines.removeFirst();
+            if (!m_entries.isEmpty())
+                m_entries.removeFirst();
+        }
+    } // unlock before emitting signals
 
     emit logLineAppended(line);
     emit logEntryAppended(e.timestamp, e.level, e.category, e.message, e.file);

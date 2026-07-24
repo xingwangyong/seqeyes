@@ -3,9 +3,10 @@
 
 #include <QObject>
 #include <QDebug>
-#include <QtGlobal>
 #include <QStringList>
 #include <QVector>
+#include <QMutex>
+#include <atomic>
 #include "Settings.h"
 
 class LogManager : public QObject
@@ -43,8 +44,8 @@ public:
                           const QString& file = QString());
 
     // Return the in‑memory log buffer (oldest first).
-    QStringList getBufferedLines() const { return m_lines; }
-    QVector<LogEntry> getBufferedEntries() const { return m_entries; }
+    QStringList getBufferedLines() const;
+    QVector<LogEntry> getBufferedEntries() const;
 
 signals:
     void logLevelChanged(Settings::LogLevel level);
@@ -64,7 +65,7 @@ private:
     LogManager(const LogManager&) = delete;
     LogManager& operator=(const LogManager&) = delete;
     
-    Settings::LogLevel m_currentLevel;
+    std::atomic<Settings::LogLevel> m_currentLevel;
     
     // Helper method to check if message should be logged
     bool shouldLog(Settings::LogLevel messageLevel) const;
@@ -78,6 +79,8 @@ private:
     QStringList m_lines;
     QVector<LogEntry> m_entries;
     int m_maxLines = 5000;
+    
+    mutable QMutex m_mutex;
 };
 
 // Convenience macros for easier logging

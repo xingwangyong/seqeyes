@@ -42,25 +42,30 @@ bool PulseqLoadTransaction::prepare(const QString& path)
     QElapsedTimer stageTimer;
     stageTimer.start();
     
-    if (!m_loader.readAndCreateVersionedLoader(path, m_staged, &m_error))
-        return false;
+    bool ok = m_loader.readAndCreateVersionedLoader(path, m_staged, &m_error);
     LOG_DEBUG_CAT("Performance", QString("readAndCreateVersionedLoader took %1 ms").arg(stageTimer.restart()));
-
-    if (!m_loader.loadParserFile(path, m_staged, &m_error))
+    if (!ok)
         return false;
+
+    ok = m_loader.loadParserFile(path, m_staged, &m_error);
     LOG_DEBUG_CAT("Performance", QString("loadParserFile took %1 ms").arg(stageTimer.restart()));
-
-    if (!m_loader.validateRequiredDefinitions(m_staged, &m_error))
+    if (!ok)
         return false;
+
+    ok = m_loader.validateRequiredDefinitions(m_staged, &m_error);
     LOG_DEBUG_CAT("Performance", QString("validateRequiredDefinitions took %1 ms").arg(stageTimer.restart()));
-
-    if (!m_loader.decodeBlocks(m_staged, &m_error))
+    if (!ok)
         return false;
+
+    ok = m_loader.decodeBlocks(m_staged, &m_error);
     LOG_DEBUG_CAT("Performance", QString("decodeBlocks took %1 ms").arg(stageTimer.restart()));
-
-    if (!m_loader.stageLoadedDerivedState(m_staged, &m_error))
+    if (!ok)
         return false;
+
+    ok = m_loader.stageLoadedDerivedState(m_staged, &m_error);
     LOG_DEBUG_CAT("Performance", QString("stageLoadedDerivedState took %1 ms").arg(stageTimer.restart()));
+    if (!ok)
+        return false;
 
     return true;
 }
