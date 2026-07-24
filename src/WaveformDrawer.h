@@ -15,7 +15,6 @@ class ExtensionPlotter;
 
 // Forward declarations
 class MainWindow;
-class PulseqLabelAnalyzer;
 class QCPAxisRect;
 class QCPItemTracer;
 class QCPItemStraightLine;
@@ -300,7 +299,6 @@ private:
 
     // Extension labels overlay (SLC/REP/AVG...)
     std::unique_ptr<ExtensionPlotter> m_extensionPlotter;
-    std::unique_ptr<PulseqLabelAnalyzer> m_labelAnalyzer;
 
     // Fixed Y-axis ranges per rect (0..9). When locked, draw functions won't adjust Y ranges dynamically.
     bool m_lockYAxisRanges {false};
@@ -336,7 +334,6 @@ public:
     static constexpr bool DEBUG_GRADIENT_LIBRARY = false;      // Gradient library debug output
     static constexpr bool DEBUG_GRADIENT_DRAWING = false;      // Gradient drawing debug output
     static constexpr bool DEBUG_GRADIENT_EVENTS = false;       // Gradient events debug output
-    static constexpr bool DEBUG_LABEL_EVENTS = false;          // Label events debug output
     
     // LOD System Debug Controls
     static constexpr bool DEBUG_LOD_SYSTEM = true;            // LOD system debug output
