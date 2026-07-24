@@ -63,6 +63,7 @@ set(SEQEYES_TEST_APP_SOURCES
     ${PROJECT_SOURCE_DIR}/src/M1Calculator.cpp
     ${PROJECT_SOURCE_DIR}/src/Settings.cpp
     ${PROJECT_SOURCE_DIR}/src/SettingsDialog.cpp
+    ${PROJECT_SOURCE_DIR}/src/RuntimeContext.cpp
     ${PROJECT_SOURCE_DIR}/src/TRManager.cpp
     ${PROJECT_SOURCE_DIR}/src/WaveformDrawer.cpp
     ${PROJECT_SOURCE_DIR}/src/ExtensionPlotter.cpp
