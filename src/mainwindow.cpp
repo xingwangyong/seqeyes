@@ -2828,6 +2828,12 @@ void MainWindow::onAfterReplot()
                 summary.visibleBlocks = m_pendingLoadPerf.visibleBlocks;
                 summary.pointsTotal = m_pendingLoadPerf.totalPoints;
                 summary.rfPoints = m_pendingLoadPerf.rfPoints;
+                summary.rfMagPoints = m_pendingLoadPerf.rfMagPoints;
+                summary.rfPhasePoints = m_pendingLoadPerf.rfPhasePoints;
+                summary.rfMagChannels = m_pendingLoadPerf.rfMagChannels;
+                summary.rfPhaseChannels = m_pendingLoadPerf.rfPhaseChannels;
+                summary.rfMagMaxPoints = m_pendingLoadPerf.rfMagMaxPoints;
+                summary.rfPhaseMaxPoints = m_pendingLoadPerf.rfPhaseMaxPoints;
                 summary.adcRectPoints = m_pendingLoadPerf.adcRectPoints;
                 summary.adcPhasePoints = m_pendingLoadPerf.adcPhasePoints;
                 summary.gradPoints = m_pendingLoadPerf.gradPoints;

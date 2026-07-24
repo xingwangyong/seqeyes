@@ -3986,6 +3986,126 @@ void PulseqLoader::getGradViewportDecimated(int channel, double visibleStart, do
         if (pppTotal <= 2.0) allowDecimateGrad = false;
     }
 
+    const int finalPointBudget = std::max(1, pixelWidth * 8);
+    const bool forceGlobalEnvelope = allowDecimateGrad && totalGradSamples > finalPointBudget;
+    if (forceGlobalEnvelope) {
+        struct Bucket {
+            bool used = false;
+            double minValue = std::numeric_limits<double>::infinity();
+            double maxValue = -std::numeric_limits<double>::infinity();
+        };
+
+        const int bucketCount = std::max(1, pixelWidth);
+        QVector<Bucket> buckets(bucketCount);
+
+        auto addEnvelope = [&](double t0, double t1, double low, double high) {
+            if (t1 <= visibleStart || t0 >= visibleEnd)
+                return;
+            const double clippedStart = std::max(t0, visibleStart);
+            const double clippedEnd = std::min(t1, visibleEnd);
+            if (clippedEnd <= clippedStart)
+                return;
+
+            int b0 = static_cast<int>(std::floor((clippedStart - visibleStart) / window * bucketCount));
+            int b1 = static_cast<int>(std::ceil((clippedEnd - visibleStart) / window * bucketCount)) - 1;
+            b0 = std::max(0, std::min(bucketCount - 1, b0));
+            b1 = std::max(0, std::min(bucketCount - 1, b1));
+
+            const double bucketLow = std::min(low, high);
+            const double bucketHigh = std::max(low, high);
+            for (int b = b0; b <= b1; ++b) {
+                Bucket& bucket = buckets[b];
+                bucket.used = true;
+                bucket.minValue = std::min(bucket.minValue, bucketLow);
+                bucket.maxValue = std::max(bucket.maxValue, bucketHigh);
+            }
+        };
+
+        for (int i = startBlock; i <= endBlock; ++i) {
+            SeqBlock* blk = m_vecDecodeSeqBlocks[i];
+            if (!blk) continue;
+
+            const bool hasGradient = blk->isTrapGradient(channel) ||
+                                     blk->isArbitraryGradient(channel) ||
+                                     blk->isExtTrapGradient(channel);
+            if (!hasGradient) continue;
+
+            const GradEvent& grad = blk->GetGradEvent(channel);
+            const double tStart = vecBlockEdges[i] + grad.delay * tFactor;
+
+            if (blk->isTrapGradient(channel)) {
+                const double t0 = tStart;
+                const double t1 = t0 + grad.rampUpTime * tFactor + grad.flatTime * tFactor + grad.rampDownTime * tFactor;
+                addEnvelope(t0, t1, 0.0, grad.amplitude);
+                continue;
+            }
+
+            if (blk->isArbitraryGradient(channel)) {
+                const int numSamples = blk->GetArbGradNumSamples(channel);
+                const float* shapePtr = blk->GetArbGradShapePtr(channel);
+                if (numSamples <= 0 || !shapePtr) continue;
+
+                const GradShapeEntry& entry = ensureGradCached(shapePtr, numSamples, grad.waveShape, grad.timeShape);
+                if (!m_spPulseqSeq) return;
+                const std::vector<double> def = m_spPulseqSeq->GetDefinition("GradientRasterTime");
+                if (def.empty() || !std::isfinite(def[0]) || def[0] <= 0.0) return;
+
+                const double dt = def[0] * 1e6 * tFactor;
+                const bool oversampled = blk->isArbGradWithOversampling(channel) || (grad.timeShape == -1);
+                const double duration = oversampled
+                    ? (static_cast<double>(numSamples) + 1.0) * 0.5 * dt
+                    : static_cast<double>(numSamples) * dt;
+                const double low = std::min(entry.vMin * double(grad.amplitude), entry.vMax * double(grad.amplitude));
+                const double high = std::max(entry.vMin * double(grad.amplitude), entry.vMax * double(grad.amplitude));
+                addEnvelope(tStart, tStart + duration, low, high);
+                continue;
+            }
+
+            if (blk->isExtTrapGradient(channel)) {
+                const std::vector<long>& times = blk->GetExtTrapGradTimes(channel);
+                const std::vector<float>& shape = blk->GetExtTrapGradShape(channel);
+                if (times.empty() || shape.empty() || times.size() != shape.size()) continue;
+
+                double low = std::numeric_limits<double>::infinity();
+                double high = -std::numeric_limits<double>::infinity();
+                const int n = static_cast<int>(shape.size());
+                const int stride = std::max(1, n / std::max(1, pixelWidth * 2));
+                for (int j = 0; j < n; j += stride) {
+                    const double v = double(shape[j]) * double(grad.amplitude);
+                    low = std::min(low, v);
+                    high = std::max(high, v);
+                }
+                const double firstV = double(shape.front()) * double(grad.amplitude);
+                const double lastV = double(shape.back()) * double(grad.amplitude);
+                low = std::min(low, std::min(firstV, lastV));
+                high = std::max(high, std::max(firstV, lastV));
+                if (!std::isfinite(low) || !std::isfinite(high)) continue;
+
+                const double t0 = tStart + double(times.front()) * tFactor;
+                const double t1 = tStart + double(times.back()) * tFactor;
+                addEnvelope(t0, t1, low, high);
+                continue;
+            }
+        }
+
+        tOut.reserve(bucketCount * 3);
+        vOut.reserve(bucketCount * 3);
+        const double bucketWidth = window / bucketCount;
+        for (int b = 0; b < bucketCount; ++b) {
+            const Bucket& bucket = buckets[b];
+            if (!bucket.used) continue;
+
+            const double t = visibleStart + (double(b) + 0.5) * bucketWidth;
+            tOut.append(t);
+            vOut.append(bucket.minValue);
+            tOut.append(t);
+            vOut.append(bucket.maxValue);
+            tOut.append(t);
+            vOut.append(std::numeric_limits<double>::quiet_NaN());
+        }
+        return;
+    }
+
     struct Segment {
         QVector<double> t;
         QVector<double> v;

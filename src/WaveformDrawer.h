@@ -71,6 +71,12 @@ public:
         int gradPoints = 0;
         int trigPoints = 0;
         int edgePoints = 0;
+        int rfMagPoints = 0;
+        int rfPhasePoints = 0;
+        int rfMagChannels = 0;
+        int rfPhaseChannels = 0;
+        int rfMagMaxPoints = 0;
+        int rfPhaseMaxPoints = 0;
         qint64 totalTimeMs = 0;
         qint64 replotTimeMs = 0;
         qint64 rfTimeMs = 0;
@@ -277,6 +283,14 @@ private:
     void applyMinMaxDownsampling(const QVector<double>& time, const QVector<double>& values,
                                  int pixelBuckets,
                                  QVector<double>& outTime, QVector<double>& outValues);
+    bool applyFinalPixelBudgetEnvelope(const QVector<double>& time,
+                                       const QVector<double>& values,
+                                       double visibleStart,
+                                       double visibleEnd,
+                                       int pixelWidth,
+                                       int pointsPerPixel,
+                                       QVector<double>& outTime,
+                                       QVector<double>& outValues) const;
     
     // Simple LOD data generation
     bool isComplexCurve(const class SeqBlock& block, int channel = -1); // -1 for RF

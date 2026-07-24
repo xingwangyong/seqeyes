@@ -1092,13 +1092,26 @@ void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
         QCPGraph* graph = m_graphRFMagChannels[i];
         if (!graph) continue;
         if (i < rfViewport.ampTimeByChannel.size()) {
-            graph->setData(rfViewport.ampTimeByChannel[i], rfViewport.ampValueByChannel[i]);
-            graph->setVisible(m_curveVisibility.value(1, true) && !rfViewport.ampTimeByChannel[i].isEmpty());
+            QVector<double> tAmp = rfViewport.ampTimeByChannel[i];
+            QVector<double> vAmp = rfViewport.ampValueByChannel[i];
+            QVector<double> tAmpCapped, vAmpCapped;
+            if (applyFinalPixelBudgetEnvelope(tAmp, vAmp, visibleStart, visibleEnd, pxRF, 8, tAmpCapped, vAmpCapped)) {
+                tAmp = std::move(tAmpCapped);
+                vAmp = std::move(vAmpCapped);
+            }
+            rfViewport.ampTimeByChannel[i] = tAmp;
+            rfViewport.ampValueByChannel[i] = vAmp;
+            graph->setData(tAmp, vAmp);
+            graph->setVisible(m_curveVisibility.value(1, true) && !tAmp.isEmpty());
         } else {
             graph->setData(QVector<double>(), QVector<double>());
             graph->setVisible(false);
         }
     }
+    // TODO(perf): RF phase and ADC phase need their own budget strategy. Do not
+    // apply min/max envelopes directly to wrapped phase data; crossing -pi/pi
+    // would create false full-height spikes. Use unwrap-aware reduction or
+    // stride/representative sampling if phase point counts become a bottleneck.
     for (int i = 0; i < m_graphRFPhChannels.size(); ++i) {
         QCPGraph* graph = m_graphRFPhChannels[i];
         if (!graph) continue;
@@ -1575,6 +1588,12 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
                     if (!std::isnan(v)) vG[i] = s.convertGradient(v, "Hz/m", toUnit);
                 }
             }
+        }
+
+        QVector<double> tGCapped, vGCapped;
+        if (applyFinalPixelBudgetEnvelope(tG, vG, visibleStart, visibleEnd, px, 8, tGCapped, vGCapped)) {
+            tG = std::move(tGCapped);
+            vG = std::move(vGCapped);
         }
 
         QCPGraph* target = (channel == 0 ? m_graphGx : (channel == 1 ? m_graphGy : m_graphGz));
@@ -2247,15 +2266,28 @@ WaveformDrawer::RenderStats WaveformDrawer::ensureRenderedForCurrentViewport()
         
         qint64 rfTime = 0, adcTime = 0, gradTime = 0, trigTime = 0, edgeTime = 0;
         int rfPoints = 0, adcPoints = 0, gradPoints = 0, trigPoints = 0, edgePoints = 0;
+        int rfMagPoints = 0, rfPhasePoints = 0;
+        int rfMagChannels = 0, rfPhaseChannels = 0;
+        int rfMagMaxPoints = 0, rfPhaseMaxPoints = 0;
 
         // Redraw visible content for all channels based on the current viewport
         stageTimer.restart();
         DrawRFWaveform();
         rfTime = stageTimer.restart();
-        rfPoints += (m_graphRFMag && m_graphRFMag->data() ? m_graphRFMag->data()->size() : 0);
-        rfPoints += (m_graphRFPh && m_graphRFPh->data() ? m_graphRFPh->data()->size() : 0);
-        for (auto* g : m_graphRFMagChannels) rfPoints += (g && g->data() ? g->data()->size() : 0);
-        for (auto* g : m_graphRFPhChannels) rfPoints += (g && g->data() ? g->data()->size() : 0);
+        auto countGraphPoints = [](QCPGraph* graph, int& total, int& channels, int& maxPoints) {
+            const int points = (graph && graph->data()) ? graph->data()->size() : 0;
+            if (points <= 0) {
+                return;
+            }
+            total += points;
+            ++channels;
+            maxPoints = std::max(maxPoints, points);
+        };
+        countGraphPoints(m_graphRFMag, rfMagPoints, rfMagChannels, rfMagMaxPoints);
+        countGraphPoints(m_graphRFPh, rfPhasePoints, rfPhaseChannels, rfPhaseMaxPoints);
+        for (auto* g : m_graphRFMagChannels) countGraphPoints(g, rfMagPoints, rfMagChannels, rfMagMaxPoints);
+        for (auto* g : m_graphRFPhChannels) countGraphPoints(g, rfPhasePoints, rfPhaseChannels, rfPhaseMaxPoints);
+        rfPoints = rfMagPoints + rfPhasePoints;
 
         DrawADCWaveform();
         adcTime = stageTimer.restart();
@@ -2305,7 +2337,10 @@ WaveformDrawer::RenderStats WaveformDrawer::ensureRenderedForCurrentViewport()
 
         if (m_mainWindow->isInitialLoadPerfActive()) {
             m_mainWindow->recordInitialLoadRenderStats(totalTimeMs, visibleBlocks, totalPoints, slowestStage,
-                                                       rfPoints, adcRectPoints, adcPhasePoints,
+                                                       rfPoints, rfMagPoints, rfPhasePoints,
+                                                       rfMagChannels, rfPhaseChannels,
+                                                       rfMagMaxPoints, rfPhaseMaxPoints,
+                                                       adcRectPoints, adcPhasePoints,
                                                        gradPoints, trigPoints, edgePoints,
                                                        rfTime, adcTime, gradTime, trigTime, edgeTime,
                                                        m_lastAdcLabelInitMs, m_lastAdcViewportMs,
@@ -2325,6 +2360,12 @@ WaveformDrawer::RenderStats WaveformDrawer::ensureRenderedForCurrentViewport()
         stats.visibleBlocks = visibleBlocks;
         stats.totalPoints = totalPoints;
         stats.rfPoints = rfPoints;
+        stats.rfMagPoints = rfMagPoints;
+        stats.rfPhasePoints = rfPhasePoints;
+        stats.rfMagChannels = rfMagChannels;
+        stats.rfPhaseChannels = rfPhaseChannels;
+        stats.rfMagMaxPoints = rfMagMaxPoints;
+        stats.rfPhaseMaxPoints = rfPhaseMaxPoints;
         stats.adcRectPoints = adcRectPoints;
         stats.adcPhasePoints = adcPhasePoints;
         stats.gradPoints = gradPoints;
@@ -2347,9 +2388,10 @@ WaveformDrawer::RenderStats WaveformDrawer::ensureRenderedForCurrentViewport()
         QString lodStr = (getCurrentLODLevel() == LODLevel::DOWNSAMPLED) ? QStringLiteral("Downsampled") : QStringLiteral("Full");
         
         if (Settings::getInstance().getPerformanceDebugEnabled()) {
-            LOG_DEBUG_CAT("Performance", QStringLiteral("Render Viewport [%1, %2] LOD=%3 VisBlocks=%4 TotalPts=%5 (RF:%6ms/%7pts, ADC:%8ms/%9pts rect=%10 phase=%11 [labelInit=%12 viewport=%13 height=%14 ranges=%15 build=%16 setData=%17 ext=%18], G:%19ms/%20pts, Trig:%21ms/%22pts, Edge:%23ms/%24pts)")
+            LOG_DEBUG_CAT("Performance", QStringLiteral("Render Viewport [%1, %2] LOD=%3 VisBlocks=%4 TotalPts=%5 (RF:%6ms/%7pts mag=%8 phase=%9 magCh=%10 phaseCh=%11 magMax=%12 phaseMax=%13, ADC:%14ms/%15pts rect=%16 phase=%17 [labelInit=%18 viewport=%19 height=%20 ranges=%21 build=%22 setData=%23 ext=%24], G:%25ms/%26pts, Trig:%27ms/%28pts, Edge:%29ms/%30pts)")
                 .arg(range.lower).arg(range.upper).arg(lodStr).arg(visibleBlocks).arg(totalPoints)
-                .arg(rfTime).arg(rfPoints)
+                .arg(rfTime).arg(rfPoints).arg(rfMagPoints).arg(rfPhasePoints)
+                .arg(rfMagChannels).arg(rfPhaseChannels).arg(rfMagMaxPoints).arg(rfPhaseMaxPoints)
                 .arg(adcTime).arg(adcPoints).arg(adcRectPoints).arg(adcPhasePoints)
                 .arg(m_lastAdcLabelInitMs).arg(m_lastAdcViewportMs).arg(m_lastAdcHeightMs)
                 .arg(m_lastAdcRangeCollectMs).arg(m_lastAdcBuildMs).arg(m_lastAdcSetDataMs).arg(m_lastAdcExtensionMs)
@@ -2584,6 +2626,73 @@ void WaveformDrawer::applyMinMaxDownsampling(const QVector<double>& time, const 
         }
         idx = j;
     }
+}
+
+bool WaveformDrawer::applyFinalPixelBudgetEnvelope(const QVector<double>& time,
+                                                   const QVector<double>& values,
+                                                   double visibleStart,
+                                                   double visibleEnd,
+                                                   int pixelWidth,
+                                                   int pointsPerPixel,
+                                                   QVector<double>& outTime,
+                                                   QVector<double>& outValues) const
+{
+    outTime.clear();
+    outValues.clear();
+    if (time.isEmpty() || values.isEmpty() || time.size() != values.size())
+        return false;
+    if (pixelWidth <= 0 || pointsPerPixel <= 0 || visibleEnd <= visibleStart)
+        return false;
+
+    const int pointBudget = pixelWidth * pointsPerPixel;
+    if (time.size() <= pointBudget)
+        return false;
+
+    struct Bucket {
+        bool used = false;
+        double minValue = std::numeric_limits<double>::infinity();
+        double maxValue = -std::numeric_limits<double>::infinity();
+    };
+
+    const int bucketCount = qMax(1, pixelWidth);
+    QVector<Bucket> buckets(bucketCount);
+    const double window = visibleEnd - visibleStart;
+
+    for (int i = 0; i < time.size(); ++i) {
+        const double t = time[i];
+        const double v = values[i];
+        if (!std::isfinite(t) || !std::isfinite(v))
+            continue;
+        if (t < visibleStart || t > visibleEnd)
+            continue;
+
+        int bucketIndex = static_cast<int>(std::floor((t - visibleStart) / window * bucketCount));
+        bucketIndex = std::max(0, std::min(bucketCount - 1, bucketIndex));
+
+        Bucket& bucket = buckets[bucketIndex];
+        bucket.used = true;
+        bucket.minValue = std::min(bucket.minValue, v);
+        bucket.maxValue = std::max(bucket.maxValue, v);
+    }
+
+    outTime.reserve(bucketCount * 3);
+    outValues.reserve(bucketCount * 3);
+    const double bucketWidth = window / bucketCount;
+    for (int b = 0; b < bucketCount; ++b) {
+        const Bucket& bucket = buckets[b];
+        if (!bucket.used)
+            continue;
+
+        const double x = visibleStart + (static_cast<double>(b) + 0.5) * bucketWidth;
+        outTime.append(x);
+        outValues.append(bucket.minValue);
+        outTime.append(x);
+        outValues.append(bucket.maxValue);
+        outTime.append(x);
+        outValues.append(std::numeric_limits<double>::quiet_NaN());
+    }
+
+    return !outTime.isEmpty();
 }
 
 // Simple LOD system - no complex precomputation needed
