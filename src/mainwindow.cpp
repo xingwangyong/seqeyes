@@ -407,7 +407,7 @@ MainWindow::MainWindow(QWidget* parent)
             m_waveformDrawer->computeAndLockYAxisRanges();
             m_waveformDrawer->DrawGWaveform();
             if (ui && ui->customPlot)
-                ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+                requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
         }
         updatePnsStatusIndicator();
     });
@@ -417,7 +417,7 @@ MainWindow::MainWindow(QWidget* parent)
             m_waveformDrawer->computeAndLockYAxisRanges();
             m_waveformDrawer->DrawGWaveform();
             if (ui && ui->customPlot)
-                ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+                requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
         }
     });
     connect(m_pulseqLoader, &PulseqLoader::trajectoryDataUpdated, this, [this]() {
@@ -449,7 +449,7 @@ MainWindow::MainWindow(QWidget* parent)
         refreshTrajectoryCursor();
         updateTrajectoryExportState();
         if (ui && ui->customPlot)
-            ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
     });
     connect(m_pulseqLoader, &PulseqLoader::trajectoryStateChanged, this, [this]() {
         updateTrajectoryExportState();
@@ -796,6 +796,9 @@ void MainWindow::InitSlots()
     {
         ui->actionAbout->setMenuRole(QAction::AboutRole);
     }
+
+    connect(ui->customPlot, &QCustomPlot::beforeReplot, this, &MainWindow::onBeforeReplot);
+    connect(ui->customPlot, &QCustomPlot::afterReplot, this, &MainWindow::onAfterReplot);
 
     // File Menu
     connect(ui->actionOpen, &QAction::triggered, this, &MainWindow::onActionOpenTriggered);
@@ -2684,7 +2687,7 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
             return image.save(path);
         };
 
-        auto savePlotDeterministic = [savePlotViaPainter](QCustomPlot* plot, const QString& path, int width, int height) -> bool {
+        auto savePlotDeterministic = [this, savePlotViaPainter](QCustomPlot* plot, const QString& path, int width, int height) -> bool {
             if (!plot) {
                 return false;
             }
@@ -2728,7 +2731,7 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
                 m_interactionHandler->synchronizeXAxes(QCPRange(startMs * tf * 1000.0, endMs * tf * 1000.0));
             }
         }
-        ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+        requestReplot(QCustomPlot::rpImmediateRefresh, "unknown", "");
 
         QString seqPath = dir.absoluteFilePath(baseName + "_seq.png");
         if (savePlotDeterministic(ui->customPlot, seqPath, 1000, 600)) {
@@ -2754,4 +2757,98 @@ void MainWindow::captureSnapshotsAndExit(const QString& outDir)
             QApplication::quit();
         });
     });
+}
+
+void MainWindow::requestReplot(QCustomPlot::RefreshPriority priority, const QString& reason, const QString& traceId, qint64 parseMs, qint64 decodeMs)
+{
+    if (ui && ui->customPlot) {
+        ReplotContext ctx;
+        ctx.reason = reason;
+        ctx.traceId = traceId;
+        ctx.parseMs = parseMs;
+        ctx.decodeMs = decodeMs;
+        ctx.requestTime = QDateTime::currentMSecsSinceEpoch();
+        m_pendingReplots.append(ctx);
+        ui->customPlot->replot(priority);
+    }
+}
+
+void MainWindow::onBeforeReplot()
+{
+    // If there are pending contexts, merge based on reason priority
+    if (!m_pendingReplots.isEmpty()) {
+        auto getPriority = [](const QString& reason) {
+            if (reason == "initial-load") return 100;
+            if (reason == "zoom-final") return 90;
+            if (reason == "zoom-deferred" || reason == "deferred-render") return 80;
+            if (reason == "interaction") return 70;
+            if (reason == "pns-update" || reason == "m1-update") return 60;
+            return 0; // unknown
+        };
+        
+        m_activeReplotContext = m_pendingReplots.first();
+        int maxPrio = getPriority(m_activeReplotContext.reason);
+        
+        for (const auto& ctx : m_pendingReplots) {
+            int prio = getPriority(ctx.reason);
+            if (prio > maxPrio) {
+                m_activeReplotContext = ctx;
+                maxPrio = prio;
+            } else if (prio == maxPrio && ctx.reason == "initial-load") {
+                m_activeReplotContext.parseMs = qMax(m_activeReplotContext.parseMs, ctx.parseMs);
+                m_activeReplotContext.decodeMs = qMax(m_activeReplotContext.decodeMs, ctx.decodeMs);
+            }
+        }
+        m_pendingReplots.clear();
+    } else {
+        m_activeReplotContext = ReplotContext{"", "unknown", QDateTime::currentMSecsSinceEpoch(), 0, 0};
+    }
+}
+
+void MainWindow::onAfterReplot()
+{
+    qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - m_activeReplotContext.requestTime;
+    
+    // Add time to the active Interaction session if applicable
+    if (m_interactionHandler && !m_activeReplotContext.traceId.isEmpty() && m_interactionHandler->currentInteractionTraceId() == m_activeReplotContext.traceId) {
+        m_interactionHandler->recordReplotTime(elapsed);
+    }
+    
+    if (m_activeReplotContext.reason == "initial-load" && !m_activeReplotContext.traceId.isEmpty()) {
+        if (m_pendingLoadPerf.active && m_pendingLoadPerf.traceId == m_activeReplotContext.traceId) {
+            if (!m_pendingLoadPerf.hasRenderStats) {
+                LOG_DEBUG_CAT("Performance", "initial-load replot finished but render stats missing");
+            } else {
+                LogManager::PerfLoadSummary summary;
+                summary.traceId = m_activeReplotContext.traceId;
+                summary.reason = m_activeReplotContext.reason;
+                summary.parseMs = m_pendingLoadPerf.parseMs;
+                summary.decodeMs = m_pendingLoadPerf.decodeMs;
+                summary.renderDataMs = m_pendingLoadPerf.renderDataMs;
+                summary.visibleBlocks = m_pendingLoadPerf.visibleBlocks;
+                summary.pointsTotal = m_pendingLoadPerf.totalPoints;
+                summary.slowestStage = m_pendingLoadPerf.slowestStage;
+                summary.replotMs = elapsed;
+                
+                // Use actual wall-clock total time
+                qint64 wallClockMs = QDateTime::currentMSecsSinceEpoch() - m_pendingLoadPerf.startMs;
+                summary.totalMs = wallClockMs;
+                
+                LOG_INFO_CAT("Performance", summary.toLogString());
+                
+                // Clear the active load perf context since it has been consumed
+                m_pendingLoadPerf.active = false;
+            }
+        }
+    }
+    
+    if (Settings::getInstance().getPerformanceDebugEnabled()) {
+        if (!m_activeReplotContext.traceId.isEmpty()) {
+            LOG_DEBUG_CAT("Performance", QString("Replot [%1] %2 completed in %3 ms")
+                .arg(m_activeReplotContext.reason)
+                .arg(m_activeReplotContext.traceId)
+                .arg(elapsed));
+        }
+    }
+    m_activeReplotContext = ReplotContext{"", "", 0};
 }

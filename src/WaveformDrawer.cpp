@@ -8,6 +8,7 @@
 #include "TRManager.h"
 #include "PulseqLabelAnalyzer.h"
 #include "ExtensionPlotter.h"
+#include "LogManager.h"
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -315,7 +316,7 @@ void WaveformDrawer::InitSequenceFigure()
             DrawADCWaveform();
             DrawGWaveform();
             if (getShowBlockEdges()) DrawBlockEdges();
-            m_mainWindow->ui->customPlot->replot();
+            m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
         });
     }
 
@@ -755,7 +756,7 @@ void WaveformDrawer::showDropIndicatorAt(int index)
         QBrush bg = (r == index) ? QBrush(QColor(235, 242, 255)) : QBrush(Qt::NoBrush);
         rect->setBackground(bg);
     }
-    m_mainWindow->ui->customPlot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
 void WaveformDrawer::clearDropIndicator()
@@ -771,7 +772,7 @@ void WaveformDrawer::clearDropIndicator()
             if (rect) rect->setBackground(QBrush(Qt::NoBrush));
         }
     }
-    m_mainWindow->ui->customPlot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
 QString WaveformDrawer::defaultLabelForRect(int layoutRowIndex) const
@@ -800,14 +801,14 @@ void WaveformDrawer::startAxisDragVisual(int sourceIndex, const QPoint& startPos
     m_dragGhost->setPen(QPen(QColor(100, 100, 255)));
     m_dragGhost->setText(defaultLabelForRect(sourceIndex));
     m_dragGhost->setVisible(true);
-    plot->replot(QCustomPlot::rpQueuedReplot);
+    m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
 }
 
 void WaveformDrawer::updateAxisDragVisual(int yInPlot)
 {
     if (!m_dragGhost) return;
     m_dragGhost->position->setCoords(10, yInPlot);
-    m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+    m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
 }
 
 void WaveformDrawer::finishAxisDragVisual()
@@ -816,7 +817,7 @@ void WaveformDrawer::finishAxisDragVisual()
     QCustomPlot* plot = m_mainWindow->ui->customPlot;
     plot->removeItem(m_dragGhost);
     m_dragGhost = nullptr;
-    plot->replot(QCustomPlot::rpQueuedReplot);
+    m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
 }
 
 void WaveformDrawer::rescaleTimeCachedState(double ratio)
@@ -1007,7 +1008,7 @@ void WaveformDrawer::ResetView()
     updateCurveVisibility();
 
     // Replot to apply changes
-    customPlot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
 void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
@@ -1176,7 +1177,7 @@ void WaveformDrawer::clearAllWaveformData()
     m_labelAnalyzer.reset();
 
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+        m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
 }
 
 void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
@@ -2122,7 +2123,7 @@ void WaveformDrawer::updateCurveVisibility()
     rebindVerticalLinesToRects();
 
     // Replot to apply both layout and visibility changes
-    customPlot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
 void WaveformDrawer::setPnsInteractionFastVisibility(bool enabled)
@@ -2141,7 +2142,7 @@ void WaveformDrawer::setPnsInteractionFastVisibility(bool enabled)
 
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
     {
-        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+        m_mainWindow->requestReplot(QCustomPlot::rpImmediateRefresh, "unknown", "");
     }
 }
 
@@ -2161,7 +2162,7 @@ void WaveformDrawer::setM1InteractionFastVisibility(bool enabled)
 
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
     {
-        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+        m_mainWindow->requestReplot(QCustomPlot::rpImmediateRefresh, "unknown", "");
     }
 }
 void WaveformDrawer::setAutoExpandMode(bool autoExpand)
@@ -2191,11 +2192,12 @@ void WaveformDrawer::applySubplotLayout(int rows, int cols, int index)
     
     customPlot->plotLayout()->setRowStretchFactors(stretchFactors);
 
-    customPlot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
-void WaveformDrawer::ensureRenderedForCurrentViewport()
+WaveformDrawer::RenderStats WaveformDrawer::ensureRenderedForCurrentViewport()
 {
+    RenderStats stats;
     try {
         PulseqLoader* loader = m_mainWindow->getPulseqLoader();
         if (!loader || !loader->canRenderSequence()) {
@@ -2203,15 +2205,99 @@ void WaveformDrawer::ensureRenderedForCurrentViewport()
                 qDebug().noquote() << "[LOD] Sequence render skipped:"
                                    << (loader ? "loader not ready" : "no loader");
             }
-            return;
+            return stats;
         }
+        QElapsedTimer stageTimer;
+        stageTimer.start();
+        
+        qint64 rfTime = 0, adcTime = 0, gradTime = 0, trigTime = 0, edgeTime = 0;
+        int rfPoints = 0, adcPoints = 0, gradPoints = 0, trigPoints = 0, edgePoints = 0;
+
         // Redraw visible content for all channels based on the current viewport
+        stageTimer.restart();
         DrawRFWaveform();
+        rfTime = stageTimer.restart();
+        rfPoints += (m_graphRFMag && m_graphRFMag->data() ? m_graphRFMag->data()->size() : 0);
+        rfPoints += (m_graphRFPh && m_graphRFPh->data() ? m_graphRFPh->data()->size() : 0);
+        for (auto* g : m_graphRFMagChannels) rfPoints += (g && g->data() ? g->data()->size() : 0);
+        for (auto* g : m_graphRFPhChannels) rfPoints += (g && g->data() ? g->data()->size() : 0);
+
         DrawADCWaveform();
+        adcTime = stageTimer.restart();
+        adcPoints += (m_graphADC && m_graphADC->data() ? m_graphADC->data()->size() : 0);
+        adcPoints += (m_graphADCPh && m_graphADCPh->data() ? m_graphADCPh->data()->size() : 0);
+
         DrawGWaveform();
+        gradTime = stageTimer.restart();
+        gradPoints += (m_graphGx && m_graphGx->data() ? m_graphGx->data()->size() : 0);
+        gradPoints += (m_graphGy && m_graphGy->data() ? m_graphGy->data()->size() : 0);
+        gradPoints += (m_graphGz && m_graphGz->data() ? m_graphGz->data()->size() : 0);
+        gradPoints += (m_graphPnsNorm && m_graphPnsNorm->data() ? m_graphPnsNorm->data()->size() : 0);
+        gradPoints += (m_graphM1x && m_graphM1x->data() ? m_graphM1x->data()->size() : 0);
+
         DrawTriggerOverlay();
-        if (getShowBlockEdges()) DrawBlockEdges();
-        m_mainWindow->ui->customPlot->replot();
+        trigTime = stageTimer.restart();
+        trigPoints += (m_graphTrigMarkers && m_graphTrigMarkers->data() ? m_graphTrigMarkers->data()->size() : 0);
+
+        if (getShowBlockEdges()) {
+            DrawBlockEdges();
+            edgeTime = stageTimer.restart();
+            for (auto* g : m_blockEdgeGraphs) edgePoints += (g && g->data() ? g->data()->size() : 0);
+        }
+        
+        // Calculate visible blocks early to pass to stats
+        int visibleBlocks = 0;
+        QCPRange range;
+        if (!m_vecRects.isEmpty() && m_vecRects[0]) {
+            range = m_vecRects[0]->axis(QCPAxis::atBottom)->range();
+            auto edges = m_mainWindow->getPulseqLoader()->getBlockEdges();
+            auto itStart = std::lower_bound(edges.begin(), edges.end(), range.lower);
+            auto itEnd = std::upper_bound(edges.begin(), edges.end(), range.upper);
+            visibleBlocks = std::distance(itStart, itEnd);
+        }
+        int totalPoints = rfPoints + adcPoints + gradPoints + trigPoints + edgePoints;
+        qint64 totalTimeMs = rfTime + adcTime + gradTime + trigTime + edgeTime;
+        
+        // Find slowest stage
+        qint64 maxTime = rfTime;
+        QString slowestStage = "DrawRFWaveform";
+        if (adcTime > maxTime) { maxTime = adcTime; slowestStage = "DrawADCWaveform"; }
+        if (gradTime > maxTime) { maxTime = gradTime; slowestStage = "DrawGWaveform"; }
+        if (trigTime > maxTime) { maxTime = trigTime; slowestStage = "DrawTriggerOverlay"; }
+        if (edgeTime > maxTime) { maxTime = edgeTime; slowestStage = "DrawBlockEdges"; }
+
+        if (m_mainWindow->isInitialLoadPerfActive()) {
+            m_mainWindow->recordInitialLoadRenderStats(totalTimeMs, visibleBlocks, totalPoints, slowestStage);
+            m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "initial-load", m_mainWindow->currentInitialLoadTraceId());
+        } else {
+            QString traceId = "";
+            if (m_mainWindow->getInteractionHandler()) {
+                traceId = m_mainWindow->getInteractionHandler()->currentInteractionTraceId();
+            }
+            m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "deferred-render", traceId);
+        }
+        
+        stats.totalTimeMs = totalTimeMs;
+        stats.visibleBlocks = visibleBlocks;
+        stats.totalPoints = totalPoints;
+        stats.rfTimeMs = rfTime;
+        stats.adcTimeMs = adcTime;
+        stats.gradTimeMs = gradTime;
+        stats.trigTimeMs = trigTime;
+        stats.edgeTimeMs = edgeTime;
+        stats.slowestStage = slowestStage;
+        
+        QString lodStr = (getCurrentLODLevel() == LODLevel::DOWNSAMPLED) ? QStringLiteral("Downsampled") : QStringLiteral("Full");
+        
+        if (Settings::getInstance().getPerformanceDebugEnabled()) {
+            LOG_DEBUG_CAT("Performance", QStringLiteral("Render Viewport [%1, %2] LOD=%3 VisBlocks=%4 TotalPts=%5 (RF:%6ms/%7pts, ADC:%8ms/%9pts, G:%10ms/%11pts, Trig:%12ms/%13pts, Edge:%14ms/%15pts)")
+                .arg(range.lower).arg(range.upper).arg(lodStr).arg(visibleBlocks).arg(totalPoints)
+                .arg(rfTime).arg(rfPoints)
+                .arg(adcTime).arg(adcPoints)
+                .arg(gradTime).arg(gradPoints)
+                .arg(trigTime).arg(trigPoints)
+                .arg(edgeTime).arg(edgePoints));
+        }
     } catch (const std::exception& e) {
         if (DEBUG_LOD_SYSTEM) {
             qDebug().noquote() << "[LOD] Exception in ensureRenderedForCurrentViewport:" << e.what();
@@ -2221,6 +2307,9 @@ void WaveformDrawer::ensureRenderedForCurrentViewport()
             qDebug().noquote() << "[LOD] Unknown exception in ensureRenderedForCurrentViewport";
         }
     }
+    // Store and return stats
+    m_lastRenderStats = stats;
+    return stats;
 }
 
 void WaveformDrawer::updateAxisLabels()
@@ -2253,7 +2342,7 @@ void WaveformDrawer::updateAxisLabels()
     }
     
     // Trigger replot to update labels and data
-    m_mainWindow->ui->customPlot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
 // Simple LOD system - no complex decision logic needed
@@ -2262,7 +2351,7 @@ void WaveformDrawer::setUseDownsampling(bool useDownsampling)
     m_useDownsampling = useDownsampling;
     
     // Trigger replot to apply new LOD level
-    m_mainWindow->ui->customPlot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
 WaveformDrawer::LODLevel WaveformDrawer::getCurrentLODLevel() const
@@ -2280,7 +2369,7 @@ void WaveformDrawer::setShowTeGuides(bool show)
     {
         hideTeGuideItems();
         if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
         return;
     }
 
@@ -2290,7 +2379,7 @@ void WaveformDrawer::setShowTeGuides(bool show)
         updateTeGuides(viewport.lower, viewport.upper);
         updateKxKyZeroGuides(viewport.lower, viewport.upper);
         if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
     }
 }
 
@@ -2304,7 +2393,7 @@ void WaveformDrawer::setShowKxKyZeroGuides(bool show)
     {
         hideKxKyZeroGuideItems();
         if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
         return;
     }
 
@@ -2313,7 +2402,7 @@ void WaveformDrawer::setShowKxKyZeroGuides(bool show)
         const QCPRange viewport = m_vecRects[0]->axis(QCPAxis::atBottom)->range();
         updateKxKyZeroGuides(viewport.lower, viewport.upper);
         if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
     }
 }
 

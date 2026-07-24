@@ -156,7 +156,7 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
         } else {
             // fallback if handler not available
             window.ui->customPlot->xAxis->setRange(newRange);
-            window.ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            window.requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
             qApp->processEvents();
         }
         qint64 ms = t.elapsed();

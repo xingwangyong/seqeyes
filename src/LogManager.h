@@ -28,7 +28,45 @@ public:
     // Log level methods
     void setLogLevel(Settings::LogLevel level);
     Settings::LogLevel getLogLevel() const;
-    
+    bool isLevelEnabled(Settings::LogLevel level) const;
+
+    struct PerfLoadSummary {
+        QString traceId;
+        QString reason;
+        qint64 totalMs = 0;
+        qint64 parseMs = 0;
+        qint64 decodeMs = 0;
+        qint64 renderDataMs = 0;
+        qint64 replotMs = 0;
+        int visibleBlocks = 0;
+        int pointsTotal = 0;
+        QString slowestStage;
+
+        QString toLogString() const {
+            return QStringLiteral("type=load traceId=%1 reason=%2 totalMs=%3 parseMs=%4 decodeMs=%5 renderDataMs=%6 replotMs=%7 visibleBlocks=%8 pointsTotal=%9 slowestStage=%10")
+                .arg(traceId, reason).arg(totalMs).arg(parseMs).arg(decodeMs).arg(renderDataMs).arg(replotMs).arg(visibleBlocks).arg(pointsTotal).arg(slowestStage);
+        }
+    };
+
+    struct PerfInteractionSummary {
+        QString traceId;
+        QString reason;
+        int frames = 0;
+        qint64 totalMs = 0;
+        qint64 maxFrameMs = 0;
+        qint64 avgRenderMs = 0;
+        qint64 thresholdMs = 33;
+        int overThresholdFrames = 0;
+        int visibleBlocksAvg = 0;
+        int pointsTotalAvg = 0;
+        QString slowestStage;
+
+        QString toLogString() const {
+            return QStringLiteral("type=zoom traceId=%1 reason=%2 frames=%3 totalMs=%4 maxFrameMs=%5 avgRenderMs=%6 thresholdMs=%7 overThresholdFrames=%8 visibleBlocksAvg=%9 pointsTotalAvg=%10 slowestStage=%11")
+                .arg(traceId, reason).arg(frames).arg(totalMs).arg(maxFrameMs).arg(avgRenderMs).arg(thresholdMs).arg(overThresholdFrames).arg(visibleBlocksAvg).arg(pointsTotalAvg).arg(slowestStage);
+        }
+    };
+
     // Central sink for Qt's global message handler.
     // Called from qtLogFilter (see main.cpp) to record all messages,
     // independent of whether a console window exists.

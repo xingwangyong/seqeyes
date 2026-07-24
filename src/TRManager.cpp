@@ -816,7 +816,7 @@ void TRManager::onTrSliderChanged(int value)
     updateTimeSliderFromTrRange(value + 1, value + 1);
     // Ensure labels and plot reflect preserved window
     updateTimeRangeDisplay();
-    m_mainWindow->ui->customPlot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
 void TRManager::onPanLeftClicked()
@@ -934,7 +934,7 @@ void TRManager::onIntraTrSliderChanged(int value)
         .arg(trDuration / tFactor / 1e6, 0, 'f', 3)
         .arg(visibleWindowSize / tFactor / 1e6, 0, 'f', 3));
 
-    m_mainWindow->ui->customPlot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
 void TRManager::onApplyManualTr()
@@ -1264,7 +1264,7 @@ void TRManager::updateTrRangeDisplay()
             updateTimeRangeDisplay();
         }
     }
-    m_mainWindow->ui->customPlot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
 // Unified function to update time range - all time modifications should call this
@@ -1442,7 +1442,7 @@ bool TRManager::applyBlockRangeSelection(int startBlock, int endBlock)
                 rect->axis(QCPAxis::atBottom)->setRange(range);
             }
         }
-        m_mainWindow->ui->customPlot->replot();
+        m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
         syncTimeControlsToAxisRange(range);
     }
 
@@ -1746,7 +1746,7 @@ void TRManager::onShowBlockEdgesToggled(bool checked)
             drawer->DrawBlockEdges();
             // Ensure UI updates immediately after toggling
             if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-                m_mainWindow->ui->customPlot->replot();
+                m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
         }
     }
 }
@@ -1853,7 +1853,7 @@ void TRManager::onShowPnsToggled(bool checked)
         drawer->setShowCurve(6, checked); // PNS is at index 6
         drawer->updateCurveVisibility();
         if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
         if (checked && m_mainWindow)
         {
             // Defer one tick so axis rect geometry is finalized before PNS decimation uses rect width.
@@ -1863,7 +1863,7 @@ void TRManager::onShowPnsToggled(bool checked)
                 if (!d) return;
                 d->DrawGWaveform();
                 if (m_mainWindow->ui && m_mainWindow->ui->customPlot)
-                    m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+                    m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
             });
         }
     }
@@ -1889,7 +1889,7 @@ void TRManager::onShowM1xToggled(bool checked)
         drawer->setShowCurve(7, checked); // M1x is at index 7
         drawer->updateCurveVisibility();
         if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
         // Defer one tick so axis rect geometry is finalized before downsampling
         // uses rect width (mirrors the PNS toggle pattern).
         if (checked && m_mainWindow)
@@ -1901,7 +1901,7 @@ void TRManager::onShowM1xToggled(bool checked)
                 if (!d) return;
                 d->DrawGWaveform();
                 if (win->ui && win->ui->customPlot)
-                    win->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+                    win->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
             });
         }
     }
@@ -1915,7 +1915,7 @@ void TRManager::onShowM1yToggled(bool checked)
         drawer->setShowCurve(8, checked); // M1y is at index 8
         drawer->updateCurveVisibility();
         if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
         if (checked && m_mainWindow)
         {
             QPointer<MainWindow> win(m_mainWindow);
@@ -1925,7 +1925,7 @@ void TRManager::onShowM1yToggled(bool checked)
                 if (!d) return;
                 d->DrawGWaveform();
                 if (win->ui && win->ui->customPlot)
-                    win->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+                    win->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
             });
         }
     }
@@ -1939,7 +1939,7 @@ void TRManager::onShowM1zToggled(bool checked)
         drawer->setShowCurve(9, checked); // M1z is at index 9
         drawer->updateCurveVisibility();
         if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
         if (checked && m_mainWindow)
         {
             QPointer<MainWindow> win(m_mainWindow);
@@ -1949,7 +1949,7 @@ void TRManager::onShowM1zToggled(bool checked)
                 if (!d) return;
                 d->DrawGWaveform();
                 if (win->ui && win->ui->customPlot)
-                    win->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+                    win->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
             });
         }
     }

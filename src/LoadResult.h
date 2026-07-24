@@ -75,6 +75,7 @@ struct LoadResult
     bool ok = false;
     LoadedSequenceState state;
     LoadError error;
+    QString loadTraceId;
 };
 
 #endif

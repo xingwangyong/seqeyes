@@ -2,7 +2,9 @@
 
 #include "PulseqLoader.h"
 #include "LogManager.h"
+#include "mainwindow.h"
 #include <QElapsedTimer>
+#include <QUuid>
 
 namespace {
 struct ScopedLoadTimer {
@@ -10,10 +12,7 @@ struct ScopedLoadTimer {
     bool isSuccess = false;
     ScopedLoadTimer() { timer.start(); }
     ~ScopedLoadTimer() {
-        if (isSuccess)
-            LOG_INFO_CAT("Performance", QString("Load completed in %1 ms").arg(timer.elapsed()));
-        else
-            LOG_INFO_CAT("Performance", QString("Load failed in %1 ms").arg(timer.elapsed()));
+        // Output handled by PerfLoadSummary
     }
 };
 }
@@ -25,14 +24,24 @@ PulseqLoadTransaction::PulseqLoadTransaction(PulseqLoader& loader)
 
 LoadResult PulseqLoadTransaction::load(const QString& path)
 {
+    qint64 startMs = QDateTime::currentMSecsSinceEpoch();
+    m_loadTraceId = QUuid::createUuid().toString(QUuid::WithoutBraces).left(8);
     ScopedLoadTimer timer;
     m_loader.beginLoad();
     if (!prepare(path))
         return rollback();
+        
+    if (m_loader.getMainWindow()) {
+        m_loader.getMainWindow()->beginInitialLoadPerf(m_loadTraceId, m_parseMs, m_decodeMs, startMs);
+    }
+    
     if (!commit(path))
-        return {false, LoadedSequenceState {}, m_error};
+        return {false, LoadedSequenceState {}, m_error, m_loadTraceId};
+        
     timer.isSuccess = true;
-    return {true, LoadedSequenceState {}, LoadError {}};
+    m_totalMs = timer.timer.elapsed();
+    
+    return {true, LoadedSequenceState {}, LoadError {}, m_loadTraceId};
 }
 
 bool PulseqLoadTransaction::prepare(const QString& path)
@@ -43,27 +52,29 @@ bool PulseqLoadTransaction::prepare(const QString& path)
     stageTimer.start();
     
     bool ok = m_loader.readAndCreateVersionedLoader(path, m_staged, &m_error);
-    LOG_DEBUG_CAT("Performance", QString("readAndCreateVersionedLoader took %1 ms").arg(stageTimer.restart()));
+    m_parseMs += stageTimer.restart();
     if (!ok)
         return false;
 
     ok = m_loader.loadParserFile(path, m_staged, &m_error);
-    LOG_DEBUG_CAT("Performance", QString("loadParserFile took %1 ms").arg(stageTimer.restart()));
+    m_parseMs += stageTimer.restart();
     if (!ok)
         return false;
 
     ok = m_loader.validateRequiredDefinitions(m_staged, &m_error);
-    LOG_DEBUG_CAT("Performance", QString("validateRequiredDefinitions took %1 ms").arg(stageTimer.restart()));
+    m_parseMs += stageTimer.restart();
     if (!ok)
         return false;
 
     ok = m_loader.decodeBlocks(m_staged, &m_error);
-    LOG_DEBUG_CAT("Performance", QString("decodeBlocks took %1 ms").arg(stageTimer.restart()));
+    m_decodeMs += stageTimer.restart();
     if (!ok)
         return false;
 
     ok = m_loader.stageLoadedDerivedState(m_staged, &m_error);
-    LOG_DEBUG_CAT("Performance", QString("stageLoadedDerivedState took %1 ms").arg(stageTimer.restart()));
+    if (Settings::getInstance().getPerformanceDebugEnabled()) {
+        LOG_DEBUG_CAT("Performance", QString("stageLoadedDerivedState took %1 ms").arg(stageTimer.restart()));
+    }
     if (!ok)
         return false;
 
@@ -76,12 +87,12 @@ bool PulseqLoadTransaction::commit(const QString& path)
     m_loader.commitStagedDerivedState();
 
     m_initialRange = m_loader.configureInitialViewport();
-    m_loader.finishSuccessfulLoad(path, m_initialRange);
+    m_loader.finishSuccessfulLoad(path, m_initialRange, m_loadTraceId);
     return true;
 }
 
 LoadResult PulseqLoadTransaction::rollback()
 {
     m_loader.failLoad(m_error);
-    return {false, LoadedSequenceState {}, m_error};
+    return {false, LoadedSequenceState {}, m_error, m_loadTraceId};
 }

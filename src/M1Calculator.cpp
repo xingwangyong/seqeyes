@@ -649,7 +649,9 @@ Result compute(const Input& input)
         }
     };
     
-    LOG_DEBUG_CAT("Performance", QString("M1 preparation took %1 ms").arg(perfTimer.restart()));
+    if (Settings::getInstance().getPerformanceDebugEnabled()) {
+        LOG_DEBUG_CAT("Performance", QString("M1 preparation took %1 ms").arg(perfTimer.restart()));
+    }
 
     // First pass: x populates the canonical t-stream and the M1x curve.
     walkAndCollect(gxTime, gxVal, result.tSec, result.m1x);
@@ -670,7 +672,9 @@ Result compute(const Input& input)
                                           .arg(result.m1z.size());
     }
     
-    LOG_DEBUG_CAT("Performance", QString("M1 core integration and collection took %1 ms").arg(perfTimer.restart()));
+    if (Settings::getInstance().getPerformanceDebugEnabled()) {
+        LOG_DEBUG_CAT("Performance", QString("M1 core integration and collection took %1 ms").arg(perfTimer.restart()));
+    }
 
     result.valid = true;
     result.ok = true;

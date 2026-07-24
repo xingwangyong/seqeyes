@@ -9,6 +9,8 @@
 #include "Settings.h"
 
 #include <QDebug>
+#include <QUuid>
+#include "LogManager.h"
 
 // RF use is now provided by PulseqLoader (post-classification cache). No local reclassification.
 
@@ -244,7 +246,7 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
 
             // Status text is appended in the normal hover path for consistency.
 
-            m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+            m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "interaction", m_interactionTraceId);
         }
         // Continue to normal hover path so that status text appends Δt consistently
     }
@@ -615,6 +617,8 @@ void InteractionHandler::onMousePress(QMouseEvent* event)
         event->accept();
         return;
     }
+    
+    startInteractionSession("MouseDrag");
 }
 
 void InteractionHandler::onMouseRelease(QMouseEvent* event)
@@ -626,6 +630,8 @@ void InteractionHandler::onMouseRelease(QMouseEvent* event)
         event->accept();
         return;
     }
+    
+    endInteractionSession();
 }
 void InteractionHandler::toggleMeasureDtMode()
 {
@@ -649,7 +655,7 @@ void InteractionHandler::exitMeasureDtMode()
     m_measureMode = false;
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->actionMeasureDt)
         m_mainWindow->ui->actionMeasureDt->setChecked(false);
-    plot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "interaction", m_interactionTraceId);
 }
 
 void InteractionHandler::closeBlockInfoDialog()
@@ -667,6 +673,7 @@ void InteractionHandler::onMouseWheel(QWheelEvent* event)
     m_accumulatedWheelDelta += delta;
     m_lastWheelPos = event->position();
     m_lastWheelModifiers = event->modifiers();
+    startInteractionSession("Wheel");
     if (!m_wheelTimer->isActive())
         m_wheelTimer->start();
 }
@@ -793,7 +800,7 @@ void InteractionHandler::zoomIn()
         rect->axis(QCPAxis::atBottom)->setRange(adjustedMin, adjustedMax);
     }
     
-    m_mainWindow->ui->customPlot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "interaction", m_interactionTraceId);
 }
 
 void InteractionHandler::zoomOut()
@@ -871,7 +878,7 @@ void InteractionHandler::zoomOut()
         rect->axis(QCPAxis::atBottom)->setRange(adjustedMin, adjustedMax);
     }
     
-    m_mainWindow->ui->customPlot->replot();
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "interaction", m_interactionTraceId);
 }
 
 void InteractionHandler::showBlockInformation()
@@ -1056,7 +1063,8 @@ void InteractionHandler::synchronizeXAxes(const QCPRange& newRange)
 
     if (WaveformDrawer* d = m_mainWindow->getWaveformDrawer())
     {
-        d->ensureRenderedForCurrentViewport();
+        auto stats = d->ensureRenderedForCurrentViewport();
+        recordRenderFrame(stats);
     }
     if (m_mainWindow->getTRManager())
     {
@@ -1079,7 +1087,8 @@ void InteractionHandler::processDeferredViewportRender()
 
     if (WaveformDrawer* d = m_mainWindow->getWaveformDrawer())
     {
-        d->ensureRenderedForCurrentViewport();
+        auto stats = d->ensureRenderedForCurrentViewport();
+        recordRenderFrame(stats);
     }
 }
 
@@ -1095,11 +1104,11 @@ void InteractionHandler::processFinalViewportRender()
         return;
     }
 
-    // One final render at interaction end to guarantee the latest viewport is fully rendered.
     m_mainWindow->setInteractionFastMode(false);
     if (WaveformDrawer* d = m_mainWindow->getWaveformDrawer())
     {
-        d->ensureRenderedForCurrentViewport();
+        auto stats = d->ensureRenderedForCurrentViewport();
+        recordRenderFrame(stats);
     }
     if (m_pendingTrajectoryRefresh && m_mainWindow->isTrajectoryVisible())
     {
@@ -1108,8 +1117,9 @@ void InteractionHandler::processFinalViewportRender()
     m_pendingTrajectoryRefresh = false;
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
     {
-        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpImmediateRefresh);
+        m_mainWindow->requestReplot(QCustomPlot::rpImmediateRefresh, "zoom-final", m_interactionTraceId);
     }
+    endInteractionSession();
 }
 
 void InteractionHandler::processAccumulatedWheel()
@@ -1828,4 +1838,75 @@ void InteractionHandler::handleTimeInputWheelEvent(QWheelEvent* event, QLineEdit
     else if (input == trManager->getTimeEndInput()) {
         trManager->onTimeEndInputChanged();
     }
+}
+
+void InteractionHandler::startInteractionSession(const QString& type)
+{
+    if (!m_interactionTraceId.isEmpty()) return;
+    m_interactionTraceId = QUuid::createUuid().toString(QUuid::WithoutBraces).left(8);
+    m_interactionType = type;
+    m_interactionFrames = 0;
+    m_interactionTotalMs = 0;
+    m_interactionMaxFrameMs = 0;
+    m_interactionDominantStage = "";
+    m_interactionOverThresholdFrames = 0;
+    m_interactionTotalVisibleBlocks = 0;
+    m_interactionTotalPoints = 0;
+    if (Settings::getInstance().getPerformanceDebugEnabled()) {
+        LOG_DEBUG_CAT("Performance", QStringLiteral("Session Start [%1] %2").arg(m_interactionType).arg(m_interactionTraceId));
+    }
+}
+
+void InteractionHandler::endInteractionSession()
+{
+    if (m_interactionTraceId.isEmpty()) return;
+    
+    if (m_interactionFrames > 0) {
+        int avgMs = m_interactionTotalMs / m_interactionFrames;
+        int avgBlocks = m_interactionTotalVisibleBlocks / m_interactionFrames;
+        int avgPts = m_interactionTotalPoints / m_interactionFrames;
+        
+        LogManager::PerfInteractionSummary summary;
+        summary.traceId = m_interactionTraceId;
+        summary.reason = m_interactionType;
+        summary.frames = m_interactionFrames;
+        summary.avgRenderMs = avgMs;
+        summary.maxFrameMs = m_interactionMaxFrameMs;
+        summary.overThresholdFrames = m_interactionOverThresholdFrames;
+        summary.visibleBlocksAvg = avgBlocks;
+        summary.pointsTotalAvg = avgPts;
+        summary.totalMs = m_interactionTotalMs;
+        summary.slowestStage = m_interactionDominantStage;
+        
+        LOG_INFO_CAT("Performance", summary.toLogString());
+            
+        int threshold = 33; // Default 30fps threshold for warning
+        if (m_interactionMaxFrameMs > threshold) {
+            QString warnStr = QString("type=zoom-warn traceId=%1 worstFrameMs=%2 dominantStage=%3 thresholdMs=%4 overThresholdFrames=%5 frames=%6")
+                .arg(m_interactionTraceId).arg(m_interactionMaxFrameMs).arg(m_interactionDominantStage)
+                .arg(threshold).arg(m_interactionOverThresholdFrames).arg(m_interactionFrames);
+            LOG_WARNING_CAT("Performance", warnStr);
+        }
+    }
+    m_interactionTraceId.clear();
+}
+
+void InteractionHandler::recordRenderFrame(const WaveformDrawer::RenderStats& stats)
+{
+    if (m_interactionTraceId.isEmpty()) return;
+    m_interactionFrames++;
+    m_interactionTotalMs += stats.totalTimeMs;
+    if (stats.totalTimeMs > m_interactionMaxFrameMs) {
+        m_interactionMaxFrameMs = stats.totalTimeMs;
+        m_interactionDominantStage = stats.slowestStage;
+    }
+    if (stats.totalTimeMs > 33) m_interactionOverThresholdFrames++;
+    m_interactionTotalVisibleBlocks += stats.visibleBlocks;
+    m_interactionTotalPoints += stats.totalPoints;
+}
+
+void InteractionHandler::recordReplotTime(qint64 elapsedMs)
+{
+    if (m_interactionTraceId.isEmpty()) return;
+    m_interactionTotalMs += elapsedMs;
 }

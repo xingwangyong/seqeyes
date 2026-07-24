@@ -157,6 +157,10 @@ public:
     bool getShowTrajectoryApproximateDialog() const;
     void setEnableRoosPtxHackAutoDetection(bool enable);
     bool getEnableRoosPtxHackAutoDetection() const;
+
+    // Performance diagnostics
+    void setPerformanceDebugEnabled(bool enabled);
+    bool getPerformanceDebugEnabled() const;
     
     // Configuration file locations
     QString getConfigDirPath() const;
@@ -247,6 +251,7 @@ private:
     bool m_showTrajectoryApproximateDialog { true }; // Show trajectory warning for legacy sequences
     bool m_showExtensionTooltip { false }; // Show extension tooltip on hover
     bool m_enableRoosPtxHackAutoDetection { true };
+    bool m_performanceDebugEnabled { false };
     bool m_pnsShowX {false};
     bool m_pnsShowY {false};
     bool m_pnsShowZ {true};

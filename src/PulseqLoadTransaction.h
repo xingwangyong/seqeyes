@@ -36,6 +36,10 @@ private:
     QPair<double, double> m_initialRange;
 
     LoadedSequenceState m_staged;
+    QString m_loadTraceId;
+    qint64 m_parseMs = 0;
+    qint64 m_decodeMs = 0;
+    qint64 m_totalMs = 0;
 };
 
 #endif

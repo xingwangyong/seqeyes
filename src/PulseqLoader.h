@@ -122,6 +122,8 @@ public:
     explicit PulseqLoader(MainWindow* mainWindow);
     ~PulseqLoader();
 
+    MainWindow* getMainWindow() const { return m_mainWindow; }
+
     // Public API for other classes
     bool OpenPulseqFilePath(QString candidatePath);
     bool LoadPulseqFile(QString sPulseqFilePath);
@@ -404,7 +406,7 @@ private:
     void commitStagedDerivedState();
     QPair<double, double> configureInitialViewport();
     void updateRepetitionTimeMetadata(const LoadedSequenceState& state, StagedDerivedState& staged) const;
-    void finishSuccessfulLoad(const QString& path, const QPair<double, double>& initialRange);
+    void finishSuccessfulLoad(const QString& path, const QPair<double, double>& initialRange, const QString& loadTraceId);
     bool failLoad(const LoadError& error);
     void ClearPulseqCache(bool withUi = true);
     bool IsBlockRf(const float* fAmp, const float* fPhase, const int& iSamples);

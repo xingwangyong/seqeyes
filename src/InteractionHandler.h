@@ -17,6 +17,7 @@ class QCPItemRect;
 class QCPItemStraightLine;
 class EventBlockInfoDialog;
 class QCPRange;
+#include "WaveformDrawer.h"
 
 class InteractionHandler : public QObject
 {
@@ -63,6 +64,15 @@ private:
     void processAccumulatedWheel();
     void processDeferredViewportRender();
     void processFinalViewportRender();
+
+public:
+    // Interaction session tracking
+    void startInteractionSession(const QString& type);
+    void endInteractionSession();
+    void recordRenderFrame(const WaveformDrawer::RenderStats& stats);
+    void recordReplotTime(qint64 elapsedMs);
+
+private:
 
     // Axis drag-reorder helpers
     bool isOverAxisLabelArea(const QPoint& pos, int& axisIndex) const;
@@ -130,6 +140,20 @@ private:
     QTimer* m_viewportRenderTimer {nullptr};
     QTimer* m_viewportFinalTimer {nullptr};
     bool m_pendingTrajectoryRefresh {false};
+
+    // Interaction session tracking variables
+    QString m_interactionTraceId;
+    QString m_interactionType;
+    int m_interactionFrames {0};
+    qint64 m_interactionTotalMs {0};
+    qint64 m_interactionMaxFrameMs {0};
+    QString m_interactionDominantStage;
+    int m_interactionOverThresholdFrames {0};
+    int m_interactionTotalVisibleBlocks {0};
+    qint64 m_interactionTotalPoints {0};
+public:
+    const QString& currentInteractionTraceId() const { return m_interactionTraceId; }
+
 };
 
 #endif // INTERACTIONHANDLER_H

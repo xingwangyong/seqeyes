@@ -38,6 +38,7 @@ Settings::Settings(QObject* parent)
     , m_logLevel(LogLevel::Warning) // Default to Warning level
     , m_showExtensionTooltip(false)
     , m_enableRoosPtxHackAutoDetection(true)
+    , m_performanceDebugEnabled(false)
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
 {
     // Place settings in per-user home directory: ~/.seqeyes/settings.json
@@ -338,6 +339,20 @@ bool Settings::getEnableRoosPtxHackAutoDetection() const
     return m_enableRoosPtxHackAutoDetection;
 }
 
+void Settings::setPerformanceDebugEnabled(bool enabled)
+{
+    if (m_performanceDebugEnabled != enabled) {
+        m_performanceDebugEnabled = enabled;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+bool Settings::getPerformanceDebugEnabled() const
+{
+    return m_performanceDebugEnabled;
+}
+
 void Settings::setShowTrajectoryApproximateDialog(bool show)
 {
     if (m_showTrajectoryApproximateDialog != show) {
@@ -446,6 +461,7 @@ void Settings::saveSettings()
     obj["showTrajectoryApproximateDialog"] = m_showTrajectoryApproximateDialog;
     obj["showExtensionTooltip"] = m_showExtensionTooltip;
     obj["enableRoosPtxHackAutoDetection"] = m_enableRoosPtxHackAutoDetection;
+    obj["performanceDebugEnabled"] = m_performanceDebugEnabled;
     {
         QJsonArray arr;
         for (const SystemProfile& profile : m_systemProfiles) {
@@ -593,6 +609,7 @@ void Settings::loadSettings()
     m_showTrajectoryApproximateDialog = obj.value("showTrajectoryApproximateDialog").toBool(true);
     m_showExtensionTooltip = obj.value("showExtensionTooltip").toBool(false);
     m_enableRoosPtxHackAutoDetection = obj.value("enableRoosPtxHackAutoDetection").toBool(true);
+    m_performanceDebugEnabled = obj.value("performanceDebugEnabled").toBool(false);
     m_systemProfiles.clear();
     m_activeSystemProfileAlias = obj.value("activeSystemProfileAlias").toString().trimmed();
     if (obj.value("systemProfiles").isArray()) {
@@ -660,6 +677,7 @@ void Settings::resetToDefaults()
     m_showTrajectoryApproximateDialog = true;
     m_showExtensionTooltip = false;
     m_enableRoosPtxHackAutoDetection = true;
+    m_performanceDebugEnabled = false;
     m_systemProfiles.clear();
     m_activeSystemProfileAlias.clear();
     m_pnsShowX = false;

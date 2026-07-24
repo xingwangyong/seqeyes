@@ -52,6 +52,11 @@ Settings::LogLevel LogManager::getLogLevel() const
     return m_currentLevel.load(std::memory_order_relaxed);
 }
 
+bool LogManager::isLevelEnabled(Settings::LogLevel level) const
+{
+    return shouldLog(level);
+}
+
 QStringList LogManager::getBufferedLines() const
 {
     QMutexLocker locker(&m_mutex);

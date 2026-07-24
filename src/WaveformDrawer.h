@@ -63,8 +63,21 @@ public:
     // PulseqLoader::m_m1Result during DrawGWaveform() so they can share the
     // PNS viewport-aware downsampling pipeline. No apply*() hook is needed.
 
+    struct RenderStats {
+        int visibleBlocks = 0;
+        int totalPoints = 0;
+        qint64 totalTimeMs = 0;
+        qint64 replotTimeMs = 0;
+        qint64 rfTimeMs = 0;
+        qint64 adcTimeMs = 0;
+        qint64 gradTimeMs = 0;
+        qint64 trigTimeMs = 0;
+        qint64 edgeTimeMs = 0;
+        QString slowestStage;
+    };
+    
     // Ensure current viewport has been rendered at the correct detail
-    void ensureRenderedForCurrentViewport();
+    RenderStats ensureRenderedForCurrentViewport();
     
     // Simple viewport change processing
     void processViewportChangeSimple(double visibleStart, double visibleEnd);
@@ -89,6 +102,9 @@ public:
     // Persistence
     void loadUiConfig();
     void saveUiConfig() const;
+    
+    // Last render stats
+    const RenderStats& getLastRenderStats() const { return m_lastRenderStats; }
     
     // X-axis label configuration
     void configureXAxisLabels();
@@ -138,6 +154,7 @@ private:
     // Old time-based LOD functions removed - replaced with complexity-based LOD system
 
 private:
+    RenderStats m_lastRenderStats;
     MainWindow* m_mainWindow;
 
     // Member variables moved from MainWindow

@@ -177,12 +177,66 @@ public:
                                         double& kzOut) const;
     void updateTrajectoryCursorTime(double internalTime);
     void onSettingsChanged();
+    
+    struct ReplotContext {
+        QString traceId;
+        QString reason;
+        qint64 requestTime = 0;
+        qint64 parseMs = 0;
+        qint64 decodeMs = 0;
+    };
+    void requestReplot(QCustomPlot::RefreshPriority priority = QCustomPlot::rpRefreshHint, const QString& reason = "unknown", const QString& traceId = "", qint64 parseMs = 0, qint64 decodeMs = 0);
+    
+    struct PendingLoadPerf {
+        bool active = false;
+        QString traceId;
+        qint64 parseMs = 0;
+        qint64 decodeMs = 0;
+        qint64 startMs = 0;
+        qint64 renderDataMs = 0;
+        int visibleBlocks = 0;
+        int totalPoints = 0;
+        QString slowestStage;
+        bool hasRenderStats = false;
+    };
+    
+    void beginInitialLoadPerf(const QString& traceId, qint64 parseMs, qint64 decodeMs, qint64 startMs) {
+        m_pendingLoadPerf.active = true;
+        m_pendingLoadPerf.traceId = traceId;
+        m_pendingLoadPerf.parseMs = parseMs;
+        m_pendingLoadPerf.decodeMs = decodeMs;
+        m_pendingLoadPerf.startMs = startMs;
+        m_pendingLoadPerf.hasRenderStats = false;
+    }
+    
+    // Will be called by InteractionHandler or WaveformDrawer
+    void recordInitialLoadRenderStats(qint64 totalTimeMs, int visBlocks, int pts, const QString& slowest) {
+        if (m_pendingLoadPerf.active) {
+            m_pendingLoadPerf.renderDataMs = totalTimeMs;
+            m_pendingLoadPerf.visibleBlocks = visBlocks;
+            m_pendingLoadPerf.totalPoints = pts;
+            m_pendingLoadPerf.slowestStage = slowest;
+            m_pendingLoadPerf.hasRenderStats = true;
+        }
+    }
+    
+    bool isInitialLoadPerfActive() const { return m_pendingLoadPerf.active; }
+    QString currentInitialLoadTraceId() const { return m_pendingLoadPerf.traceId; }
 
+private:
+    PendingLoadPerf m_pendingLoadPerf;
     // Window title helpers
     void setLoadedFileTitle(const QString& filePath);
     void clearLoadedFileTitle();
 
+private slots:
+    void onBeforeReplot();
+    void onAfterReplot();
+
 private:
+    QList<ReplotContext> m_pendingReplots;
+    ReplotContext m_activeReplotContext;
+
     
 
     // Handlers for different functionalities

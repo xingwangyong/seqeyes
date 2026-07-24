@@ -43,7 +43,7 @@ void PulseqLoadUiAdapter::clearLoadedState()
     if (auto* drawer = m_mainWindow->getWaveformDrawer())
         drawer->clearAllWaveformData();
     if (m_mainWindow->ui && m_mainWindow->ui->customPlot)
-        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpQueuedReplot);
+        m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
 }
 
 void PulseqLoadUiAdapter::clearWindowFilePath()

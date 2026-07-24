@@ -20,9 +20,13 @@ struct ScopedPnsParseTimer {
     ScopedPnsParseTimer() { timer.start(); }
     ~ScopedPnsParseTimer() {
         if (isSuccess)
-            LOG_DEBUG_CAT("Performance", QString("Hardware model parsing and preparation took %1 ms").arg(timer.elapsed()));
+            if (Settings::getInstance().getPerformanceDebugEnabled()) {
+                LOG_DEBUG_CAT("Performance", QString("Hardware model parsing and preparation took %1 ms").arg(timer.elapsed()));
+            }
         else
-            LOG_DEBUG_CAT("Performance", QString("Hardware model parsing failed after %1 ms").arg(timer.elapsed()));
+            if (Settings::getInstance().getPerformanceDebugEnabled()) {
+                LOG_DEBUG_CAT("Performance", QString("Hardware model parsing failed after %1 ms").arg(timer.elapsed()));
+            }
     }
 };
 }
@@ -1074,7 +1078,9 @@ PnsCalculator::Result PnsCalculator::calculate(
         }
     }
     
-    LOG_DEBUG_CAT("Performance", QString("PNS gradient series preparation took %1 ms").arg(perfTimer.restart()));
+    if (Settings::getInstance().getPerformanceDebugEnabled()) {
+        LOG_DEBUG_CAT("Performance", QString("PNS gradient series preparation took %1 ms").arg(perfTimer.restart()));
+    }
 
     double tFirst = std::numeric_limits<double>::infinity();
     double tLast = -std::numeric_limits<double>::infinity();
@@ -1165,7 +1171,9 @@ PnsCalculator::Result PnsCalculator::calculate(
     const QVector<double> stimY = safePnsModel(dgdtY, dtSec, hardware.y);
     const QVector<double> stimZ = safePnsModel(dgdtZ, dtSec, hardware.z);
 
-    LOG_DEBUG_CAT("Performance", QString("Main SAFE model filtering took %1 ms").arg(perfTimer.restart()));
+    if (Settings::getInstance().getPerformanceDebugEnabled()) {
+        LOG_DEBUG_CAT("Performance", QString("Main SAFE model filtering took %1 ms").arg(perfTimer.restart()));
+    }
 
     QVector<bool> originalMask(gxPadded.size(), false);
     for (int i = 0; i < nSamples; ++i)

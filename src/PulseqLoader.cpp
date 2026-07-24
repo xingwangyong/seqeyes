@@ -1727,9 +1727,11 @@ void PulseqLoader::updateRepetitionTimeMetadata(const LoadedSequenceState& state
     }
 }
 
-void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double, double>& initialRange)
+void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double, double>& initialRange, const QString& loadTraceId)
 {
     WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer();
+    QElapsedTimer stageTimer;
+    stageTimer.start();
 
     // Update TR manager with new info
     TRManager* trManager = m_mainWindow->getTRManager();
@@ -1738,6 +1740,11 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
     if (m_isFileWatcherReload && trManager && !m_savedWasTrMode && trManager->isTrBasedMode())
     {
         trManager->setRenderModeWholeSequence();
+    }
+    if (Settings::getInstance().getPerformanceDebugEnabled()) {
+        if (Settings::getInstance().getPerformanceDebugEnabled()) {
+            LOG_DEBUG_CAT("Performance", QString("TR update took %1 ms").arg(stageTimer.restart()));
+        }
     }
 
     m_sPulseqFilePath = path;
@@ -1755,6 +1762,8 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
         if (!m_isFileWatcherReload)
             finalRange = drawer->getRects()[0]->axis(QCPAxis::atBottom)->range();
     }
+    
+    // Inject firstWaveformDataPreparedMs tracking around the render call
     if (auto* ih = m_mainWindow->getInteractionHandler())
     {
         ih->synchronizeXAxes(finalRange);
@@ -1763,8 +1772,15 @@ void PulseqLoader::finishSuccessfulLoad(const QString& path, const QPair<double,
     {
         drawer->ensureRenderedForCurrentViewport();
     }
+    qint64 firstWaveformDataPreparedMs = stageTimer.restart();
+    if (Settings::getInstance().getPerformanceDebugEnabled()) {
+        LOG_DEBUG_CAT("Performance", QString("firstWaveformDataPreparedMs = %1 ms").arg(firstWaveformDataPreparedMs));
+    }
 
     computeSafetyAnalysis(true);
+    if (Settings::getInstance().getPerformanceDebugEnabled()) {
+        LOG_DEBUG_CAT("Performance", QString("computeSafetyAnalysis took %1 ms").arg(stageTimer.restart()));
+    }
 
     if (!m_silentMode && m_mainWindow && !m_b0Warning.isEmpty()) {
             QMessageBox::warning(m_mainWindow,
@@ -2616,7 +2632,9 @@ void PulseqLoader::startTrajectoryComputationAsync()
                 return;
             if (self->m_trajectorySequenceGeneration != sequenceGeneration || self->m_activeTrajectoryRequestId != requestId)
             {
-                LOG_DEBUG_CAT("Performance", "Trajectory computation cancelled/superseded");
+                if (Settings::getInstance().getPerformanceDebugEnabled()) {
+                    LOG_DEBUG_CAT("Performance", "Trajectory computation cancelled/superseded");
+                }
                 return;
             }
             LOG_INFO_CAT("Performance", QString("Trajectory computation completed in %1 ms").arg(asyncTimer.elapsed()));
@@ -3114,7 +3132,9 @@ void PulseqLoader::startPnsComputationAsync()
                 return;
             if (self->m_trajectorySequenceGeneration != sequenceGeneration || self->m_activePnsRequestId != requestId)
             {
-                LOG_DEBUG_CAT("Performance", "PNS computation cancelled/superseded");
+                if (Settings::getInstance().getPerformanceDebugEnabled()) {
+                    LOG_DEBUG_CAT("Performance", "PNS computation cancelled/superseded");
+                }
                 return;
             }
             LOG_INFO_CAT("Performance", QString("PNS computation completed in %1 ms").arg(asyncTimer.elapsed()));
@@ -3244,7 +3264,9 @@ void PulseqLoader::startM1ComputationAsync()
                 return;
             if (self->m_trajectorySequenceGeneration != sequenceGeneration || self->m_activeM1RequestId != requestId)
             {
-                LOG_DEBUG_CAT("Performance", "M1 computation cancelled/superseded");
+                if (Settings::getInstance().getPerformanceDebugEnabled()) {
+                    LOG_DEBUG_CAT("Performance", "M1 computation cancelled/superseded");
+                }
                 return;
             }
             LOG_INFO_CAT("Performance", QString("M1 computation completed in %1 ms").arg(asyncTimer.elapsed()));
@@ -3785,7 +3807,7 @@ void PulseqLoader::rescaleTimeUnit()
         m_mainWindow->refreshTrajectoryPlotData();
 
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
-        m_mainWindow->ui->customPlot->replot();
+        m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
 void PulseqLoader::recomputePnsFromSettings()

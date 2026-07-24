@@ -914,7 +914,9 @@ Result compute(const Input& input)
         }
     };
     
-    LOG_DEBUG_CAT("Performance", QString("Gradient series & time grid built in %1 ms").arg(perfTimer.restart()));
+    if (Settings::getInstance().getPerformanceDebugEnabled()) {
+        LOG_DEBUG_CAT("Performance", QString("Gradient series & time grid built in %1 ms").arg(perfTimer.restart()));
+    }
 
     QVector<double> kxData(timeGrid.size(), 0.0);
     QVector<double> kyData(timeGrid.size(), 0.0);
@@ -1185,7 +1187,9 @@ Result compute(const Input& input)
         writeTextFile(QDir(outDir).filePath(QString("ktraj_adc_%1.csv").arg(stamp)), adcCsv);
     }
     
-    LOG_DEBUG_CAT("Performance", QString("Main integration and sampling took %1 ms").arg(perfTimer.restart()));
+    if (Settings::getInstance().getPerformanceDebugEnabled()) {
+        LOG_DEBUG_CAT("Performance", QString("Main integration and sampling took %1 ms").arg(perfTimer.restart()));
+    }
 
     return result;
 }
