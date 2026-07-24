@@ -7,6 +7,7 @@
 #include "external/qcustomplot/qcustomplot.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace
 {
@@ -117,8 +118,10 @@ void ExtensionPlotter::reset()
 void ExtensionPlotter::sliceStepSeries(const QVector<double>& tIn,
                                        const QVector<double>& vIn,
                                        double x0, double x1,
+                                       int pixelWidth,
                                        QVector<double>& tOut,
-                                       QVector<double>& vOut)
+                                       QVector<double>& vOut,
+                                       int* maxValueOut)
 {
     tOut.clear();
     vOut.clear();
@@ -134,13 +137,46 @@ void ExtensionPlotter::sliceStepSeries(const QVector<double>& tIn,
     int i1 = static_cast<int>(std::distance(tIn.begin(), itU));
     if (i0 >= i1)
         return;
-    tOut.reserve(i1 - i0);
-    vOut.reserve(i1 - i0);
-    for (int i = i0; i < i1; ++i)
+
+    int localMax = 0;
+    const int visibleCount = i1 - i0;
+    const int pointBudget = std::max(1, pixelWidth * 2);
+    if (pixelWidth > 0 && visibleCount > pointBudget)
     {
-        tOut.push_back(tIn[i]);
-        vOut.push_back(vIn[i]);
+        const int bucketCount = std::max(1, pixelWidth);
+        QVector<int> lastIndexByBucket(bucketCount, -1);
+        const double window = x1 - x0;
+        for (int i = i0; i < i1; ++i)
+        {
+            localMax = std::max(localMax, static_cast<int>(std::ceil(vIn[i])));
+            int bucket = static_cast<int>(std::floor((tIn[i] - x0) / window * bucketCount));
+            bucket = std::max(0, std::min(bucketCount - 1, bucket));
+            lastIndexByBucket[bucket] = i;
+        }
+
+        tOut.reserve(bucketCount);
+        vOut.reserve(bucketCount);
+        for (int idx : lastIndexByBucket)
+        {
+            if (idx < 0) continue;
+            tOut.push_back(tIn[idx]);
+            vOut.push_back(vIn[idx]);
+        }
     }
+    else
+    {
+        tOut.reserve(visibleCount);
+        vOut.reserve(visibleCount);
+        for (int i = i0; i < i1; ++i)
+        {
+            localMax = std::max(localMax, static_cast<int>(std::ceil(vIn[i])));
+            tOut.push_back(tIn[i]);
+            vOut.push_back(vIn[i]);
+        }
+    }
+
+    if (maxValueOut)
+        *maxValueOut = std::max(*maxValueOut, localMax);
 }
 
 void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader, const QStringList& labels)
@@ -296,10 +332,12 @@ void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader, const QStringL
 }
 
 void ExtensionPlotter::updateForViewport(PulseqLoader* loader, double visibleStart, double visibleEnd,
-                                         const QStringList& enabledUsedLabels)
+                                         const QStringList& enabledUsedLabels, int pixelWidth)
 {
     if (!m_plot || !m_targetRect || !loader)
         return;
+
+    m_lastVisibleMaxValue = 0;
 
     if (enabledUsedLabels.isEmpty())
     {
@@ -346,6 +384,7 @@ void ExtensionPlotter::updateForViewport(PulseqLoader* loader, double visibleSta
                     vSlice.reserve(end - start);
                     for (int i = start; i < end; ++i)
                     {
+                        m_lastVisibleMaxValue = std::max(m_lastVisibleMaxValue, static_cast<int>(std::ceil(vIn[i])));
                         tSlice.push_back(tIn[i]);
                         vSlice.push_back(vIn[i]);
                     }
@@ -354,7 +393,8 @@ void ExtensionPlotter::updateForViewport(PulseqLoader* loader, double visibleSta
         }
         else
         {
-            sliceStepSeries(it.value().t, it.value().v, visibleStart, visibleEnd, tSlice, vSlice);
+            sliceStepSeries(it.value().t, it.value().v, visibleStart, visibleEnd, pixelWidth,
+                            tSlice, vSlice, &m_lastVisibleMaxValue);
         }
         g->setData(tSlice, vSlice);
         g->setVisible(!tSlice.isEmpty());

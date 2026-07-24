@@ -33,7 +33,9 @@ public:
 
     // Update visible series for the current viewport.
     void updateForViewport(PulseqLoader* loader, double visibleStart, double visibleEnd,
-                           const QStringList& enabledUsedLabels);
+                           const QStringList& enabledUsedLabels, int pixelWidth);
+
+    int lastVisibleMaxValue() const { return m_lastVisibleMaxValue; }
 
     // Clear all graphs from plot (non-owning pointers; QCustomPlot owns graphs).
     void reset();
@@ -54,13 +56,16 @@ private:
     static void sliceStepSeries(const QVector<double>& tIn,
                                 const QVector<double>& vIn,
                                 double x0, double x1,
+                                int pixelWidth,
                                 QVector<double>& tOut,
-                                QVector<double>& vOut);
+                                QVector<double>& vOut,
+                                int* maxValueOut = nullptr);
 
 private:
     QCustomPlot* m_plot {nullptr};
     QCPAxisRect* m_targetRect {nullptr};
     bool m_hostVisible {true};
+    int m_lastVisibleMaxValue {0};
 
     // Cache invalidation
     void* m_lastSeqPtr {nullptr};

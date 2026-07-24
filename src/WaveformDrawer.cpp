@@ -1402,36 +1402,14 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
             }
         }
 
-        m_extensionPlotter->updateForViewport(loader, visibleStart, visibleEnd, enabledUsedLabels);
+        m_extensionPlotter->updateForViewport(loader, visibleStart, visibleEnd, enabledUsedLabels, pxADC);
 
         // Ensure extension values are within the visible Y-range of the ADC/labels panel.
         // ADC y-range was originally sized for ADC rectangles only; extension counters like LIN can grow large (e.g. 63),
         // which would make the line appear "missing" even though tooltip shows the correct value.
         if (m_vecRects.size() > 0 && m_vecRects[0] && adcHostVisible && !enabledUsedLabels.isEmpty())
         {
-            int maxExt = 0;
-
-            // Find block indices intersecting the viewport
-            const auto& edges = loader->getBlockEdges();
-            if (edges.size() > 1)
-            {
-                auto itL = std::upper_bound(edges.begin(), edges.end(), visibleStart);
-                int b0 = std::max(0, int(std::distance(edges.begin(), itL)) - 1);
-                auto itU = std::upper_bound(edges.begin(), edges.end(), visibleEnd);
-                int b1 = std::min(int(loader->getDecodedSeqBlocks().size()) - 1,
-                                  std::max(b0, int(std::distance(edges.begin(), itU)) - 1));
-                for (int b = b0; b <= b1; ++b)
-                {
-                    for (const QString& label : enabledUsedLabels)
-                    {
-                        int value = 0;
-                        bool isFlag = false;
-                        if (!loader->getExtensionValueAfterBlock(b, label, value, isFlag))
-                            continue;
-                        maxExt = std::max(maxExt, value);
-                    }
-                }
-            }
+            const int maxExt = m_extensionPlotter->lastVisibleMaxValue();
 
             QCPRange yr = m_vecRects[0]->axis(QCPAxis::atLeft)->range();
             const double upperNeeded = std::max<double>(yr.upper, maxExt);
