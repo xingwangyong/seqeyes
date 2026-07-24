@@ -143,7 +143,7 @@ void ExtensionPlotter::sliceStepSeries(const QVector<double>& tIn,
     }
 }
 
-void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader)
+void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader, const QStringList& labels)
 {
     if (!loader)
         return;
@@ -153,13 +153,22 @@ void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader)
 
     void* seqPtr = static_cast<void*>(seqSp.get());
     const int blockCount = static_cast<int>(loader->getDecodedSeqBlocks().size());
-    if (seqPtr == m_lastSeqPtr && blockCount == m_lastBlockCount)
+    bool cacheComplete = (seqPtr == m_lastSeqPtr && blockCount == m_lastBlockCount);
+    for (const QString& name : labels)
+    {
+        const auto cacheIt = m_cacheByName.constFind(name);
+        if (!m_graphByName.contains(name) || cacheIt == m_cacheByName.constEnd() || !cacheIt.value().valid)
+        {
+            cacheComplete = false;
+            break;
+        }
+    }
+    if (cacheComplete)
         return;
 
     m_lastSeqPtr = seqPtr;
     m_lastBlockCount = blockCount;
 
-    const QStringList labels = availableLabels(loader);
     for (const QString& name : labels)
     {
         if (m_graphByName.contains(name))
@@ -286,22 +295,32 @@ void ExtensionPlotter::rebuildCacheIfNeeded(PulseqLoader* loader)
         appendPoint(QStringLiteral("TRID"), edges[nBlocks], static_cast<double>(tridLastValue));
 }
 
-void ExtensionPlotter::updateForViewport(PulseqLoader* loader, double visibleStart, double visibleEnd)
+void ExtensionPlotter::updateForViewport(PulseqLoader* loader, double visibleStart, double visibleEnd,
+                                         const QStringList& enabledUsedLabels)
 {
     if (!m_plot || !m_targetRect || !loader)
         return;
 
-    rebuildCacheIfNeeded(loader);
+    if (enabledUsedLabels.isEmpty())
+    {
+        for (auto it = m_graphByName.begin(); it != m_graphByName.end(); ++it)
+        {
+            if (it.value())
+                it.value()->setVisible(false);
+        }
+        return;
+    }
 
-    for (const QString& name : availableLabels(loader))
+    rebuildCacheIfNeeded(loader, enabledUsedLabels);
+
+    for (const QString& name : enabledUsedLabels)
     {
         QCPGraph* g = m_graphByName.value(name, nullptr);
         const auto it = m_cacheByName.constFind(name);
         if (!g || it == m_cacheByName.constEnd() || !it.value().valid)
             continue;
 
-        const bool enabled = Settings::getInstance().isExtensionLabelEnabled(name);
-        const bool show = m_hostVisible && enabled && it.value().used;
+        const bool show = m_hostVisible && it.value().used;
         if (!show)
         {
             g->setVisible(false);

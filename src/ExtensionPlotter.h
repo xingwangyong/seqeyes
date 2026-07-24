@@ -32,7 +32,8 @@ public:
     void setHostVisible(bool visible);
 
     // Update visible series for the current viewport.
-    void updateForViewport(PulseqLoader* loader, double visibleStart, double visibleEnd);
+    void updateForViewport(PulseqLoader* loader, double visibleStart, double visibleEnd,
+                           const QStringList& enabledUsedLabels);
 
     // Clear all graphs from plot (non-owning pointers; QCustomPlot owns graphs).
     void reset();
@@ -47,7 +48,7 @@ private:
     };
 
     void ensureGraphs();
-    void rebuildCacheIfNeeded(PulseqLoader* loader);
+    void rebuildCacheIfNeeded(PulseqLoader* loader, const QStringList& labels);
     QStringList availableLabels(PulseqLoader* loader) const;
 
     static void sliceStepSeries(const QVector<double>& tIn,

@@ -1386,17 +1386,30 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
     // Extension labels overlay (SLC/REP/AVG...); controlled by Settings checkboxes.
     if (m_extensionPlotter)
     {
-        m_extensionPlotter->setHostVisible(m_curveVisibility.value(0, true));
-        m_extensionPlotter->updateForViewport(loader, visibleStart, visibleEnd);
+        const bool adcHostVisible = m_curveVisibility.value(0, true);
+        m_extensionPlotter->setHostVisible(adcHostVisible);
+
+        QStringList enabledUsedLabels;
+        if (adcHostVisible)
+        {
+            Settings& st = Settings::getInstance();
+            const QSet<QString> usedExtensions = loader->getUsedExtensions();
+            const QStringList labels = loader->getAvailableExtensionLabels();
+            for (const QString& label : labels)
+            {
+                if (st.isExtensionLabelEnabled(label) && usedExtensions.contains(label.toUpper()))
+                    enabledUsedLabels.append(label);
+            }
+        }
+
+        m_extensionPlotter->updateForViewport(loader, visibleStart, visibleEnd, enabledUsedLabels);
 
         // Ensure extension values are within the visible Y-range of the ADC/labels panel.
         // ADC y-range was originally sized for ADC rectangles only; extension counters like LIN can grow large (e.g. 63),
         // which would make the line appear "missing" even though tooltip shows the correct value.
-        if (m_vecRects.size() > 0 && m_vecRects[0] && m_curveVisibility.value(0, true))
+        if (m_vecRects.size() > 0 && m_vecRects[0] && adcHostVisible && !enabledUsedLabels.isEmpty())
         {
             int maxExt = 0;
-            Settings& st = Settings::getInstance();
-            const QStringList labels = loader->getAvailableExtensionLabels();
 
             // Find block indices intersecting the viewport
             const auto& edges = loader->getBlockEdges();
@@ -1409,10 +1422,8 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
                                   std::max(b0, int(std::distance(edges.begin(), itU)) - 1));
                 for (int b = b0; b <= b1; ++b)
                 {
-                    for (const QString& label : labels)
+                    for (const QString& label : enabledUsedLabels)
                     {
-                        if (!st.isExtensionLabelEnabled(label))
-                            continue;
                         int value = 0;
                         bool isFlag = false;
                         if (!loader->getExtensionValueAfterBlock(b, label, value, isFlag))
