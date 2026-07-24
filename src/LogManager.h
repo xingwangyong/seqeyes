@@ -40,11 +40,18 @@ public:
         qint64 replotMs = 0;
         int visibleBlocks = 0;
         int pointsTotal = 0;
+        int rfPoints = 0;
+        int adcRectPoints = 0;
+        int adcPhasePoints = 0;
+        int gradPoints = 0;
+        int trigPoints = 0;
+        int edgePoints = 0;
         QString slowestStage;
 
         QString toLogString() const {
-            return QStringLiteral("type=load traceId=%1 reason=%2 totalMs=%3 parseMs=%4 decodeMs=%5 renderDataMs=%6 replotMs=%7 visibleBlocks=%8 pointsTotal=%9 slowestStage=%10")
-                .arg(traceId, reason).arg(totalMs).arg(parseMs).arg(decodeMs).arg(renderDataMs).arg(replotMs).arg(visibleBlocks).arg(pointsTotal).arg(slowestStage);
+            return QStringLiteral("type=load traceId=%1 reason=%2 totalMs=%3 parseMs=%4 decodeMs=%5 renderDataMs=%6 replotMs=%7 visibleBlocks=%8 pointsTotal=%9 rfPoints=%10 adcRectPoints=%11 adcPhasePoints=%12 gradPoints=%13 trigPoints=%14 edgePoints=%15 slowestStage=%16")
+                .arg(traceId, reason).arg(totalMs).arg(parseMs).arg(decodeMs).arg(renderDataMs).arg(replotMs).arg(visibleBlocks).arg(pointsTotal)
+                .arg(rfPoints).arg(adcRectPoints).arg(adcPhasePoints).arg(gradPoints).arg(trigPoints).arg(edgePoints).arg(slowestStage);
         }
     };
 

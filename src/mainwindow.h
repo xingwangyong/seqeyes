@@ -196,6 +196,12 @@ public:
         qint64 renderDataMs = 0;
         int visibleBlocks = 0;
         int totalPoints = 0;
+        int rfPoints = 0;
+        int adcRectPoints = 0;
+        int adcPhasePoints = 0;
+        int gradPoints = 0;
+        int trigPoints = 0;
+        int edgePoints = 0;
         QString slowestStage;
         bool hasRenderStats = false;
     };
@@ -210,11 +216,19 @@ public:
     }
     
     // Will be called by InteractionHandler or WaveformDrawer
-    void recordInitialLoadRenderStats(qint64 totalTimeMs, int visBlocks, int pts, const QString& slowest) {
+    void recordInitialLoadRenderStats(qint64 totalTimeMs, int visBlocks, int pts, const QString& slowest,
+                                      int rfPts = 0, int adcRectPts = 0, int adcPhasePts = 0,
+                                      int gradPts = 0, int trigPts = 0, int edgePts = 0) {
         if (m_pendingLoadPerf.active) {
             m_pendingLoadPerf.renderDataMs = totalTimeMs;
             m_pendingLoadPerf.visibleBlocks = visBlocks;
             m_pendingLoadPerf.totalPoints = pts;
+            m_pendingLoadPerf.rfPoints = rfPts;
+            m_pendingLoadPerf.adcRectPoints = adcRectPts;
+            m_pendingLoadPerf.adcPhasePoints = adcPhasePts;
+            m_pendingLoadPerf.gradPoints = gradPts;
+            m_pendingLoadPerf.trigPoints = trigPts;
+            m_pendingLoadPerf.edgePoints = edgePts;
             m_pendingLoadPerf.slowestStage = slowest;
             m_pendingLoadPerf.hasRenderStats = true;
         }

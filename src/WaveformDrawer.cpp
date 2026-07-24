@@ -1247,68 +1247,99 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
         adcHeight = maxAbsLabel * 1.2;
     }
 
-    // Use merged ADC series for drawing
-    const QVector<double>& mergedAdcTime = loader->getAdcTime();
-    const QVector<double>& mergedAdcValues = loader->getAdcValues();
-    
-    if (mergedAdcTime.isEmpty() || mergedAdcValues.isEmpty()) return;
-    
-    // Slice merged data based on viewport
-    QVector<double> tAdc, vAdc;
-    
-    // Find visible range indices
-    auto itLower = std::lower_bound(mergedAdcTime.begin(), mergedAdcTime.end(), visibleStart);
-    auto itUpper = std::upper_bound(mergedAdcTime.begin(), mergedAdcTime.end(), visibleEnd);
-    
-    int idxStart = std::distance(mergedAdcTime.begin(), itLower);
-    int idxEnd = std::distance(mergedAdcTime.begin(), itUpper);
-    
-    // Add margin for continuity
-    if (idxStart > 0) idxStart--;
-    if (idxEnd < mergedAdcTime.size()) idxEnd++;
-    
-    if (idxStart >= idxEnd) return;
-    
-    // Extract visible data
-    for (int k = idxStart; k < idxEnd; ++k) {
-        tAdc.append(mergedAdcTime[k]);
-        vAdc.append(mergedAdcValues[k] * adcHeight); // Scale to proper height
-    }
-    
-    // Process segments separated by NaN
     QVector<double> processedTime, processedValues;
-    int segmentStartIdx = 0;
-    for (int k = 0; k < vAdc.size(); ++k) {
-        if (std::isnan(vAdc[k])) {
-            if (k > segmentStartIdx) {
-                QVector<double> currentSegmentTime;
-                QVector<double> currentSegmentValues;
-                for (int m = segmentStartIdx; m < k; ++m) {
-                    currentSegmentTime.append(tAdc[m]);
-                    currentSegmentValues.append(vAdc[m]);
-                }
-                
-                // For ADC rectangles, we don't need LTTB downsampling as they are simple shapes
-                processedTime.append(currentSegmentTime);
-                processedValues.append(currentSegmentValues);
-                
-                // Add NaN to separate segments
-                processedTime.append(tAdc[k]);
-                processedValues.append(std::numeric_limits<double>::quiet_NaN());
-            }
-            segmentStartIdx = k + 1;
+
+    struct AdcRange {
+        double start = 0.0;
+        double end = 0.0;
+    };
+
+    QVector<AdcRange> adcRanges;
+    const auto& blocks = loader->getDecodedSeqBlocks();
+    const QVector<double>& edges = loader->getBlockEdges();
+    if (!blocks.empty() && edges.size() > 1) {
+        auto itStart = std::lower_bound(edges.begin(), edges.end(), visibleStart);
+        int startBlock = std::max(0, int(std::distance(edges.begin(), itStart)) - 1);
+        int endBlock = std::min(int(blocks.size()) - 1, int(edges.size()) - 2);
+        const double tFactor = loader->getTFactor();
+
+        for (int i = startBlock; i <= endBlock; ++i) {
+            if (edges[i] > visibleEnd) break;
+
+            SeqBlock* blk = blocks[i];
+            if (!blk || !blk->isADC()) continue;
+
+            const ADCEvent& adc = blk->GetADCEvent();
+            if (adc.numSamples <= 0) continue;
+
+            const double tStart = edges[i] + adc.delay * tFactor;
+            const double tEnd = tStart + (adc.numSamples * adc.dwellTime / 1000.0) * tFactor;
+            if (tEnd <= visibleStart || tStart >= visibleEnd) continue;
+
+            adcRanges.append({std::max(tStart, visibleStart), std::min(tEnd, visibleEnd)});
         }
     }
-    // Process the last segment
-    if (vAdc.size() > segmentStartIdx) {
-        QVector<double> currentSegmentTime;
-        QVector<double> currentSegmentValues;
-        for (int m = segmentStartIdx; m < vAdc.size(); ++m) {
-            currentSegmentTime.append(tAdc[m]);
-            currentSegmentValues.append(vAdc[m]);
+
+    auto appendAdcRect = [&](double t0, double t1) {
+        if (t1 <= t0) return;
+        if (!processedTime.isEmpty()) {
+            processedTime.append(t0);
+            processedValues.append(std::numeric_limits<double>::quiet_NaN());
         }
-        processedTime.append(currentSegmentTime);
-        processedValues.append(currentSegmentValues);
+        processedTime.append(t0); processedValues.append(0.0);
+        processedTime.append(t0); processedValues.append(adcHeight);
+        processedTime.append(t1); processedValues.append(adcHeight);
+        processedTime.append(t1); processedValues.append(0.0);
+        processedTime.append(t1); processedValues.append(std::numeric_limits<double>::quiet_NaN());
+    };
+
+    int pxADC = 0;
+    if (m_vecRects.size() > 0 && m_vecRects[0]) {
+        pxADC = qMax(1, static_cast<int>(qRound(m_vecRects[0]->width() * m_mainWindow->devicePixelRatioF())));
+    }
+
+    const int exactPointCount = adcRanges.size() * 5;
+    const int exactPointBudget = qMax(1, pxADC * 4);
+    const bool usePixelBudget = currentLODLevel == LODLevel::DOWNSAMPLED
+                             && pxADC > 0
+                             && exactPointCount > exactPointBudget
+                             && visibleEnd > visibleStart;
+
+    if (usePixelBudget) {
+        const int bucketCount = qMax(1, pxADC);
+        QVector<char> occupied(bucketCount, 0);
+        const double window = visibleEnd - visibleStart;
+
+        for (const AdcRange& range : adcRanges) {
+            int b0 = static_cast<int>(std::floor((range.start - visibleStart) / window * bucketCount));
+            int b1 = static_cast<int>(std::ceil((range.end - visibleStart) / window * bucketCount)) - 1;
+            b0 = std::max(0, std::min(bucketCount - 1, b0));
+            b1 = std::max(0, std::min(bucketCount - 1, b1));
+            for (int b = b0; b <= b1; ++b) {
+                occupied[b] = 1;
+            }
+        }
+
+        const double bucketWidth = window / bucketCount;
+        for (int b = 0; b < bucketCount; ) {
+            if (!occupied[b]) {
+                ++b;
+                continue;
+            }
+
+            const int runStart = b;
+            while (b < bucketCount && occupied[b]) {
+                ++b;
+            }
+            const int runEnd = b - 1;
+            const double t0 = visibleStart + runStart * bucketWidth;
+            const double t1 = std::min(visibleEnd, visibleStart + (runEnd + 1) * bucketWidth);
+            appendAdcRect(t0, t1);
+        }
+    } else {
+        for (const AdcRange& range : adcRanges) {
+            appendAdcRect(range.start, range.end);
+        }
     }
     
     // Draw ADC rectangles using persistent graph
@@ -2224,8 +2255,10 @@ WaveformDrawer::RenderStats WaveformDrawer::ensureRenderedForCurrentViewport()
 
         DrawADCWaveform();
         adcTime = stageTimer.restart();
-        adcPoints += (m_graphADC && m_graphADC->data() ? m_graphADC->data()->size() : 0);
-        adcPoints += (m_graphADCPh && m_graphADCPh->data() ? m_graphADCPh->data()->size() : 0);
+        int adcRectPoints = (m_graphADC && m_graphADC->data() ? m_graphADC->data()->size() : 0);
+        int adcPhasePoints = (m_graphADCPh && m_graphADCPh->data() ? m_graphADCPh->data()->size() : 0);
+        adcPoints += adcRectPoints;
+        adcPoints += adcPhasePoints;
 
         DrawGWaveform();
         gradTime = stageTimer.restart();
@@ -2267,7 +2300,9 @@ WaveformDrawer::RenderStats WaveformDrawer::ensureRenderedForCurrentViewport()
         if (edgeTime > maxTime) { maxTime = edgeTime; slowestStage = "DrawBlockEdges"; }
 
         if (m_mainWindow->isInitialLoadPerfActive()) {
-            m_mainWindow->recordInitialLoadRenderStats(totalTimeMs, visibleBlocks, totalPoints, slowestStage);
+            m_mainWindow->recordInitialLoadRenderStats(totalTimeMs, visibleBlocks, totalPoints, slowestStage,
+                                                       rfPoints, adcRectPoints, adcPhasePoints,
+                                                       gradPoints, trigPoints, edgePoints);
             m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "initial-load", m_mainWindow->currentInitialLoadTraceId());
         } else {
             QString traceId = "";
@@ -2280,6 +2315,12 @@ WaveformDrawer::RenderStats WaveformDrawer::ensureRenderedForCurrentViewport()
         stats.totalTimeMs = totalTimeMs;
         stats.visibleBlocks = visibleBlocks;
         stats.totalPoints = totalPoints;
+        stats.rfPoints = rfPoints;
+        stats.adcRectPoints = adcRectPoints;
+        stats.adcPhasePoints = adcPhasePoints;
+        stats.gradPoints = gradPoints;
+        stats.trigPoints = trigPoints;
+        stats.edgePoints = edgePoints;
         stats.rfTimeMs = rfTime;
         stats.adcTimeMs = adcTime;
         stats.gradTimeMs = gradTime;
@@ -2290,10 +2331,10 @@ WaveformDrawer::RenderStats WaveformDrawer::ensureRenderedForCurrentViewport()
         QString lodStr = (getCurrentLODLevel() == LODLevel::DOWNSAMPLED) ? QStringLiteral("Downsampled") : QStringLiteral("Full");
         
         if (Settings::getInstance().getPerformanceDebugEnabled()) {
-            LOG_DEBUG_CAT("Performance", QStringLiteral("Render Viewport [%1, %2] LOD=%3 VisBlocks=%4 TotalPts=%5 (RF:%6ms/%7pts, ADC:%8ms/%9pts, G:%10ms/%11pts, Trig:%12ms/%13pts, Edge:%14ms/%15pts)")
+            LOG_DEBUG_CAT("Performance", QStringLiteral("Render Viewport [%1, %2] LOD=%3 VisBlocks=%4 TotalPts=%5 (RF:%6ms/%7pts, ADC:%8ms/%9pts rect=%10 phase=%11, G:%12ms/%13pts, Trig:%14ms/%15pts, Edge:%16ms/%17pts)")
                 .arg(range.lower).arg(range.upper).arg(lodStr).arg(visibleBlocks).arg(totalPoints)
                 .arg(rfTime).arg(rfPoints)
-                .arg(adcTime).arg(adcPoints)
+                .arg(adcTime).arg(adcPoints).arg(adcRectPoints).arg(adcPhasePoints)
                 .arg(gradTime).arg(gradPoints)
                 .arg(trigTime).arg(trigPoints)
                 .arg(edgeTime).arg(edgePoints));

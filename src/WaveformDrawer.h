@@ -66,6 +66,12 @@ public:
     struct RenderStats {
         int visibleBlocks = 0;
         int totalPoints = 0;
+        int rfPoints = 0;
+        int adcRectPoints = 0;
+        int adcPhasePoints = 0;
+        int gradPoints = 0;
+        int trigPoints = 0;
+        int edgePoints = 0;
         qint64 totalTimeMs = 0;
         qint64 replotTimeMs = 0;
         qint64 rfTimeMs = 0;

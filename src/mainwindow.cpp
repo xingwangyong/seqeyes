@@ -2827,6 +2827,12 @@ void MainWindow::onAfterReplot()
                 summary.renderDataMs = m_pendingLoadPerf.renderDataMs;
                 summary.visibleBlocks = m_pendingLoadPerf.visibleBlocks;
                 summary.pointsTotal = m_pendingLoadPerf.totalPoints;
+                summary.rfPoints = m_pendingLoadPerf.rfPoints;
+                summary.adcRectPoints = m_pendingLoadPerf.adcRectPoints;
+                summary.adcPhasePoints = m_pendingLoadPerf.adcPhasePoints;
+                summary.gradPoints = m_pendingLoadPerf.gradPoints;
+                summary.trigPoints = m_pendingLoadPerf.trigPoints;
+                summary.edgePoints = m_pendingLoadPerf.edgePoints;
                 summary.slowestStage = m_pendingLoadPerf.slowestStage;
                 summary.replotMs = elapsed;
                 
