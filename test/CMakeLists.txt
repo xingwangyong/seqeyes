@@ -289,6 +289,7 @@ set(PNS_DUMP_TEST_NAME PnsDumpTest)
 add_executable(${PNS_DUMP_TEST_NAME}
     ${PROJECT_SOURCE_DIR}/test/PnsDumpTest.cpp
     ${PROJECT_SOURCE_DIR}/src/PnsCalculator.cpp
+    ${PROJECT_SOURCE_DIR}/src/Settings.cpp
     ${EXTERNAL_PULSEQ_DIR}/ExternalSequence.cpp
     ${EXTERNAL_PULSEQ_DIR}/v151/ExternalSequence.cpp
     ${EXTERNAL_PULSEQ_DIR}/v151/md5.cpp
@@ -301,4 +302,5 @@ target_include_directories(${PNS_DUMP_TEST_NAME} PRIVATE
 
 target_link_libraries(${PNS_DUMP_TEST_NAME} PRIVATE
     Qt6::Core
+    Qt6::Widgets
 )
