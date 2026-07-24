@@ -1314,6 +1314,16 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
         processedTime.append(t1); processedValues.append(std::numeric_limits<double>::quiet_NaN());
     };
 
+    auto appendAdcMarker = [&](double t) {
+        if (!processedTime.isEmpty()) {
+            processedTime.append(t);
+            processedValues.append(std::numeric_limits<double>::quiet_NaN());
+        }
+        processedTime.append(t); processedValues.append(0.0);
+        processedTime.append(t); processedValues.append(adcHeight);
+        processedTime.append(t); processedValues.append(std::numeric_limits<double>::quiet_NaN());
+    };
+
     int pxADC = 0;
     if (m_vecRects.size() > 0 && m_vecRects[0]) {
         pxADC = qMax(1, static_cast<int>(qRound(m_vecRects[0]->width() * m_mainWindow->devicePixelRatioF())));
@@ -1342,20 +1352,13 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
         }
 
         const double bucketWidth = window / bucketCount;
-        for (int b = 0; b < bucketCount; ) {
+        for (int b = 0; b < bucketCount; ++b) {
             if (!occupied[b]) {
-                ++b;
                 continue;
             }
 
-            const int runStart = b;
-            while (b < bucketCount && occupied[b]) {
-                ++b;
-            }
-            const int runEnd = b - 1;
-            const double t0 = visibleStart + runStart * bucketWidth;
-            const double t1 = std::min(visibleEnd, visibleStart + (runEnd + 1) * bucketWidth);
-            appendAdcRect(t0, t1);
+            const double t = visibleStart + (static_cast<double>(b) + 0.5) * bucketWidth;
+            appendAdcMarker(t);
         }
     } else {
         for (const AdcRange& range : adcRanges) {
@@ -1366,6 +1369,7 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
     
     // Draw ADC rectangles using persistent graph
     if (m_graphADC) {
+        m_graphADC->setLineStyle(usePixelBudget ? QCPGraph::lsLine : QCPGraph::lsStepLeft);
         m_graphADC->setData(processedTime, processedValues);
         m_graphADC->setVisible(m_curveVisibility.value(0, true) && !processedTime.isEmpty());
         
