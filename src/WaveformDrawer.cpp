@@ -1092,13 +1092,26 @@ void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
         QCPGraph* graph = m_graphRFMagChannels[i];
         if (!graph) continue;
         if (i < rfViewport.ampTimeByChannel.size()) {
-            graph->setData(rfViewport.ampTimeByChannel[i], rfViewport.ampValueByChannel[i]);
-            graph->setVisible(m_curveVisibility.value(1, true) && !rfViewport.ampTimeByChannel[i].isEmpty());
+            QVector<double> tAmp = rfViewport.ampTimeByChannel[i];
+            QVector<double> vAmp = rfViewport.ampValueByChannel[i];
+            QVector<double> tAmpCapped, vAmpCapped;
+            if (applyFinalPixelBudgetEnvelope(tAmp, vAmp, visibleStart, visibleEnd, pxRF, 8, tAmpCapped, vAmpCapped)) {
+                tAmp = std::move(tAmpCapped);
+                vAmp = std::move(vAmpCapped);
+            }
+            rfViewport.ampTimeByChannel[i] = tAmp;
+            rfViewport.ampValueByChannel[i] = vAmp;
+            graph->setData(tAmp, vAmp);
+            graph->setVisible(m_curveVisibility.value(1, true) && !tAmp.isEmpty());
         } else {
             graph->setData(QVector<double>(), QVector<double>());
             graph->setVisible(false);
         }
     }
+    // TODO(perf): RF phase and ADC phase need their own budget strategy. Do not
+    // apply min/max envelopes directly to wrapped phase data; crossing -pi/pi
+    // would create false full-height spikes. Use unwrap-aware reduction or
+    // stride/representative sampling if phase point counts become a bottleneck.
     for (int i = 0; i < m_graphRFPhChannels.size(); ++i) {
         QCPGraph* graph = m_graphRFPhChannels[i];
         if (!graph) continue;
