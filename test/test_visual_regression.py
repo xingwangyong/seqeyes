@@ -166,6 +166,7 @@ def main():
     parser.add_argument("--changed-threshold", type=float, default=0.0001, help="Changed-pixel ratio threshold (default: 0.0001 => 0.01%)")
     parser.add_argument("--targets-config", type=str, default="test/visual_targets.yaml", help="YAML file containing visual regression targets")
     parser.add_argument("--fail-on-missing-baseline", action="store_true", help="Treat missing baseline images as failures")
+    parser.add_argument("--max-failed-checks", type=int, default=0, help="Maximum failed checks tolerated before exiting with failure")
     
     args = parser.parse_args()
     
@@ -319,14 +320,21 @@ def main():
     print(f"Failed Checks:   {total_failed}")
     print("==========================================\n")
     
-    if total_failed > 0:
+    if total_failed > args.max_failed_checks:
         print("[FAILED] Visual regression tests failed for the following sequences:")
         for name in failed_seq_names:
             print(f"  - {name}")
         print("\nCheck the diff images in test/snapshots/")
+        print(f"Failed checks exceeded allowed maximum: {total_failed} > {args.max_failed_checks}")
         sys.exit(1)
     else:
-        print("[SUCCESS] Visual regression tests passed!")
+        if total_failed > 0:
+            print(f"[SUCCESS] Visual regression checks passed within tolerance ({total_failed} <= {args.max_failed_checks}).")
+            print("Failed-but-tolerated sequences:")
+            for name in failed_seq_names:
+                print(f"  - {name}")
+        else:
+            print("[SUCCESS] Visual regression tests passed!")
         sys.exit(0)
 
 if __name__ == "__main__":

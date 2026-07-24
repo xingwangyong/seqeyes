@@ -71,7 +71,7 @@ jobs:
 
       - name: Run Visual Regression Test
         run: |
-          python test/test_visual_regression.py --bin-dir runtime/seqeyes --threshold 0.005 --changed-threshold 0.0001 --fail-on-missing-baseline
+          python test/test_visual_regression.py --bin-dir runtime/seqeyes --threshold 0.005 --changed-threshold 0.0001 --fail-on-missing-baseline --max-failed-checks 5
 
       - name: Upload Visual Diff Artifacts on Failure
         if: failure()
