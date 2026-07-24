@@ -22,7 +22,7 @@ public:
     {
         Time = 0,
         Level,
-        Source,
+        Category,
         Message,
         File,
         ColCount
@@ -51,7 +51,7 @@ public:
             {
                 case Time:     return QStringLiteral("Time");
                 case Level:    return QStringLiteral("Level");
-                case Source:   return QStringLiteral("Source");
+                case Category: return QStringLiteral("Category");
                 case Message:  return QStringLiteral("Message");
                 case File:     return QStringLiteral("File");
                 default:       return {};
@@ -75,7 +75,7 @@ public:
             {
                 case Time:     return e.timestamp;
                 case Level:    return e.level;
-                case Source:   return e.source;
+                case Category: return e.category;
                 case Message:  return e.message;
                 case File:     return e.file;
                 default:       return {};
@@ -180,7 +180,7 @@ QScrollBar::add-page, QScrollBar::sub-page {
     // Reasonable defaults.
     m_view->setColumnWidth(LogTableModel::Time, 180);
     m_view->setColumnWidth(LogTableModel::Level, 70);
-    m_view->setColumnWidth(LogTableModel::Source, 140);
+    m_view->setColumnWidth(LogTableModel::Category, 140);
     m_view->setColumnWidth(LogTableModel::Message, 600);
     m_view->setColumnWidth(LogTableModel::File, 220);
 

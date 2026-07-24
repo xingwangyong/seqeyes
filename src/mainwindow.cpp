@@ -374,7 +374,7 @@ MainWindow::MainWindow(QWidget* parent)
     connect(&LogManager::getInstance(), &LogManager::logEntryAppended,
             this, [this](const QString& ts,
                          const QString& level,
-                         const QString& source,
+                         const QString& category,
                          const QString& message,
                          const QString& file) {
                 // Lazy-created; only update if user has opened the log window
@@ -383,7 +383,7 @@ MainWindow::MainWindow(QWidget* parent)
                     LogManager::LogEntry e;
                     e.timestamp = ts;
                     e.level = level;
-                    e.source = source;
+                    e.category = category;
                     e.message = message;
                     e.file = file;
                     dlg->appendEntry(e);

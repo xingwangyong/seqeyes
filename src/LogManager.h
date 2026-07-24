@@ -19,7 +19,7 @@ public:
     {
         QString timestamp;
         QString level;
-        QString source;
+        QString category;
         QString message;
         QString file; // e.g. "WaveformDrawer.cpp:464"
     };
@@ -28,20 +28,6 @@ public:
     void setLogLevel(Settings::LogLevel level);
     Settings::LogLevel getLogLevel() const;
     
-    // Logging methods
-    void fatal(const QString& message);
-    void error(const QString& message);
-    void warning(const QString& message);
-    void info(const QString& message);
-    void debug(const QString& message);
-    
-    // Convenience methods for formatted output
-    void fatal(const QString& category, const QString& message);
-    void error(const QString& category, const QString& message);
-    void warning(const QString& category, const QString& message);
-    void info(const QString& category, const QString& message);
-    void debug(const QString& category, const QString& message);
-
     // Central sink for Qt's global message handler.
     // Called from qtLogFilter (see main.cpp) to record all messages,
     // independent of whether a console window exists.
@@ -49,10 +35,10 @@ public:
                       const QMessageLogContext& context,
                       const QString& msg);
     void appendStructured(QtMsgType type,
-                          const QString& source,
+                          const QString& category,
                           const QString& message,
                           const QString& file = QString());
-    void appendDiagnostic(const QString& source,
+    void appendDiagnostic(const QString& category,
                           const QString& message,
                           const QString& file = QString());
 
@@ -66,7 +52,7 @@ signals:
     void logLineAppended(const QString& line);
     void logEntryAppended(const QString& timestamp,
                           const QString& level,
-                          const QString& source,
+                          const QString& category,
                           const QString& message,
                           const QString& file);
 
@@ -83,7 +69,7 @@ private:
     // Helper method to check if message should be logged
     bool shouldLog(Settings::LogLevel messageLevel) const;
     void appendEntryInternal(QtMsgType type,
-                             const QString& source,
+                             const QString& category,
                              const QString& message,
                              const QString& file,
                              bool bypassFilter = false);
@@ -95,16 +81,16 @@ private:
 };
 
 // Convenience macros for easier logging
-#define LOG_FATAL(msg) LogManager::getInstance().fatal(msg)
-#define LOG_ERROR(msg) LogManager::getInstance().error(msg)
-#define LOG_WARNING(msg) LogManager::getInstance().warning(msg)
-#define LOG_INFO(msg) LogManager::getInstance().info(msg)
-#define LOG_DEBUG(msg) LogManager::getInstance().debug(msg)
+#define LOG_FATAL(msg) QMessageLogger(__FILE__, __LINE__, Q_FUNC_INFO).fatal("%s", qPrintable(QString(msg)))
+#define LOG_ERROR(msg) QMessageLogger(__FILE__, __LINE__, Q_FUNC_INFO).critical("%s", qPrintable(QString(msg)))
+#define LOG_WARNING(msg) QMessageLogger(__FILE__, __LINE__, Q_FUNC_INFO).warning("%s", qPrintable(QString(msg)))
+#define LOG_INFO(msg) QMessageLogger(__FILE__, __LINE__, Q_FUNC_INFO).info("%s", qPrintable(QString(msg)))
+#define LOG_DEBUG(msg) QMessageLogger(__FILE__, __LINE__, Q_FUNC_INFO).debug("%s", qPrintable(QString(msg)))
 
-#define LOG_FATAL_CAT(category, msg) LogManager::getInstance().fatal(category, msg)
-#define LOG_ERROR_CAT(category, msg) LogManager::getInstance().error(category, msg)
-#define LOG_WARNING_CAT(category, msg) LogManager::getInstance().warning(category, msg)
-#define LOG_INFO_CAT(category, msg) LogManager::getInstance().info(category, msg)
-#define LOG_DEBUG_CAT(category, msg) LogManager::getInstance().debug(category, msg)
+#define LOG_FATAL_CAT(cat, msg) QMessageLogger(__FILE__, __LINE__, Q_FUNC_INFO, qPrintable(QString(cat))).fatal("%s", qPrintable(QString(msg)))
+#define LOG_ERROR_CAT(cat, msg) QMessageLogger(__FILE__, __LINE__, Q_FUNC_INFO, qPrintable(QString(cat))).critical("%s", qPrintable(QString(msg)))
+#define LOG_WARNING_CAT(cat, msg) QMessageLogger(__FILE__, __LINE__, Q_FUNC_INFO, qPrintable(QString(cat))).warning("%s", qPrintable(QString(msg)))
+#define LOG_INFO_CAT(cat, msg) QMessageLogger(__FILE__, __LINE__, Q_FUNC_INFO, qPrintable(QString(cat))).info("%s", qPrintable(QString(msg)))
+#define LOG_DEBUG_CAT(cat, msg) QMessageLogger(__FILE__, __LINE__, Q_FUNC_INFO, qPrintable(QString(cat))).debug("%s", qPrintable(QString(msg)))
 
 #endif // LOGMANAGER_H

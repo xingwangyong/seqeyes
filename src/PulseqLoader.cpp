@@ -2585,9 +2585,10 @@ void PulseqLoader::startTrajectoryComputationAsync()
     // stayed bound to the loader members (m_vecDecodeSeqBlocks/vecBlockEdges),
     // this worker would read them while a concurrent reopen clears/reallocates
     // them on the main thread -> use-after-free. Capture owned copies and rebuild
-    // Input from those inside the thread, mirroring the PNS worker. blockBundle
     // keeps the pointed-to SeqBlock objects alive.
-    std::thread([self, sequenceGeneration, requestId, blockBundle,
+    QElapsedTimer asyncTimer;
+    asyncTimer.start();
+    std::thread([self, sequenceGeneration, requestId, blockBundle, asyncTimer,
                  blocks = m_vecDecodeSeqBlocks,
                  blockEdges = vecBlockEdges,
                  tFactor = input.tFactor,
@@ -2610,13 +2611,15 @@ void PulseqLoader::startTrajectoryComputationAsync()
         if (!self)
             return;
 
-        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, sequenceGeneration, requestId]() mutable {
+        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, sequenceGeneration, requestId, asyncTimer]() mutable {
             if (!self)
                 return;
-            if (self->m_trajectorySequenceGeneration != sequenceGeneration)
+            if (self->m_trajectorySequenceGeneration != sequenceGeneration || self->m_activeTrajectoryRequestId != requestId)
+            {
+                LOG_DEBUG_CAT("Performance", "Trajectory computation cancelled/superseded");
                 return;
-            if (self->m_activeTrajectoryRequestId != requestId)
-                return;
+            }
+            LOG_INFO_CAT("Performance", QString("Trajectory computation completed in %1 ms").arg(asyncTimer.elapsed()));
 
             if (!ok)
             {
@@ -3085,7 +3088,9 @@ void PulseqLoader::startPnsComputationAsync()
     emit pnsDataUpdated();
 
     QPointer<PulseqLoader> self(this);
-    std::thread([self, blockBundle, hw, gradientRasterUs, gammaHzPerT, ascPath, sequenceGeneration, requestId,
+    QElapsedTimer asyncTimer;
+    asyncTimer.start();
+    std::thread([self, blockBundle, hw, gradientRasterUs, gammaHzPerT, ascPath, sequenceGeneration, requestId, asyncTimer,
                  blocks = m_vecDecodeSeqBlocks, blockEdges = vecBlockEdges, tf = tFactor]() mutable {
         PnsCalculator::Result result;
         bool ok = true;
@@ -3104,13 +3109,15 @@ void PulseqLoader::startPnsComputationAsync()
         if (!self)
             return;
 
-        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, ascPath, sequenceGeneration, requestId, gammaHzPerT]() mutable {
+        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, ascPath, sequenceGeneration, requestId, gammaHzPerT, asyncTimer]() mutable {
             if (!self)
                 return;
-            if (self->m_trajectorySequenceGeneration != sequenceGeneration)
+            if (self->m_trajectorySequenceGeneration != sequenceGeneration || self->m_activePnsRequestId != requestId)
+            {
+                LOG_DEBUG_CAT("Performance", "PNS computation cancelled/superseded");
                 return;
-            if (self->m_activePnsRequestId != requestId)
-                return;
+            }
+            LOG_INFO_CAT("Performance", QString("PNS computation completed in %1 ms").arg(asyncTimer.elapsed()));
 
             self->m_pnsAscPath = ascPath;
             if (!ok)
@@ -3218,7 +3225,9 @@ void PulseqLoader::startM1ComputationAsync()
 
     QPointer<PulseqLoader> self(this);
     const auto blockBundle = m_blockBundle;
-    std::thread([self, input, sequenceGeneration, requestId, blockBundle]() mutable {
+    QElapsedTimer asyncTimer;
+    asyncTimer.start();
+    std::thread([self, input, sequenceGeneration, requestId, blockBundle, asyncTimer]() mutable {
         M1Calculator::Result result;
         bool ok = true;
         try {
@@ -3230,13 +3239,15 @@ void PulseqLoader::startM1ComputationAsync()
         if (!self)
             return;
 
-        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, sequenceGeneration, requestId]() mutable {
+        QMetaObject::invokeMethod(self, [self, result = std::move(result), ok, sequenceGeneration, requestId, asyncTimer]() mutable {
             if (!self)
                 return;
-            if (self->m_trajectorySequenceGeneration != sequenceGeneration)
+            if (self->m_trajectorySequenceGeneration != sequenceGeneration || self->m_activeM1RequestId != requestId)
+            {
+                LOG_DEBUG_CAT("Performance", "M1 computation cancelled/superseded");
                 return;
-            if (self->m_activeM1RequestId != requestId)
-                return;
+            }
+            LOG_INFO_CAT("Performance", QString("M1 computation completed in %1 ms").arg(asyncTimer.elapsed()));
             if (!ok)
             {
                 self->m_m1Result = M1Calculator::Result{};

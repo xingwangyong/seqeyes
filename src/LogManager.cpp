@@ -57,7 +57,7 @@ bool LogManager::shouldLog(Settings::LogLevel messageLevel) const
 }
 
 void LogManager::appendEntryInternal(QtMsgType type,
-                                     const QString& source,
+                                     const QString& category,
                                      const QString& message,
                                      const QString& file,
                                      bool bypassFilter)
@@ -81,9 +81,9 @@ void LogManager::appendEntryInternal(QtMsgType type,
     }
 
     QString prefix = QStringLiteral("%1 [%2] ").arg(ts, levelStr);
-    if (!source.isEmpty())
+    if (!category.isEmpty())
     {
-        prefix += QStringLiteral("[%1] ").arg(source);
+        prefix += QStringLiteral("[%1] ").arg(category);
     }
 
     QString line = prefix + message;
@@ -96,7 +96,7 @@ void LogManager::appendEntryInternal(QtMsgType type,
     LogEntry e;
     e.timestamp = ts;
     e.level = levelStr;
-    e.source = source;
+    e.category = category;
     e.message = message;
     e.file = file;
     m_entries.append(e);
@@ -108,19 +108,19 @@ void LogManager::appendEntryInternal(QtMsgType type,
     }
 
     emit logLineAppended(line);
-    emit logEntryAppended(e.timestamp, e.level, e.source, e.message, e.file);
+    emit logEntryAppended(e.timestamp, e.level, e.category, e.message, e.file);
 }
 
 void LogManager::appendFromQt(QtMsgType type,
                               const QMessageLogContext& context,
                               const QString& msg)
 {
-    QString source;
+    QString category;
     if (context.category && *context.category)
     {
-        source = QString::fromUtf8(context.category);
-        if (source.compare(QStringLiteral("default"), Qt::CaseInsensitive) == 0)
-            source.clear();
+        category = QString::fromUtf8(context.category);
+        if (category.compare(QStringLiteral("default"), Qt::CaseInsensitive) == 0)
+            category.clear();
     }
 
     QString file;
@@ -130,99 +130,24 @@ void LogManager::appendFromQt(QtMsgType type,
         const QString baseName = QFileInfo(filePath).fileName();
         file = QStringLiteral("%1:%2").arg(baseName).arg(context.line);
     }
-    appendEntryInternal(type, source, msg, file);
+    appendEntryInternal(type, category, msg, file);
 }
 
 void LogManager::appendStructured(QtMsgType type,
-                                  const QString& source,
+                                  const QString& category,
                                   const QString& message,
                                   const QString& file)
 {
-    appendEntryInternal(type, source.trimmed(), message, file.trimmed());
+    appendEntryInternal(type, category.trimmed(), message, file.trimmed());
 }
 
-void LogManager::appendDiagnostic(const QString& source,
+void LogManager::appendDiagnostic(const QString& category,
                                   const QString& message,
                                   const QString& file)
 {
     appendEntryInternal(QtWarningMsg,
-                        source.trimmed(),
+                        category.trimmed(),
                         message,
                         file.trimmed(),
                         true);
-}
-
-void LogManager::fatal(const QString& message)
-{
-    // qFatal aborts the application after printing
-    if (shouldLog(Settings::LogLevel::Fatal)) {
-        qFatal("%s", qPrintable(message));
-    } else {
-        // Even if filtered out, fatal should still abort by definition
-        qFatal("%s", qPrintable(message));
-    }
-}
-
-void LogManager::error(const QString& message)
-{
-    if (shouldLog(Settings::LogLevel::Critical)) {
-        qCritical().noquote() << message;
-    }
-}
-
-void LogManager::warning(const QString& message)
-{
-    if (shouldLog(Settings::LogLevel::Warning)) {
-        qWarning().noquote() << message;
-    }
-}
-
-void LogManager::info(const QString& message)
-{
-    if (shouldLog(Settings::LogLevel::Info)) {
-        qInfo().noquote() << message;
-    }
-}
-
-void LogManager::debug(const QString& message)
-{
-    if (shouldLog(Settings::LogLevel::Debug)) {
-        qDebug().noquote() << message;
-    }
-}
-
-void LogManager::fatal(const QString& category, const QString& message)
-{
-    Q_UNUSED(category);
-    // qFatal has no streaming API; prepend category manually
-    QString line = category.isEmpty() ? message : (category + ": " + message);
-    qFatal("%s", qPrintable(line));
-}
-
-void LogManager::error(const QString& category, const QString& message)
-{
-    if (shouldLog(Settings::LogLevel::Critical)) {
-        qCritical().noquote() << category << ":" << message;
-    }
-}
-
-void LogManager::warning(const QString& category, const QString& message)
-{
-    if (shouldLog(Settings::LogLevel::Warning)) {
-        qWarning().noquote() << category << ":" << message;
-    }
-}
-
-void LogManager::info(const QString& category, const QString& message)
-{
-    if (shouldLog(Settings::LogLevel::Info)) {
-        qInfo().noquote() << category << ":" << message;
-    }
-}
-
-void LogManager::debug(const QString& category, const QString& message)
-{
-    if (shouldLog(Settings::LogLevel::Debug)) {
-        qDebug().noquote() << category << ":" << message;
-    }
 }

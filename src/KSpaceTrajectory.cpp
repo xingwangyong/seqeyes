@@ -16,6 +16,8 @@
 #include <QTextStream>
 #include "Settings.h"
 #include <QDebug>
+#include "LogManager.h"
+#include <QElapsedTimer>
 
 namespace KSpaceTrajectory
 {
@@ -526,6 +528,8 @@ namespace
 
 Result compute(const Input& input)
 {
+    QElapsedTimer perfTimer;
+    perfTimer.start();
     Result result;
     const bool debugDump = ktrajDebugEnabled();
     if (input.blocks.empty() || input.blockEdges.size() < 2)
@@ -909,6 +913,8 @@ Result compute(const Input& input)
             gz = lgz;
         }
     };
+    
+    LOG_DEBUG_CAT("Performance", QString("Gradient series & time grid built in %1 ms").arg(perfTimer.restart()));
 
     QVector<double> kxData(timeGrid.size(), 0.0);
     QVector<double> kyData(timeGrid.size(), 0.0);
@@ -1178,6 +1184,8 @@ Result compute(const Input& input)
         }
         writeTextFile(QDir(outDir).filePath(QString("ktraj_adc_%1.csv").arg(stamp)), adcCsv);
     }
+    
+    LOG_DEBUG_CAT("Performance", QString("Main integration and sampling took %1 ms").arg(perfTimer.restart()));
 
     return result;
 }

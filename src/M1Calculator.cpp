@@ -51,6 +51,8 @@
 #include <cmath>
 #include <limits>
 #include <vector>
+#include <QElapsedTimer>
+#include "LogManager.h"
 
 namespace M1Calculator
 {
@@ -371,6 +373,8 @@ void buildEventList(const std::vector<RfEventRec>& rfs,
 // =============================================================================
 Result compute(const Input& input)
 {
+    QElapsedTimer perfTimer;
+    perfTimer.start();
     Result result;
     if (input.blocks.empty() || input.blockEdges.size() < 2)
     {
@@ -644,6 +648,8 @@ Result compute(const Input& input)
             }
         }
     };
+    
+    LOG_DEBUG_CAT("Performance", QString("M1 preparation took %1 ms").arg(perfTimer.restart()));
 
     // First pass: x populates the canonical t-stream and the M1x curve.
     walkAndCollect(gxTime, gxVal, result.tSec, result.m1x);
@@ -663,6 +669,8 @@ Result compute(const Input& input)
                                           .arg(result.m1y.size())
                                           .arg(result.m1z.size());
     }
+    
+    LOG_DEBUG_CAT("Performance", QString("M1 core integration and collection took %1 ms").arg(perfTimer.restart()));
 
     result.valid = true;
     result.ok = true;

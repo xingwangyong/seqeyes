@@ -10,6 +10,8 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QSet>
+#include <QElapsedTimer>
+#include "LogManager.h"
 
 #include <algorithm>
 #include <array>
@@ -856,6 +858,8 @@ double interpLinearZero(const WaveSeries& wave, double t)
 
 bool PnsCalculator::parseAscFile(const QString& ascPath, Hardware& outHardware, QString* errorMessage)
 {
+    QElapsedTimer perfTimer;
+    perfTimer.start();
     outHardware = Hardware{};
     ParsedAscValues asc;
     QString err;
@@ -991,6 +995,8 @@ bool PnsCalculator::parseAscFile(const QString& ascPath, Hardware& outHardware, 
     outHardware.y = y;
     outHardware.z = z;
     outHardware.valid = true;
+    
+    LOG_DEBUG_CAT("Performance", QString("Hardware model parsing and preparation took %1 ms").arg(perfTimer.restart()));
     return true;
 }
 
@@ -1002,6 +1008,8 @@ PnsCalculator::Result PnsCalculator::calculate(
     double gammaHzPerT,
     const Hardware& hardware)
 {
+    QElapsedTimer perfTimer;
+    perfTimer.start();
     Result result;
     if (!hardware.valid)
     {
@@ -1052,6 +1060,8 @@ PnsCalculator::Result PnsCalculator::calculate(
             mergeWavePiece(waves[ch], piece, dtSec);
         }
     }
+    
+    LOG_DEBUG_CAT("Performance", QString("PNS gradient series preparation took %1 ms").arg(perfTimer.restart()));
 
     double tFirst = std::numeric_limits<double>::infinity();
     double tLast = -std::numeric_limits<double>::infinity();
@@ -1141,6 +1151,8 @@ PnsCalculator::Result PnsCalculator::calculate(
     const QVector<double> stimX = safePnsModel(dgdtX, dtSec, hardware.x);
     const QVector<double> stimY = safePnsModel(dgdtY, dtSec, hardware.y);
     const QVector<double> stimZ = safePnsModel(dgdtZ, dtSec, hardware.z);
+
+    LOG_DEBUG_CAT("Performance", QString("Main SAFE model filtering took %1 ms").arg(perfTimer.restart()));
 
     QVector<bool> originalMask(gxPadded.size(), false);
     for (int i = 0; i < nSamples; ++i)
