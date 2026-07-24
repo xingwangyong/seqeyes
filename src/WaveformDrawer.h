@@ -277,6 +277,14 @@ private:
     void applyMinMaxDownsampling(const QVector<double>& time, const QVector<double>& values,
                                  int pixelBuckets,
                                  QVector<double>& outTime, QVector<double>& outValues);
+    bool applyFinalPixelBudgetEnvelope(const QVector<double>& time,
+                                       const QVector<double>& values,
+                                       double visibleStart,
+                                       double visibleEnd,
+                                       int pixelWidth,
+                                       int pointsPerPixel,
+                                       QVector<double>& outTime,
+                                       QVector<double>& outValues) const;
     
     // Simple LOD data generation
     bool isComplexCurve(const class SeqBlock& block, int channel = -1); // -1 for RF

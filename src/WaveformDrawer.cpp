@@ -1577,6 +1577,12 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
             }
         }
 
+        QVector<double> tGCapped, vGCapped;
+        if (applyFinalPixelBudgetEnvelope(tG, vG, visibleStart, visibleEnd, px, 8, tGCapped, vGCapped)) {
+            tG = std::move(tGCapped);
+            vG = std::move(vGCapped);
+        }
+
         QCPGraph* target = (channel == 0 ? m_graphGx : (channel == 1 ? m_graphGy : m_graphGz));
         if (target) {
             target->setData(tG, vG);
@@ -2584,6 +2590,73 @@ void WaveformDrawer::applyMinMaxDownsampling(const QVector<double>& time, const 
         }
         idx = j;
     }
+}
+
+bool WaveformDrawer::applyFinalPixelBudgetEnvelope(const QVector<double>& time,
+                                                   const QVector<double>& values,
+                                                   double visibleStart,
+                                                   double visibleEnd,
+                                                   int pixelWidth,
+                                                   int pointsPerPixel,
+                                                   QVector<double>& outTime,
+                                                   QVector<double>& outValues) const
+{
+    outTime.clear();
+    outValues.clear();
+    if (time.isEmpty() || values.isEmpty() || time.size() != values.size())
+        return false;
+    if (pixelWidth <= 0 || pointsPerPixel <= 0 || visibleEnd <= visibleStart)
+        return false;
+
+    const int pointBudget = pixelWidth * pointsPerPixel;
+    if (time.size() <= pointBudget)
+        return false;
+
+    struct Bucket {
+        bool used = false;
+        double minValue = std::numeric_limits<double>::infinity();
+        double maxValue = -std::numeric_limits<double>::infinity();
+    };
+
+    const int bucketCount = qMax(1, pixelWidth);
+    QVector<Bucket> buckets(bucketCount);
+    const double window = visibleEnd - visibleStart;
+
+    for (int i = 0; i < time.size(); ++i) {
+        const double t = time[i];
+        const double v = values[i];
+        if (!std::isfinite(t) || !std::isfinite(v))
+            continue;
+        if (t < visibleStart || t > visibleEnd)
+            continue;
+
+        int bucketIndex = static_cast<int>(std::floor((t - visibleStart) / window * bucketCount));
+        bucketIndex = std::max(0, std::min(bucketCount - 1, bucketIndex));
+
+        Bucket& bucket = buckets[bucketIndex];
+        bucket.used = true;
+        bucket.minValue = std::min(bucket.minValue, v);
+        bucket.maxValue = std::max(bucket.maxValue, v);
+    }
+
+    outTime.reserve(bucketCount * 3);
+    outValues.reserve(bucketCount * 3);
+    const double bucketWidth = window / bucketCount;
+    for (int b = 0; b < bucketCount; ++b) {
+        const Bucket& bucket = buckets[b];
+        if (!bucket.used)
+            continue;
+
+        const double x = visibleStart + (static_cast<double>(b) + 0.5) * bucketWidth;
+        outTime.append(x);
+        outValues.append(bucket.minValue);
+        outTime.append(x);
+        outValues.append(bucket.maxValue);
+        outTime.append(x);
+        outValues.append(std::numeric_limits<double>::quiet_NaN());
+    }
+
+    return !outTime.isEmpty();
 }
 
 // Simple LOD system - no complex precomputation needed
