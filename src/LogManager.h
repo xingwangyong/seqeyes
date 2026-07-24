@@ -46,6 +46,12 @@ public:
         int gradPoints = 0;
         int trigPoints = 0;
         int edgePoints = 0;
+        int rfMagPoints = 0;
+        int rfPhasePoints = 0;
+        int rfMagChannels = 0;
+        int rfPhaseChannels = 0;
+        int rfMagMaxPoints = 0;
+        int rfPhaseMaxPoints = 0;
         qint64 rfTimeMs = 0;
         qint64 adcTimeMs = 0;
         qint64 gradTimeMs = 0;
@@ -61,9 +67,10 @@ public:
         QString slowestStage;
 
         QString toLogString() const {
-            return QStringLiteral("type=load traceId=%1 reason=%2 totalMs=%3 parseMs=%4 decodeMs=%5 renderDataMs=%6 replotMs=%7 visibleBlocks=%8 pointsTotal=%9 rfPoints=%10 adcRectPoints=%11 adcPhasePoints=%12 gradPoints=%13 trigPoints=%14 edgePoints=%15 rfTimeMs=%16 adcTimeMs=%17 gradTimeMs=%18 trigTimeMs=%19 edgeTimeMs=%20 adcLabelInitMs=%21 adcViewportMs=%22 adcHeightMs=%23 adcRangeCollectMs=%24 adcBuildMs=%25 adcSetDataMs=%26 adcExtensionMs=%27 slowestStage=%28")
+            return QStringLiteral("type=load traceId=%1 reason=%2 totalMs=%3 parseMs=%4 decodeMs=%5 renderDataMs=%6 replotMs=%7 visibleBlocks=%8 pointsTotal=%9 rfPoints=%10 rfMagPoints=%11 rfPhasePoints=%12 rfMagChannels=%13 rfPhaseChannels=%14 rfMagMaxPoints=%15 rfPhaseMaxPoints=%16 adcRectPoints=%17 adcPhasePoints=%18 gradPoints=%19 trigPoints=%20 edgePoints=%21 rfTimeMs=%22 adcTimeMs=%23 gradTimeMs=%24 trigTimeMs=%25 edgeTimeMs=%26 adcLabelInitMs=%27 adcViewportMs=%28 adcHeightMs=%29 adcRangeCollectMs=%30 adcBuildMs=%31 adcSetDataMs=%32 adcExtensionMs=%33 slowestStage=%34")
                 .arg(traceId, reason).arg(totalMs).arg(parseMs).arg(decodeMs).arg(renderDataMs).arg(replotMs).arg(visibleBlocks).arg(pointsTotal)
-                .arg(rfPoints).arg(adcRectPoints).arg(adcPhasePoints).arg(gradPoints).arg(trigPoints).arg(edgePoints)
+                .arg(rfPoints).arg(rfMagPoints).arg(rfPhasePoints).arg(rfMagChannels).arg(rfPhaseChannels).arg(rfMagMaxPoints).arg(rfPhaseMaxPoints)
+                .arg(adcRectPoints).arg(adcPhasePoints).arg(gradPoints).arg(trigPoints).arg(edgePoints)
                 .arg(rfTimeMs).arg(adcTimeMs).arg(gradTimeMs).arg(trigTimeMs).arg(edgeTimeMs)
                 .arg(adcLabelInitMs).arg(adcViewportMs).arg(adcHeightMs).arg(adcRangeCollectMs).arg(adcBuildMs).arg(adcSetDataMs).arg(adcExtensionMs)
                 .arg(slowestStage);

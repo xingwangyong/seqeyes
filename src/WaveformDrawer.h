@@ -71,6 +71,12 @@ public:
         int gradPoints = 0;
         int trigPoints = 0;
         int edgePoints = 0;
+        int rfMagPoints = 0;
+        int rfPhasePoints = 0;
+        int rfMagChannels = 0;
+        int rfPhaseChannels = 0;
+        int rfMagMaxPoints = 0;
+        int rfPhaseMaxPoints = 0;
         qint64 totalTimeMs = 0;
         qint64 replotTimeMs = 0;
         qint64 rfTimeMs = 0;

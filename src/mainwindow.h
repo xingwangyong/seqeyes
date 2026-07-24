@@ -197,6 +197,12 @@ public:
         int visibleBlocks = 0;
         int totalPoints = 0;
         int rfPoints = 0;
+        int rfMagPoints = 0;
+        int rfPhasePoints = 0;
+        int rfMagChannels = 0;
+        int rfPhaseChannels = 0;
+        int rfMagMaxPoints = 0;
+        int rfPhaseMaxPoints = 0;
         int adcRectPoints = 0;
         int adcPhasePoints = 0;
         int gradPoints = 0;
@@ -229,6 +235,12 @@ public:
         m_pendingLoadPerf.visibleBlocks = 0;
         m_pendingLoadPerf.totalPoints = 0;
         m_pendingLoadPerf.rfPoints = 0;
+        m_pendingLoadPerf.rfMagPoints = 0;
+        m_pendingLoadPerf.rfPhasePoints = 0;
+        m_pendingLoadPerf.rfMagChannels = 0;
+        m_pendingLoadPerf.rfPhaseChannels = 0;
+        m_pendingLoadPerf.rfMagMaxPoints = 0;
+        m_pendingLoadPerf.rfPhaseMaxPoints = 0;
         m_pendingLoadPerf.adcRectPoints = 0;
         m_pendingLoadPerf.adcPhasePoints = 0;
         m_pendingLoadPerf.gradPoints = 0;
@@ -250,7 +262,10 @@ public:
     
     // Will be called by InteractionHandler or WaveformDrawer
     void recordInitialLoadRenderStats(qint64 totalTimeMs, int visBlocks, int pts, const QString& slowest,
-                                      int rfPts = 0, int adcRectPts = 0, int adcPhasePts = 0,
+                                      int rfPts = 0, int rfMagPts = 0, int rfPhasePts = 0,
+                                      int rfMagCh = 0, int rfPhaseCh = 0,
+                                      int rfMagMaxPts = 0, int rfPhaseMaxPts = 0,
+                                      int adcRectPts = 0, int adcPhasePts = 0,
                                       int gradPts = 0, int trigPts = 0, int edgePts = 0,
                                       qint64 rfMs = 0, qint64 adcMs = 0, qint64 gradMs = 0,
                                       qint64 trigMs = 0, qint64 edgeMs = 0,
@@ -263,6 +278,12 @@ public:
             m_pendingLoadPerf.visibleBlocks = visBlocks;
             m_pendingLoadPerf.totalPoints = pts;
             m_pendingLoadPerf.rfPoints = rfPts;
+            m_pendingLoadPerf.rfMagPoints = rfMagPts;
+            m_pendingLoadPerf.rfPhasePoints = rfPhasePts;
+            m_pendingLoadPerf.rfMagChannels = rfMagCh;
+            m_pendingLoadPerf.rfPhaseChannels = rfPhaseCh;
+            m_pendingLoadPerf.rfMagMaxPoints = rfMagMaxPts;
+            m_pendingLoadPerf.rfPhaseMaxPoints = rfPhaseMaxPts;
             m_pendingLoadPerf.adcRectPoints = adcRectPts;
             m_pendingLoadPerf.adcPhasePoints = adcPhasePts;
             m_pendingLoadPerf.gradPoints = gradPts;
