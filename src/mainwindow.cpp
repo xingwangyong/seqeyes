@@ -2497,10 +2497,7 @@ void MainWindow::onTrajectorySeriesToggled()
         m_pTrajectoryPlot->replot(QCustomPlot::rpQueuedReplot);
 }
 
-// Version info is auto-generated from Git metadata via CMake (see version_autogen.h).
-#include <version_autogen.h>
-// Manual app semantic version
-#include "seqeyes_version.h"
+#include "version_info.h"
 
 void MainWindow::showAbout()
 {
@@ -2509,9 +2506,9 @@ void MainWindow::showAbout()
         "<p>For viewing Pulseq sequence file, modified from <a href='https://github.com/xpjiang/PulseqViewer'>PulseqViewer</a></p>"
         "<p>See <a href='https://github.com/xingwangyong/seqeyes'>https://github.com/xingwangyong/seqeyes</a></p>"
         "<p><b>Version:</b> %1, %2, %3<br></p>")
-        .arg(QString::fromUtf8(SEQEYES_APP_VERSION))
-        .arg(QString::fromUtf8(SEQEYE_GIT_DATE))
-        .arg(QString::fromUtf8(SEQEYE_GIT_HASH));
+        .arg(seqeyesAppVersion())
+        .arg(seqeyesGitDate())
+        .arg(seqeyesGitHash());
 
     QMessageBox::about(this, "About SeqEyes", versionHtml);
 }

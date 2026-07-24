@@ -30,16 +30,18 @@ set(PULSEQ_DIR ${CMAKE_SOURCE_DIR}/src/external/pulseq)
 set(QCUSTOM_PLOT_DIR ${CMAKE_SOURCE_DIR}/src/external/qcustomplot)
 list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-# --- Git version info header generated at build time (not configure time) ---
-include_directories(${CMAKE_BINARY_DIR}/generated)
+# --- Git version info source generated at build time (not configure time) ---
+include_directories(${PROJECT_ROOT}/src ${CMAKE_BINARY_DIR}/generated)
+set(SEQEYES_VERSION_AUTOGEN_CPP ${CMAKE_BINARY_DIR}/generated/version_autogen.cpp)
+set_source_files_properties(${SEQEYES_VERSION_AUTOGEN_CPP} PROPERTIES GENERATED TRUE)
 add_custom_target(gen_version ALL
   COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/generated
   COMMAND ${CMAKE_COMMAND}
-          -DOUT=${CMAKE_BINARY_DIR}/generated/version_autogen.h
+          -DOUT=${SEQEYES_VERSION_AUTOGEN_CPP}
           -DSRC_DIR=${CMAKE_SOURCE_DIR}
           -P ${CMAKE_SOURCE_DIR}/cmake/GenVersion.cmake
-  BYPRODUCTS ${CMAKE_BINARY_DIR}/generated/version_autogen.h
-  COMMENT "Generating version_autogen.h from Git (commit date + hash)"
+  BYPRODUCTS ${SEQEYES_VERSION_AUTOGEN_CPP}
+  COMMENT "Generating version_autogen.cpp from Git (commit date + hash)"
 )
 
 
@@ -156,6 +158,8 @@ set(SRC_LIST
     ${PROJECT_ROOT}/src/ZoomManager.cpp
     ${PROJECT_ROOT}/src/AutomationRunner.cpp
     ${PROJECT_ROOT}/src/TrajectoryColormap.cpp
+    ${PROJECT_ROOT}/src/version_info.cpp
+    ${SEQEYES_VERSION_AUTOGEN_CPP}
 )
 
 set(HEADER_LIST
@@ -163,6 +167,7 @@ set(HEADER_LIST
     ${PROJECT_ROOT}/src/LogManager.h
     ${PROJECT_ROOT}/src/mainwindow.h
     ${PROJECT_ROOT}/src/seqeyes_version.h
+    ${PROJECT_ROOT}/src/version_info.h
     ${PROJECT_ROOT}/src/IPulseqLoadUi.h
     ${PROJECT_ROOT}/src/LoadResult.h
     ${PROJECT_ROOT}/src/OpenResult.h

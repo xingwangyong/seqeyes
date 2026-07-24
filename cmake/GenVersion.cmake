@@ -1,6 +1,6 @@
-# Generates version_autogen.h at build time from Git metadata.
+# Generates version_autogen.cpp at build time from Git metadata.
 # Inputs:
-#   - OUT: path to write header to (e.g. <build>/generated/version_autogen.h)
+#   - OUT: path to write source to (e.g. <build>/generated/version_autogen.cpp)
 #   - SRC_DIR: repository root for git commands
 
 if(NOT DEFINED OUT)
@@ -29,10 +29,29 @@ if(Git_FOUND)
     ERROR_QUIET)
 endif()
 
-file(WRITE ${OUT} "#pragma once\n")
-file(APPEND ${OUT} "\n")
-file(APPEND ${OUT} "// Auto-generated at build time.\n")
-file(APPEND ${OUT} "// SEQEYE_GIT_DATE is the commit date (YYYYMMDD) for SEQEYE_GIT_HASH.\n")
-file(APPEND ${OUT} "#define SEQEYE_GIT_HASH \"${HASH}\"\n")
-file(APPEND ${OUT} "#define SEQEYE_GIT_DATE \"${DATE}\"\n")
+set(CONTENT
+"// Auto-generated at build time.
+// seqeyesGitDate() is the commit date (YYYYMMDD) for seqeyesGitHash().
 
+#include \"version_info.h\"
+
+QString seqeyesGitHash()
+{
+    return QStringLiteral(\"${HASH}\");
+}
+
+QString seqeyesGitDate()
+{
+    return QStringLiteral(\"${DATE}\");
+}
+")
+
+if(EXISTS ${OUT})
+  file(READ ${OUT} OLD_CONTENT)
+else()
+  set(OLD_CONTENT "")
+endif()
+
+if(NOT OLD_CONTENT STREQUAL CONTENT)
+  file(WRITE ${OUT} "${CONTENT}")
+endif()

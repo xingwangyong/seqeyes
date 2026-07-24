@@ -71,6 +71,8 @@ set(SEQEYES_TEST_APP_SOURCES
     ${PROJECT_SOURCE_DIR}/src/LogTableDialog.cpp
     ${PROJECT_SOURCE_DIR}/src/doublerangeslider.cpp
     ${PROJECT_SOURCE_DIR}/src/ZoomManager.cpp
+    ${PROJECT_SOURCE_DIR}/src/version_info.cpp
+    ${SEQEYES_VERSION_AUTOGEN_CPP}
     ${EXTERNAL_PULSEQ_DIR}/ExternalSequence.cpp
     ${EXTERNAL_PULSEQ_DIR}/v151/ExternalSequence.cpp
     ${EXTERNAL_PULSEQ_DIR}/v151/md5.cpp
