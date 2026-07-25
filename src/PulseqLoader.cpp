@@ -97,6 +97,7 @@ qint64 quantizedPhaseKey(double phase)
 }
 
 constexpr qint64 kSynchronousFileHashThresholdBytes = 16LL * 1024LL * 1024LL;
+constexpr qint64 kLargeSequenceWarningThresholdBytes = 500LL * 1024LL * 1024LL;
 constexpr int kFileReloadDebounceMs = 500;
 
 bool fileMetadataIsOlderThanDebounce(const QDateTime& modified)
@@ -1840,6 +1841,34 @@ bool PulseqLoader::LoadPulseqFile(QString sPulseqFilePath)
 
 OpenResult PulseqLoader::LoadPulseqFileResult(QString sPulseqFilePath)
 {
+    const QFileInfo fileInfo(sPulseqFilePath);
+    if (!m_silentMode && m_mainWindow && fileInfo.exists() && fileInfo.isFile() &&
+        fileInfo.size() > kLargeSequenceWarningThresholdBytes)
+    {
+        const double sizeMb = double(fileInfo.size()) / (1024.0 * 1024.0);
+        const QString message = QStringLiteral(
+            "This sequence file is large (%1 MB).\n\n"
+            "SeqEyes loads and decodes the full sequence in memory. Very large "
+            "files can require substantial RAM, e.g. a 458MB sequence may reach a peak RAM of 22GB.\n\n"
+            "Do you want to continue loading this file?")
+            .arg(sizeMb, 0, 'f', 1);
+
+        const QMessageBox::StandardButton answer = QMessageBox::question(
+            m_mainWindow,
+            QStringLiteral("Large sequence file"),
+            message,
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No);
+
+        if (answer != QMessageBox::Yes)
+        {
+            const QString cancelMessage = QStringLiteral("Large sequence load canceled: %1")
+                .arg(fileInfo.absoluteFilePath());
+            qWarning().noquote() << cancelMessage;
+            return OpenResult::warning(QStringLiteral("Load canceled"), cancelMessage);
+        }
+    }
+
     PulseqLoadTransaction transaction(*this);
     const LoadResult result = transaction.load(sPulseqFilePath);
     return OpenResult::fromLoadResult(result, sPulseqFilePath);
@@ -5299,4 +5328,3 @@ QList<QPair<QString, int>> PulseqLoader::getActiveLabels(int blockIdx) const
     });
     return result;
 }
-
