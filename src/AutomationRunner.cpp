@@ -17,6 +17,10 @@
 #include <QDir>
 #include <QTextStream>
 
+namespace {
+constexpr int kDefaultAutomationBackgroundTimeoutMs = 300000;
+}
+
 static bool readJsonFile(const QString& path, QJsonObject& out)
 {
     QFile f(path);
@@ -78,6 +82,7 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
     if (type == "open_file") {
         QString p = params.value("path").toString();
         if (p.isEmpty()) { qWarning() << "[AUTOMATION] open_file: missing path"; return 10; }
+        const int backgroundTimeoutMs = params.value("background_timeout_ms", kDefaultAutomationBackgroundTimeoutMs).toInt();
         if (auto* loader = window.getPulseqLoader()) {
             loader->setSilentMode(true);
         }
@@ -86,8 +91,8 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
             return 21;
         }
         if (auto* loader = window.getPulseqLoader()) {
-            if (!loader->waitForBackgroundComputations()) {
-                qWarning() << "[AUTOMATION] open_file: timed out waiting for post-load computations";
+            if (!loader->waitForBackgroundComputations(backgroundTimeoutMs)) {
+                qWarning() << "[AUTOMATION] open_file: timed out waiting for post-load computations after" << backgroundTimeoutMs << "ms";
                 return 22;
             }
         }
@@ -118,6 +123,7 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
         const bool showY = params.value("show_y", true).toBool();
         const bool showZ = params.value("show_z", true).toBool();
         const bool showNorm = params.value("show_norm", true).toBool();
+        const int backgroundTimeoutMs = params.value("background_timeout_ms", kDefaultAutomationBackgroundTimeoutMs).toInt();
 
         Settings& s = Settings::getInstance();
         s.setPnsAscPath(ascPath);
@@ -128,8 +134,8 @@ int AutomationRunner::runAction(MainWindow& window, const QString& type, const Q
 
         if (auto* loader = window.getPulseqLoader()) {
             loader->recomputePnsFromSettings();
-            if (!loader->waitForBackgroundComputations()) {
-                qWarning() << "[AUTOMATION] configure_pns: timed out waiting for PNS computation";
+            if (!loader->waitForBackgroundComputations(backgroundTimeoutMs)) {
+                qWarning() << "[AUTOMATION] configure_pns: timed out waiting for PNS computation after" << backgroundTimeoutMs << "ms";
                 return 23;
             }
         }

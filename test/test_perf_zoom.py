@@ -8,6 +8,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 _DUMMY_PNS_ASC_CONTENT = """# Temporary dummy ASC profile used only for local performance testing.
 flGSWDTauX[0] = 0.20
@@ -82,27 +83,31 @@ def parse_zoom_ms(stdout: str):
     return None
 
 
-def run_one(exe: Path, seq_path: Path):
+def run_one(exe: Path, seq_path: Path, background_timeout_ms: Optional[int] = None):
     """Run a single measurement. If SeqEye is detected, use --automation; otherwise fallback to PerfZoomTest.
     For SeqEye, stream stdout and kill process after ZOOM_MS is captured to avoid long teardown on huge files.
     """
     exe_name = exe.name.lower()
     seq_abs = seq_path.resolve()
     if "seqeye" in exe_name:
-        scenario = {"actions": [{"type": "open_file", "path": seq_abs.as_posix()}]}
+        open_action = {"type": "open_file", "path": seq_abs.as_posix()}
+        if background_timeout_ms is not None:
+            open_action["background_timeout_ms"] = background_timeout_ms
+        scenario = {"actions": [open_action]}
         pns_asc = os.environ.get("SEQEYES_PERF_PNS_ASC", "").strip()
         if pns_asc:
-            scenario["actions"].append(
-                {
-                    "type": "configure_pns",
-                    "asc_path": str(Path(pns_asc).resolve().as_posix()),
-                    "show_pns": True,
-                    "show_x": True,
-                    "show_y": True,
-                    "show_z": True,
-                    "show_norm": True,
-                }
-            )
+            pns_action = {
+                "type": "configure_pns",
+                "asc_path": str(Path(pns_asc).resolve().as_posix()),
+                "show_pns": True,
+                "show_x": True,
+                "show_y": True,
+                "show_z": True,
+                "show_norm": True,
+            }
+            if background_timeout_ms is not None:
+                pns_action["background_timeout_ms"] = background_timeout_ms
+            scenario["actions"].append(pns_action)
         scenario["actions"].extend(
             [
                 {"type": "reset_view"},
@@ -163,7 +168,12 @@ def main():
     ap.add_argument("--threshold-ms", type=float, default=None, help="Absolute regression threshold in ms; if omitted, use 10%% of baseline")
     ap.add_argument("--pns-asc", type=Path, default=None, help="Optional ASC profile path. If provided, perf run enables PNS X/Y/Z/Norm for worst-case timing.")
     ap.add_argument("--use-dummy-pns-asc", action="store_true", help="Generate a temporary dummy ASC profile and enable PNS X/Y/Z/Norm for local worst-case timing.")
+    ap.add_argument("--background-timeout-ms", type=int, default=None, help="Timeout for automation background trajectory/PNS waits in ms. If omitted, SeqEyes uses its built-in default.")
     args = ap.parse_args()
+
+    if args.background_timeout_ms is not None and args.background_timeout_ms < 0:
+        print("[FAIL] --background-timeout-ms must be non-negative")
+        sys.exit(2)
 
     temp_dummy_asc = None
     if args.use_dummy_pns_asc:
@@ -216,7 +226,7 @@ def main():
     def run_multi(exe: Path, seq_path: Path, count: int, warmup: bool):
         if warmup:
             print(f"  [Warmup] {seq_path.name}...")
-            run_one(exe, seq_path)
+            run_one(exe, seq_path, args.background_timeout_ms)
         
         times = []
         last_rc = 0
@@ -225,7 +235,7 @@ def main():
         
         for i in range(count):
             label = f"Iteration {i+1}/{count}" if count > 1 else "Running"
-            rc, out, err, zoom_ms = run_one(exe, seq_path)
+            rc, out, err, zoom_ms = run_one(exe, seq_path, args.background_timeout_ms)
             last_rc, last_out, last_err = rc, out, err
             if rc != 0:
                 return rc, out, err, None, []
