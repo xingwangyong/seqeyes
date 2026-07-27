@@ -97,7 +97,7 @@ qint64 quantizedPhaseKey(double phase)
 }
 
 constexpr qint64 kSynchronousFileHashThresholdBytes = 16LL * 1024LL * 1024LL;
-constexpr qint64 kLargeSequenceWarningThresholdBytes = 500LL * 1024LL * 1024LL;
+constexpr qint64 kLargeSequenceWarningThresholdBytes = 50LL * 1024LL * 1024LL;
 constexpr int kFileReloadDebounceMs = 500;
 
 bool fileMetadataIsOlderThanDebounce(const QDateTime& modified)
@@ -1848,8 +1848,8 @@ OpenResult PulseqLoader::LoadPulseqFileResult(QString sPulseqFilePath)
         const double sizeMb = double(fileInfo.size()) / (1024.0 * 1024.0);
         const QString message = QStringLiteral(
             "This sequence file is large (%1 MB).\n\n"
-            "SeqEyes loads and decodes the full sequence in memory. Very large "
-            "files can require substantial RAM, e.g. a 458MB sequence may reach a peak RAM of 22GB.\n\n"
+            "SeqEyes loads and decodes the full sequence in memory. Large "
+            "files that contains many arbitrary waveforms can require substantial RAM, e.g. a 458MB sequence may reach a peak RAM of 22GB.\n\n"
             "Do you want to continue loading this file?")
             .arg(sizeMb, 0, 'f', 1);
 
