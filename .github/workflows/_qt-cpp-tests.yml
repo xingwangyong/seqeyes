@@ -1,0 +1,69 @@
+name: Qt C++ Tests (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: "Name of the Windows runtime artifact"
+        required: false
+        type: string
+        default: seqeyes-ci-runtime
+      bin_dir:
+        description: "Path to the extracted SeqEyes runtime"
+        required: false
+        type: string
+        default: runtime/seqeyes
+
+jobs:
+  qt_cpp_tests:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Windows Runtime
+        uses: ./.github/actions/prepare-windows-runtime
+        with:
+          artifact_name: ${{ inputs.artifact_name }}
+
+      # TimeSliderSyncTest is intentionally left out of cloud CI. It has been
+      # reliable as a local Qt interaction check, but too sensitive to hosted
+      # Windows runner environment variance. Keep sequence-open coverage in
+      # headless_load and run zoom/pan locally when working in that area.
+
+      - name: Run ReopenEquivalenceTest
+        run: python test/test_reopen.py --bin-dir "${{ inputs.bin_dir }}" --qt-bin "${{ inputs.bin_dir }}"
+
+      - name: Run PulseqLoaderStateTest
+        run: python test/test_loader_state.py --bin-dir "${{ inputs.bin_dir }}" --qt-bin "${{ inputs.bin_dir }}"
+
+      - name: Run RfMultichannelDetectionTest
+        shell: pwsh
+        timeout-minutes: 5
+        env:
+          SEQEYES_BIN_DIR: ${{ inputs.bin_dir }}
+        run: |
+          $root = (Resolve-Path $env:SEQEYES_BIN_DIR).Path
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $platformDir = Join-Path $root "platforms"
+          if (Test-Path $platformDir) {
+            $env:QT_QPA_PLATFORM_PLUGIN_PATH = $platformDir
+          }
+          $candidates = @(
+            (Join-Path $root "RfMultichannelDetectionTest.exe"),
+            (Join-Path $root "test/RfMultichannelDetectionTest.exe"),
+            (Join-Path $root "test/Release/RfMultichannelDetectionTest.exe")
+          )
+          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "RfMultichannelDetectionTest.exe not found under $root"
+            exit 1
+          }
+          $env:PATH = "$root;$env:PATH"
+          & $exe
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }

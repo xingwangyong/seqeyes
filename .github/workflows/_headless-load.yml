@@ -1,0 +1,46 @@
+name: Headless Load (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: "Name of the Windows runtime artifact"
+        required: false
+        type: string
+        default: seqeyes-ci-runtime
+      bin_dir:
+        description: "Path to the extracted SeqEyes runtime"
+        required: false
+        type: string
+        default: runtime/seqeyes
+      upload_markers:
+        description: "Upload headless marker artifacts"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  headless_load:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Windows Runtime
+        uses: ./.github/actions/prepare-windows-runtime
+        with:
+          artifact_name: ${{ inputs.artifact_name }}
+
+      - name: Run Headless Load Test
+        run: python test/test_load_all.py --bin-dir "${{ inputs.bin_dir }}"
+
+      - name: Upload Headless Markers
+        if: always() && inputs.upload_markers
+        uses: actions/upload-artifact@v4
+        with:
+          name: headless-load-markers
+          path: test/headless_markers
+          if-no-files-found: warn

@@ -1,0 +1,26 @@
+name: Prepare Windows Runtime
+description: Download and extract the SeqEyes Windows runtime artifact.
+
+inputs:
+  artifact_name:
+    description: "Name of the Windows runtime artifact"
+    required: false
+    default: seqeyes-ci-runtime
+  destination:
+    description: "Directory where the runtime zip should be extracted"
+    required: false
+    default: runtime
+
+runs:
+  using: composite
+  steps:
+    - name: Download Runtime Zip
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: .
+
+    - name: Extract Runtime
+      shell: pwsh
+      run: |
+        Expand-Archive -Path "${{ inputs.artifact_name }}.zip" -DestinationPath "${{ inputs.destination }}" -Force

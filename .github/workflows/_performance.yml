@@ -1,0 +1,54 @@
+name: Performance (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: "Name of the Windows runtime artifact"
+        required: false
+        type: string
+        default: seqeyes-ci-runtime
+      bin_dir:
+        description: "Path to the extracted SeqEyes runtime"
+        required: false
+        type: string
+        default: runtime/seqeyes
+      store_benchmark:
+        description: "Store benchmark results on gh-pages for main/dev non-PR runs"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  performance:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Windows Runtime
+        uses: ./.github/actions/prepare-windows-runtime
+        with:
+          artifact_name: ${{ inputs.artifact_name }}
+
+      - name: Run Performance Test
+        run: |
+          python test/test_perf_zoom.py --bin-dir "${{ inputs.bin_dir }}" --github-benchmark-out test/perf_bench.json --repeat 5 --warmup
+
+      - name: Store Benchmark Results
+        # Only push benchmark data to gh-pages if we are on main or dev branches,
+        # NOT for pull requests from forks or feature branches.
+        if: inputs.store_benchmark && github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: SeqEyes Zoom Performance
+          tool: "customSmallerIsBetter"
+          output-file-path: test/perf_bench.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: "120%"
+          comment-on-alert: true
+          fail-on-alert: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/benchmarks

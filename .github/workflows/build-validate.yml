@@ -26,62 +26,7 @@ jobs:
 
   visual_regression:
     needs: build_windows
-    runs-on: windows-2022
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download Runtime Zip
-        uses: actions/download-artifact@v4
-        with:
-          name: seqeyes-ci-runtime
-          path: .
-
-      - name: Extract Runtime
-        shell: pwsh
-        run: |
-          Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath runtime -Force
-
-      - name: Setup Python Dependencies
-        run: pip install Pillow gdown pyyaml
-
-      - name: Download Baseline Folder from Google Drive
-        env:
-          GDRIVE_BASELINE_FOLDER_ID: "1Lhbd8zXQlI6z_o0f6HQPDb1umb_zLush"
-        run: |
-          mkdir test/baselines -ErrorAction SilentlyContinue
-          mkdir test/baseline_downloads -ErrorAction SilentlyContinue
-          gdown --folder "https://drive.google.com/drive/folders/$env:GDRIVE_BASELINE_FOLDER_ID" -O test/baseline_downloads/
-          $visual = Get-ChildItem -Path test/baseline_downloads -Recurse -File | Where-Object { $_.Name -match '^traj-seq-pngs(\.zip)?$' -or $_.Name -match '^traj-seq-pngs.*\.zip$' } | Select-Object -First 1
-          if (-not $visual) {
-            Write-Error "Cannot find visual baseline zip named like 'traj-seq-pngs' in downloaded folder."
-            exit 1
-          }
-          Copy-Item -Path $visual.FullName -Destination test/visual-baselines.zip -Force
-          python -c "import zipfile; zipfile.ZipFile('test/visual-baselines.zip').extractall('test/baselines')"
-          $pngCount = (Get-ChildItem -Path test/baselines -Recurse -File -Filter *.png).Count
-          Write-Host "Extracted visual baseline PNG count: $pngCount"
-          if ($pngCount -eq 0) {
-            Write-Error "Visual baseline zip extracted no PNG files."
-            exit 1
-          }
-
-      - name: Run Visual Regression Test
-        run: |
-          python test/test_visual_regression.py --bin-dir runtime/seqeyes --threshold 0.005 --changed-threshold 0.0001 --fail-on-missing-baseline --max-failed-checks 5
-
-      - name: Upload Visual Diff Artifacts on Failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: visual-regression-diffs
-          path: |
-            test/snapshots/*_baseline.png
-            test/snapshots/*_current.png
-            test/snapshots/*_diff.png
+    uses: ./.github/workflows/_visual-regression.yml
 
   trajectory_regression:
     needs: build_windows
@@ -128,118 +73,19 @@ jobs:
 
   headless_load:
     needs: build_windows
-    runs-on: windows-2022
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download Runtime Zip
-        uses: actions/download-artifact@v4
-        with:
-          name: seqeyes-ci-runtime
-          path: .
-
-      - name: Extract Runtime
-        shell: pwsh
-        run: |
-          Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath runtime -Force
-
-      - name: Run Headless Load Test
-        run: python test/test_load_all.py --bin-dir runtime/seqeyes
-
-      - name: Upload Headless Markers
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: headless-load-markers
-          path: test/headless_markers
-          if-no-files-found: warn
+    uses: ./.github/workflows/_headless-load.yml
+    with:
+      upload_markers: true
 
   qt_cpp_tests:
     needs: build_windows
-    runs-on: windows-2022
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download Runtime Zip
-        uses: actions/download-artifact@v4
-        with:
-          name: seqeyes-ci-runtime
-          path: .
-
-      - name: Extract Runtime
-        shell: pwsh
-        run: |
-          Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath runtime -Force
-
-      # TimeSliderSyncTest is intentionally left out of cloud CI. It has been
-      # reliable as a local Qt interaction check, but too sensitive to hosted
-      # Windows runner environment variance. Keep sequence-open coverage in
-      # headless_load and run zoom/pan locally when working in that area.
-
-      - name: Run ReopenEquivalenceTest
-        run: python test/test_reopen.py --bin-dir runtime/seqeyes --qt-bin runtime/seqeyes
-
-      - name: Run PulseqLoaderStateTest
-        run: python test/test_loader_state.py --bin-dir runtime/seqeyes --qt-bin runtime/seqeyes
-
-      - name: Run RfMultichannelDetectionTest
-        shell: pwsh
-        timeout-minutes: 5
-        run: |
-          $root = (Resolve-Path "runtime/seqeyes").Path
-          $env:QT_QPA_PLATFORM = "offscreen"
-          $platformDir = Join-Path $root "platforms"
-          if (Test-Path $platformDir) {
-            $env:QT_QPA_PLATFORM_PLUGIN_PATH = $platformDir
-          }
-          $candidates = @(
-            (Join-Path $root "RfMultichannelDetectionTest.exe"),
-            (Join-Path $root "test/RfMultichannelDetectionTest.exe"),
-            (Join-Path $root "test/Release/RfMultichannelDetectionTest.exe")
-          )
-          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $exe) {
-            Write-Error "RfMultichannelDetectionTest.exe not found under $root"
-            exit 1
-          }
-          $env:PATH = "$root;$env:PATH"
-          & $exe
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
+    uses: ./.github/workflows/_qt-cpp-tests.yml
 
   performance:
     needs: build_windows
-    runs-on: windows-2022
     permissions:
       contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download Runtime Zip
-        uses: actions/download-artifact@v4
-        with:
-          name: seqeyes-ci-runtime
-          path: .
-
-      - name: Extract Runtime
-        shell: pwsh
-        run: |
-          Expand-Archive -Path seqeyes-ci-runtime.zip -DestinationPath runtime -Force
-
-      - name: Run Performance Test
-        run: |
-          python test/test_perf_zoom.py --bin-dir runtime/seqeyes --github-benchmark-out test/perf_bench.json --repeat 5 --warmup
+    uses: ./.github/workflows/_performance.yml
 
   package_windows_artifact:
     needs: build_windows
