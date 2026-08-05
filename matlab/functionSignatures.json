@@ -1,9 +1,26 @@
 {
-"seqeyes": {
+  "seqeyes": {
     "inputs": [
       {
+        "name": "options",
+        "kind": "positional",
+        "type": [
+          "choices={'-h','--help','-v','--version','--maximized','--name','--no-ADC','--no-RFmag','--no-RFphase','--no-Gx','--no-Gy','--no-Gz','--TR-segmented','--Whole-sequence','--TR-range','--time-range','--layout','--headless','--exit-after-load','--automation','--capture-snapshots'}",
+          "string"
+        ],
+        "repeating": true
+      },
+      {
         "name": "filename",
-        "type": "file=*.seq"
+        "kind": "ordered",
+        "type": [
+          [
+            "file=*.seq"
+          ],
+          [
+            "char"
+          ]
+        ]
       }
     ]
   }
