@@ -264,9 +264,13 @@ public:
     bool isTrajectoryCalculating() const { return m_trajectoryState == TrajectoryState::Calculating; }
     bool shouldAutoStartTrajectoryAfterLoad() const { return m_autoStartTrajectoryAfterLoad; }
     void setAutoStartTrajectoryAfterLoad(bool enabled) { m_autoStartTrajectoryAfterLoad = enabled; }
-    bool needsRfUseGuessWarning() const { return m_rfUseGuessed && !m_warnedRfUseGuess; }
+    bool needsRfUseGuessWarning() const { return !m_supportsRfUseMetadata && !m_warnedRfUseGuess; }
     void markRfUseGuessWarningShown() { m_warnedRfUseGuess = true; }
-    QString getRfUseGuessWarning() const { return m_rfGuessWarning; }
+    QString getRfUseGuessWarning() const {
+        if (!m_rfGuessWarning.isEmpty())
+            return m_rfGuessWarning;
+        return QStringLiteral("This Pulseq file does not include RF use metadata (typically v1.4.x or older). SeqEyes will guess RF uses for trajectory-related features, so the trajectory may not be accurate.");
+    }
     // RF use per block (filled after trajectory compute)
     char getRfUseForBlock(int blockIdx) const {
         if (blockIdx < 0 || blockIdx >= m_rfUsePerBlock.size()) return 'u';

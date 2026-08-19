@@ -109,7 +109,6 @@ double selectTrajectoryCoord(MainWindow::TrajectoryProjection projection,
             return forXAxis ? kx : ky;
     }
 }
-}
 
 // Lightweight overlay widget for drawing trajectory crosshair without forcing full plot replots
 class TrajectoryCrosshairOverlay : public QWidget
@@ -276,6 +275,8 @@ private:
     double m_opacity {0.0};
 };
 
+}
+
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
       ui(new Ui::MainWindow),
@@ -421,26 +422,6 @@ MainWindow::MainWindow(QWidget* parent)
         }
     });
     connect(m_pulseqLoader, &PulseqLoader::trajectoryDataUpdated, this, [this]() {
-        if (m_showTrajectory && m_pulseqLoader && m_pulseqLoader->needsRfUseGuessWarning())
-        {
-            Settings& s = Settings::getInstance();
-            if (s.getShowTrajectoryApproximateDialog())
-            {
-                QMessageBox msg(this);
-                msg.setIcon(QMessageBox::Warning);
-                msg.setWindowTitle(tr("Trajectory Warning"));
-                msg.setText(m_pulseqLoader->getRfUseGuessWarning());
-                QCheckBox* cb = new QCheckBox(tr("Do not show this warning again"), &msg);
-                msg.setCheckBox(cb);
-                msg.addButton(QMessageBox::Ok);
-                msg.exec();
-                if (cb->isChecked())
-                {
-                    s.setShowTrajectoryApproximateDialog(false);
-                }
-            }
-            m_pulseqLoader->markRfUseGuessWarningShown();
-        }
         if (m_waveformDrawer)
         {
             m_waveformDrawer->ensureRenderedForCurrentViewport();
@@ -1261,6 +1242,28 @@ void MainWindow::setTrajectoryVisible(bool show)
     PulseqLoader* loader = getPulseqLoader();
     if (show)
     {
+        if (loader && loader->needsRfUseGuessWarning())
+        {
+            const QString warningText = loader->getRfUseGuessWarning();
+            Settings& s = Settings::getInstance();
+            if (s.getShowTrajectoryApproximateDialog())
+            {
+                QMessageBox msg(this);
+                msg.setIcon(QMessageBox::Warning);
+                msg.setWindowTitle(tr("Trajectory Warning"));
+                msg.setText(warningText);
+                QCheckBox* cb = new QCheckBox(tr("Do not show this warning again"), &msg);
+                msg.setCheckBox(cb);
+                msg.addButton(QMessageBox::Ok);
+                msg.exec();
+                if (cb->isChecked())
+                {
+                    s.setShowTrajectoryApproximateDialog(false);
+                }
+            }
+
+            loader->markRfUseGuessWarningShown();
+        }
         refreshTrajectoryPlotData();
     }
     QList<int> sizes;

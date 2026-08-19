@@ -2421,6 +2421,16 @@ void PulseqLoader::updateEchoAndExcitationMetadata(const LoadedSequenceState& st
     staged.supportsRfUseMetadata = (state.versionMajor > 1) || (state.versionMajor == 1 && state.versionMinor >= 5);
     staged.rfUseGuessed = false;
     staged.rfGuessWarning.clear();
+    if (!staged.supportsRfUseMetadata)
+    {
+        staged.rfGuessWarning = QStringLiteral(
+            "This Pulseq file does not include RF use metadata (typically v1.4.x or older). "
+            "SeqEyes will guess RF uses for trajectory-related features, so the trajectory may not be accurate.");
+        LogManager::getInstance().appendStructured(
+            QtWarningMsg,
+            QStringLiteral("PulseqLoader"),
+            staged.rfGuessWarning);
+    }
 
     if (!state.sequence)
         return;
