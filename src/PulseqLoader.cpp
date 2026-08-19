@@ -4347,9 +4347,8 @@ QPair<double,double> PulseqLoader::getGradGlobalRange(int channel)
     mn = std::min(mn, m_gradExtTrapGlobalMin[channel]);
     mx = std::max(mx, m_gradExtTrapGlobalMax[channel]);
 
-    if (!std::isfinite(mn) || !std::isfinite(mx)) { mn = -1.0; mx = 1.0; }
-    double pad = (mx - mn) * 0.05; if (pad == 0) pad = 0.1;
-    return qMakePair(mn - pad, mx + pad);
+    if (!std::isfinite(mn) || !std::isfinite(mx)) { mn = 0.0; mx = 0.0; }
+    return qMakePair(mn, mx);
 }
 
 bool PulseqLoader::sampleRFAtTime(double time, int blockIdx, double& ampHzOut, double& phaseRadOut) const

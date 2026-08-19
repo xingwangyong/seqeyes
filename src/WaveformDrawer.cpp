@@ -1927,16 +1927,22 @@ void WaveformDrawer::computeAndLockYAxisRanges()
     {
         Settings& s = Settings::getInstance();
         const QString toUnit = s.getGradientUnitString();
-        auto convertRange = [&](QPair<double,double> r) {
+        auto convertRangePaddedForDisplayOnly = [&](QPair<double,double> r) {
+            double mn = r.first;
+            double mx = r.second;
+            if (mn == 0.0 && mx == 0.0) { mn = -1.0; mx = 1.0; }
+            double pad = (mx - mn) * 0.05; if (pad == 0) pad = 0.1;
+            mn -= pad; mx += pad;
+            r = qMakePair(mn, mx);
             if (toUnit == "Hz/m") return r;
             double a = r.first, b = r.second;
             if (std::isfinite(a)) a = s.convertGradient(a, "Hz/m", toUnit);
             if (std::isfinite(b)) b = s.convertGradient(b, "Hz/m", toUnit);
             return qMakePair(a, b);
         };
-        m_fixedYRanges[3] = convertRange(loader->getGradGlobalRange(0));
-        m_fixedYRanges[4] = convertRange(loader->getGradGlobalRange(1));
-        m_fixedYRanges[5] = convertRange(loader->getGradGlobalRange(2));
+        m_fixedYRanges[3] = convertRangePaddedForDisplayOnly(loader->getGradGlobalRange(0));
+        m_fixedYRanges[4] = convertRangePaddedForDisplayOnly(loader->getGradGlobalRange(1));
+        m_fixedYRanges[5] = convertRangePaddedForDisplayOnly(loader->getGradGlobalRange(2));
     }
 
     // 6: PNS
