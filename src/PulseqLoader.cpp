@@ -2744,16 +2744,51 @@ void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
     for (int ch = 0; ch < 3; ++ch)
         measuredGradHzPerM = std::max(measuredGradHzPerM, maxAbsOfRange(getGradGlobalRange(ch)));
 
-    double measuredB1Hz = 0.0;
-    const QPair<double, double> rfRange = getRfGlobalRangeAmp();
-    measuredB1Hz = maxAbsOfRange(rfRange);
-
     double maxSlewHzPerMPerS = 0.0;
     MetricLocation maxGradLocation;
     MetricLocation maxSlewLocation;
+    MetricLocation maxB1Location;
     std::vector<double> def = m_spPulseqSeq->GetDefinition("GradientRasterTime");
     const double gradientRasterSec = (!def.empty() && std::isfinite(def[0]) && def[0] > 0.0) ? def[0] : 0.0;
     const double gradientRasterUs = gradientRasterSec * 1e6;
+    double measuredB1Hz = 0.0;
+
+    auto rfChannelNameFor = [](const UnifiedRfChannel& channel) {
+        return QStringLiteral("Tx%1").arg(channel.channelIndex + 1);
+    };
+
+    for (const UnifiedRfBlock& block : m_unifiedRfBlocks)
+    {
+        if (block.blockIndex < 0
+            || block.blockIndex >= static_cast<int>(m_vecDecodeSeqBlocks.size())
+            || block.blockIndex + 1 >= vecBlockEdges.size())
+            continue;
+
+        const double blockStartUs = vecBlockEdges[block.blockIndex] / tFactor;
+        const double blockEndUs = vecBlockEdges[block.blockIndex + 1] / tFactor;
+        const double rfStartUs = block.startTimeAxis / tFactor;
+        const double rfDwellUs = block.dwellAxis / tFactor;
+
+        for (const UnifiedRfChannel& channel : block.channels)
+        {
+            for (int i = 0; i < channel.ampNorm.size(); ++i)
+            {
+                const double value = double(channel.ampNorm[i]) * channel.amplitudeScale;
+                if (!std::isfinite(value))
+                    continue;
+
+                const double absValue = std::abs(value);
+                measuredB1Hz = std::max(measuredB1Hz, absValue);
+                updateMetricLocation(maxB1Location,
+                                     absValue,
+                                     block.blockIndex,
+                                     rfStartUs + double(i) * rfDwellUs,
+                                     blockStartUs,
+                                     blockEndUs,
+                                     rfChannelNameFor(channel));
+            }
+        }
+    }
 
     for (int blockIndex = 0; blockIndex < static_cast<int>(m_vecDecodeSeqBlocks.size()); ++blockIndex)
     {
@@ -2939,6 +2974,9 @@ void PulseqLoader::computeSafetyAnalysis(bool showWarningDialog)
     applyMetricLocation(m_safetyResult.maxSlew,
                         maxSlewLocation,
                         Settings::getInstance().convertSlew(1.0, "Hz/m/s", "T/m/s"));
+    applyMetricLocation(m_safetyResult.maxB1,
+                        maxB1Location,
+                        (gammaHzPerT > 0.0) ? (1e6 / gammaHzPerT) : 0.0);
 
     if (!m_safetyResult.hasAnyChecks)
     {
