@@ -5073,7 +5073,10 @@ void PulseqLoader::appendUnifiedRfBlockSeries(const UnifiedRfBlock& block,
                 return;
             }
             if (!dstT.isEmpty()) {
-                dstT.append(srcT.first());
+                const double prevT = dstT.last();
+                const double nextT = srcT.first();
+                const double breakT = nextT > prevT ? (prevT + nextT) * 0.5 : nextT;
+                dstT.append(breakT);
                 dstV.append(std::numeric_limits<double>::quiet_NaN());
             }
             dstT += srcT;

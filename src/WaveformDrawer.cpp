@@ -1101,7 +1101,7 @@ void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
             }
             rfViewport.ampTimeByChannel[i] = tAmp;
             rfViewport.ampValueByChannel[i] = vAmp;
-            graph->setData(tAmp, vAmp);
+            graph->setData(tAmp, vAmp, true);
             graph->setVisible(m_curveVisibility.value(1, true) && !tAmp.isEmpty());
         } else {
             graph->setData(QVector<double>(), QVector<double>());
@@ -1598,7 +1598,7 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
 
         QCPGraph* target = (channel == 0 ? m_graphGx : (channel == 1 ? m_graphGy : m_graphGz));
         if (target) {
-            target->setData(tG, vG);
+            target->setData(tG, vG, true);
             target->setVisible(m_curveVisibility.value(curveIndex, true) && !tG.isEmpty());
 
             if (!m_lockYAxisRanges) {
