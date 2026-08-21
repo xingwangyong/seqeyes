@@ -1,10 +1,5 @@
 # Known Issues
 
-## Wrong rendering on Linux
-
-- **Issue**: Waveforms in diferent blocks may shown as connected.
-- **Workaround**: Zoom in to see the waveforms correctly rendered.
-
 ## UI lag with large sequences
 - **Issue**: The user interface may become laggy or even freeze when loading or displaying large sequences.
 - **Workaround**: Try to make the sequence smaller by reducing:
