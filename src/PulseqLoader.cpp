@@ -81,6 +81,17 @@ qint64 quantizeKey(double value, double scale)
     return qRound64(value * scale);
 }
 
+void appendOrderedNanBreak(QVector<double>& time, QVector<double>& values, double nextTime)
+{
+    if (time.isEmpty())
+        return;
+
+    const double prevTime = time.last();
+    const double breakTime = nextTime > prevTime ? (prevTime + nextTime) * 0.5 : nextTime;
+    time.append(breakTime);
+    values.append(std::numeric_limits<double>::quiet_NaN());
+}
+
 double wrapPhase0ToTau(double phase)
 {
     const double tau = 2.0 * M_PI;
@@ -5072,13 +5083,7 @@ void PulseqLoader::appendUnifiedRfBlockSeries(const UnifiedRfBlock& block,
             if (srcT.isEmpty() || srcV.isEmpty()) {
                 return;
             }
-            if (!dstT.isEmpty()) {
-                const double prevT = dstT.last();
-                const double nextT = srcT.first();
-                const double breakT = nextT > prevT ? (prevT + nextT) * 0.5 : nextT;
-                dstT.append(breakT);
-                dstV.append(std::numeric_limits<double>::quiet_NaN());
-            }
+            appendOrderedNanBreak(dstT, dstV, srcT.first());
             dstT += srcT;
             dstV += srcV;
         };
@@ -5237,13 +5242,8 @@ void PulseqLoader::getAdcPhaseViewport(double visibleStart, double visibleEnd, i
         double fullFreqOff = adc.freqOffset + adc.freqPPM * 1e-6 * gamma * m_b0Tesla;
         double fullPhaseOff = adc.phaseOffset + adc.phasePPM * 1e-6 * gamma * m_b0Tesla;
 
-        // Insert NaN break before this block to separate from previous block's line
-        if (emittedAny) {
-            tOut.append(tOut.last());
-            vOut.append(std::numeric_limits<double>::quiet_NaN());
-        }
-
-        bool emittedInBlock = false;
+        QVector<double> tBlock;
+        QVector<double> vBlock;
         for (int k = 0; k < nSamples; k += stride) {
             double t_local = delay + (k + 0.5) * dwell; // Center of dwell
             double t_offset_us = adc.delay + (k + 0.5) * (adc.dwellTime * 1e-3);
@@ -5255,11 +5255,17 @@ void PulseqLoader::getAdcPhaseViewport(double visibleStart, double visibleEnd, i
             double totalPhase = fullPhaseOff + 2.0 * M_PI * t_local * fullFreqOff;
             double wrapped = std::atan2(std::sin(totalPhase), std::cos(totalPhase));
             
-            tOut.append(t_plot);
-            vOut.append(wrapped);
-            emittedInBlock = true;
+            tBlock.append(t_plot);
+            vBlock.append(wrapped);
         }
-        if (emittedInBlock) emittedAny = true;
+
+        if (!tBlock.isEmpty()) {
+            if (emittedAny)
+                appendOrderedNanBreak(tOut, vOut, tBlock.first());
+            tOut += tBlock;
+            vOut += vBlock;
+            emittedAny = true;
+        }
     }
 
     // Store in cache for next call

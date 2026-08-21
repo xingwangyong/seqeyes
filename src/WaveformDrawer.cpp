@@ -78,6 +78,17 @@ static void applyZoomSettingsToManager(ZoomManager* zm)
 namespace {
 constexpr double kPhaseAxisLower = -3.5;
 constexpr double kPhaseAxisUpper =  3.5;
+
+// For waveforms encoded as ordered drawing paths (NaN gaps, duplicate x keys,
+// vertical edges, or step rectangles), the input order is part of the drawing
+// contract. QCPGraph's default setData sorts by key, which can move equal-key
+// NaN breaks on some platforms and create false connecting lines.
+void setOrderedPathData(QCPGraph* graph, const QVector<double>& time, const QVector<double>& values)
+{
+    if (!graph)
+        return;
+    graph->setData(time, values, true);
+}
 }
 
 WaveformDrawer::WaveformDrawer(MainWindow* mainWindow)
@@ -364,7 +375,7 @@ void WaveformDrawer::InitSequenceFigure()
         m_graphADCPh->setLineStyle(QCPGraph::lsLine);
         m_graphADCPh->setScatterStyle(QCPScatterStyle::ssNone);
         m_graphADCPh->setAntialiased(false);
-        m_graphADCPh->setAdaptiveSampling(true);
+        m_graphADCPh->setAdaptiveSampling(false);
         m_graphADCPh->setVisible(m_curveVisibility.value(2, true));
     }
     // Gradients Gx/Gy/Gz (rects 3..5)
@@ -1101,7 +1112,7 @@ void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
             }
             rfViewport.ampTimeByChannel[i] = tAmp;
             rfViewport.ampValueByChannel[i] = vAmp;
-            graph->setData(tAmp, vAmp, true);
+            setOrderedPathData(graph, tAmp, vAmp);
             graph->setVisible(m_curveVisibility.value(1, true) && !tAmp.isEmpty());
         } else {
             graph->setData(QVector<double>(), QVector<double>());
@@ -1116,7 +1127,7 @@ void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
         QCPGraph* graph = m_graphRFPhChannels[i];
         if (!graph) continue;
         if (i < rfViewport.phaseTimeByChannel.size()) {
-            graph->setData(rfViewport.phaseTimeByChannel[i], rfViewport.phaseValueByChannel[i]);
+            setOrderedPathData(graph, rfViewport.phaseTimeByChannel[i], rfViewport.phaseValueByChannel[i]);
             graph->setVisible(m_curveVisibility.value(2, true) && !rfViewport.phaseTimeByChannel[i].isEmpty());
         } else {
             graph->setData(QVector<double>(), QVector<double>());
@@ -1134,7 +1145,7 @@ void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
     }
     loader->getAdcPhaseViewport(visibleStart, visibleEnd, pxADCPh, tAdcPh, vAdcPh);
     if (m_graphADCPh) {
-        m_graphADCPh->setData(tAdcPh, vAdcPh);
+        setOrderedPathData(m_graphADCPh, tAdcPh, vAdcPh);
         m_graphADCPh->setVisible(m_curveVisibility.value(2, true) && !tAdcPh.isEmpty());
     }
 
@@ -1370,7 +1381,7 @@ void WaveformDrawer::DrawADCWaveform(const double& dStartTime, double dEndTime)
     // Draw ADC rectangles using persistent graph
     if (m_graphADC) {
         m_graphADC->setLineStyle(usePixelBudget ? QCPGraph::lsLine : QCPGraph::lsStepLeft);
-        m_graphADC->setData(processedTime, processedValues);
+        setOrderedPathData(m_graphADC, processedTime, processedValues);
         m_graphADC->setVisible(m_curveVisibility.value(0, true) && !processedTime.isEmpty());
         
         // Set ADC y-axis range to show the full rectangle height
@@ -1518,14 +1529,14 @@ void WaveformDrawer::DrawTriggerOverlay()
     const bool show = m_curveVisibility.value(0, true);
     if (m_graphTrigMarkers)
     {
-        m_graphTrigMarkers->setData(xMarks, yMarks);
+        setOrderedPathData(m_graphTrigMarkers, xMarks, yMarks);
         m_graphTrigMarkers->setVisible(show && !xMarks.isEmpty());
     }
     if (m_graphTrigDurations)
     {
         // Remove trailing NaN for cleanliness
         if (!ySeg.isEmpty() && std::isnan(ySeg.last())) { xSeg.removeLast(); ySeg.removeLast(); }
-        m_graphTrigDurations->setData(xSeg, ySeg);
+        setOrderedPathData(m_graphTrigDurations, xSeg, ySeg);
         m_graphTrigDurations->setVisible(show && !xSeg.isEmpty());
     }
 }
@@ -1598,7 +1609,7 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
 
         QCPGraph* target = (channel == 0 ? m_graphGx : (channel == 1 ? m_graphGy : m_graphGz));
         if (target) {
-            target->setData(tG, vG, true);
+            setOrderedPathData(target, tG, vG);
             target->setVisible(m_curveVisibility.value(curveIndex, true) && !tG.isEmpty());
 
             if (!m_lockYAxisRanges) {
@@ -1705,6 +1716,9 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
             const bool showPnsY = !pnsTy.isEmpty();
             const bool showPnsZ = !pnsTz.isEmpty();
             const bool showPnsN = renderN && !pnsTn.isEmpty();
+            // PNS is a continuous numeric series, not a NaN-separated drawing path.
+            // Keep default setData sorting because min/max downsampling can emit a
+            // bucket's min/max in value order rather than strict time order.
             m_graphPnsX->setData(pnsTx, pnsVx);
             m_graphPnsY->setData(pnsTy, pnsVy);
             m_graphPnsZ->setData(pnsTz, pnsVz);
@@ -1812,6 +1826,9 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
                 if (m1T.size() > targetZ) applyMinMaxDownsampling(m1T, m1Vz, targetZ, m1Tz, m1VzDs);
             }
 
+            // M1 follows the same continuous-series contract as PNS.
+            // Do not use setOrderedPathData unless its downsampling is changed to
+            // guarantee strict time-ordered output.
             m_graphM1x->setData(m1Tx, m1VxDs);
             m_graphM1y->setData(m1Ty, m1VyDs);
             m_graphM1z->setData(m1Tz, m1VzDs);
@@ -2015,7 +2032,7 @@ void WaveformDrawer::DrawBlockEdges()
         }
         // Remove trailing NaN to avoid spurious points
         if (!ys.isEmpty() && std::isnan(ys.last())) { xs.removeLast(); ys.removeLast(); }
-        m_blockEdgeGraphs[r]->setData(xs, ys);
+        setOrderedPathData(m_blockEdgeGraphs[r], xs, ys);
         m_blockEdgeGraphs[r]->setVisible(bShowBlocksEdges && !xs.isEmpty());
     }
 }
