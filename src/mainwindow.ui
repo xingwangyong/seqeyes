@@ -98,6 +98,7 @@
    <addaction name="actionOpen"/>
    <addaction name="actionReopen"/>
    <addaction name="actionResetView"/>
+   <addaction name="actionFitYAxisToCurrentView"/>
    <addaction name="actionMeasureDt"/>
   </widget>
   <action name="actionOpen">
@@ -155,6 +156,14 @@
    </property>
    <property name="toolTip">
     <string>Toggle Δt measurement mode</string>
+   </property>
+  </action>
+  <action name="actionFitYAxisToCurrentView">
+   <property name="text">
+    <string>Fit Y-axis to current view</string>
+   </property>
+   <property name="toolTip">
+    <string>Fit Y-axis ranges to the visible time window</string>
    </property>
   </action>
   <action name="actionShowFullDetail">

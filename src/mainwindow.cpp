@@ -405,7 +405,6 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_pulseqLoader, &PulseqLoader::pnsDataUpdated, this, [this]() {
         if (m_waveformDrawer)
         {
-            m_waveformDrawer->computeAndLockYAxisRanges();
             m_waveformDrawer->DrawGWaveform();
             if (ui && ui->customPlot)
                 requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
@@ -415,7 +414,6 @@ MainWindow::MainWindow(QWidget* parent)
     connect(m_pulseqLoader, &PulseqLoader::m1DataUpdated, this, [this]() {
         if (m_waveformDrawer)
         {
-            m_waveformDrawer->computeAndLockYAxisRanges();
             m_waveformDrawer->DrawGWaveform();
             if (ui && ui->customPlot)
                 requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
@@ -750,6 +748,8 @@ void MainWindow::setupIcons()
         ui->actionUsage->setIcon(QIcon::fromTheme(QStringLiteral("help-contents"), fallbackEmpty));
     if (ui->actionResetView)
         ui->actionResetView->setIcon(QIcon::fromTheme(QStringLiteral("view-restore"), fallbackEmpty));
+    if (ui->actionFitYAxisToCurrentView)
+        ui->actionFitYAxisToCurrentView->setIcon(QIcon::fromTheme(QStringLiteral("zoom-fit-best"), fallbackEmpty));
 }
 
 void MainWindow::InitSlots()
@@ -787,6 +787,7 @@ void MainWindow::InitSlots()
 
     // View Menu
     connect(ui->actionResetView, &QAction::triggered, m_waveformDrawer, &WaveformDrawer::ResetView);
+    connect(ui->actionFitYAxisToCurrentView, &QAction::triggered, m_waveformDrawer, &WaveformDrawer::fitYAxisToCurrentView);
     // Rename and repurpose to a single entry: "Undersample curves" (checked = downsampling ON)
     ui->actionShowFullDetail->setText("Undersample curves");
     ui->actionShowFullDetail->setToolTip("Downsample curves for performance");

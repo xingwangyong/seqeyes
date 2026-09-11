@@ -211,6 +211,7 @@ private:
     QRadioButton* m_pModeTimeRadio;
     QButtonGroup* m_pModeGroup;
     QToolButton* m_pMeasureDtButton {nullptr};
+    QToolButton* m_pFitYAxisButton {nullptr};
 
     // Legacy compatibility controls
     QSlider* m_pTrSlider;

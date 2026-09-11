@@ -79,6 +79,54 @@ namespace {
 constexpr double kPhaseAxisLower = -3.5;
 constexpr double kPhaseAxisUpper =  3.5;
 
+QPair<double, double> paddedRange(double mn, double mx, double fallbackPad = 1.0)
+{
+    if (!std::isfinite(mn) || !std::isfinite(mx) || mx < mn)
+    {
+        mn = -1.0;
+        mx = 1.0;
+    }
+
+    if (mx == mn)
+    {
+        const double pad = std::max(std::abs(mx) * 0.05, fallbackPad);
+        return qMakePair(mn - pad, mx + pad);
+    }
+
+    double pad = (mx - mn) * 0.05;
+    if (pad == 0.0)
+        pad = fallbackPad;
+    return qMakePair(mn - pad, mx + pad);
+}
+
+QPair<double, double> zeroBasedPaddedRange(double mx, double fallbackUpper = 1.0)
+{
+    if (!std::isfinite(mx) || mx <= 0.0)
+        mx = fallbackUpper;
+    return qMakePair(0.0, mx * 1.05);
+}
+
+bool collectGraphRange(QCPGraph* graph, const QCPRange& viewport, double& mn, double& mx)
+{
+    if (!graph || !graph->visible() || !graph->data())
+        return false;
+
+    bool found = false;
+    const auto data = graph->data();
+    auto it = data->findBegin(viewport.lower, true);
+    const auto end = data->findEnd(viewport.upper, true);
+    for (; it != end; ++it)
+    {
+        const double value = it->value;
+        if (!std::isfinite(value))
+            continue;
+        mn = std::min(mn, value);
+        mx = std::max(mx, value);
+        found = true;
+    }
+    return found;
+}
+
 // For waveforms encoded as ordered drawing paths (NaN gaps, duplicate x keys,
 // vertical edges, or step rectangles), the input order is part of the drawing
 // contract. QCPGraph's default setData sorts by key, which can move equal-key
@@ -1009,6 +1057,10 @@ void WaveformDrawer::ResetView()
         rect->axis(QCPAxis::atBottom)->setRange(initialStartTime, initialEndTime);
     }
 
+    // Reset View is an explicit user action, so restore the full-sequence
+    // Y-axis ranges instead of keeping a previous one-shot viewport fit.
+    computeAndLockYAxisRanges();
+
     // Redraw all waveforms with the validated range
     DrawRFWaveform(initialStartTime, initialEndTime);
     DrawADCWaveform(initialStartTime, initialEndTime);
@@ -1018,6 +1070,95 @@ void WaveformDrawer::ResetView()
     updateCurveVisibility();
 
     // Replot to apply changes
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
+}
+
+void WaveformDrawer::fitYAxisToCurrentView()
+{
+    PulseqLoader* loader = m_mainWindow ? m_mainWindow->getPulseqLoader() : nullptr;
+    if (!loader || !loader->canRenderSequence() || m_vecRects.isEmpty() || !m_vecRects[0])
+        return;
+
+    const QCPRange viewport = m_vecRects[0]->axis(QCPAxis::atBottom)->range();
+
+    // Refresh the one visible window before measuring graph ranges. Later pan/zoom
+    // redraws stay locked to m_fixedYRanges until the user clicks this again.
+    DrawRFWaveform();
+    DrawADCWaveform();
+    DrawGWaveform();
+    DrawTriggerOverlay();
+    if (getShowBlockEdges())
+        DrawBlockEdges();
+
+    auto fitFromGraphs = [&](int slot, std::initializer_list<QCPGraph*> graphs, double fallbackPad = 1.0) {
+        if (slot < 0 || slot >= m_fixedYRanges.size())
+            return;
+
+        double mn = std::numeric_limits<double>::infinity();
+        double mx = -std::numeric_limits<double>::infinity();
+        bool found = false;
+        for (QCPGraph* graph : graphs)
+            found = collectGraphRange(graph, viewport, mn, mx) || found;
+
+        if (found)
+            m_fixedYRanges[slot] = paddedRange(mn, mx, fallbackPad);
+    };
+
+    auto fitZeroBasedFromGraphs = [&](int slot, std::initializer_list<QCPGraph*> graphs) {
+        if (slot < 0 || slot >= m_fixedYRanges.size())
+            return;
+
+        double mn = std::numeric_limits<double>::infinity();
+        double mx = -std::numeric_limits<double>::infinity();
+        bool found = false;
+        for (QCPGraph* graph : graphs)
+            found = collectGraphRange(graph, viewport, mn, mx) || found;
+
+        if (found)
+            m_fixedYRanges[slot] = zeroBasedPaddedRange(mx, 1.0);
+    };
+
+    if (m_fixedYRanges.size() < m_vecRects.size())
+        m_fixedYRanges.resize(m_vecRects.size());
+
+    if (!m_graphRFMagChannels.isEmpty())
+    {
+        double mn = std::numeric_limits<double>::infinity();
+        double mx = -std::numeric_limits<double>::infinity();
+        bool found = false;
+        for (QCPGraph* graph : m_graphRFMagChannels)
+            found = collectGraphRange(graph, viewport, mn, mx) || found;
+        if (found)
+            m_fixedYRanges[1] = paddedRange(mn, mx, 1.0);
+    }
+    else
+    {
+        fitFromGraphs(1, {m_graphRFMag}, 1.0);
+    }
+
+    if (m_fixedYRanges.size() > 2)
+        m_fixedYRanges[2] = qMakePair(kPhaseAxisLower, kPhaseAxisUpper);
+
+    fitFromGraphs(3, {m_graphGx}, 0.1);
+    fitFromGraphs(4, {m_graphGy}, 0.1);
+    fitFromGraphs(5, {m_graphGz}, 0.1);
+    fitZeroBasedFromGraphs(6, {m_graphPnsX, m_graphPnsY, m_graphPnsZ, m_graphPnsNorm});
+    fitFromGraphs(7, {m_graphM1x}, 1.0);
+    fitFromGraphs(8, {m_graphM1y}, 1.0);
+    fitFromGraphs(9, {m_graphM1z}, 1.0);
+
+    for (int i = 0; i < m_vecRects.size() && i < m_fixedYRanges.size(); ++i)
+    {
+        QCPAxisRect* rect = m_vecRects[i];
+        if (!rect)
+            continue;
+        const double lo = m_fixedYRanges[i].first;
+        const double hi = m_fixedYRanges[i].second;
+        if (std::isfinite(lo) && std::isfinite(hi) && hi > lo)
+            rect->axis(QCPAxis::atLeft)->setRange(lo, hi);
+    }
+
+    m_lockYAxisRanges = true;
     m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
@@ -1912,8 +2053,7 @@ void WaveformDrawer::computeAndLockYAxisRanges()
         double mn = std::numeric_limits<double>::max();
         double mx = -std::numeric_limits<double>::infinity();
         for (double v : vals) { if (!std::isfinite(v)) continue; mn = std::min(mn, v); mx = std::max(mx, v);}
-        if (mx < mn) { mn = -1.0; mx = 1.0; }
-        double pad = (mx - mn) * 0.05; if (pad == 0) pad = 1.0; return qMakePair(mn - pad, mx + pad);
+        return paddedRange(mn, mx, 1.0);
     };
 
     // 0: ADC/labels -> use computed adcHeight similar to DrawADCWaveform
@@ -1935,8 +2075,7 @@ void WaveformDrawer::computeAndLockYAxisRanges()
     // 1: RF mag, 2: RF/ADC phase (use on-demand global ranges without needing merged arrays)
     {
         auto rAmp = loader->getRfGlobalRangeAmp();
-        double padA = (rAmp.second - rAmp.first) * 0.05; if (padA == 0) padA = 1.0;
-        m_fixedYRanges[1] = qMakePair(rAmp.first - padA, rAmp.second + padA);
+        m_fixedYRanges[1] = paddedRange(rAmp.first, rAmp.second, 1.0);
         m_fixedYRanges[2] = qMakePair(kPhaseAxisLower, kPhaseAxisUpper);
     }
 
@@ -1947,10 +2086,7 @@ void WaveformDrawer::computeAndLockYAxisRanges()
         auto convertRangePaddedForDisplayOnly = [&](QPair<double,double> r) {
             double mn = r.first;
             double mx = r.second;
-            if (mn == 0.0 && mx == 0.0) { mn = -1.0; mx = 1.0; }
-            double pad = (mx - mn) * 0.05; if (pad == 0) pad = 0.1;
-            mn -= pad; mx += pad;
-            r = qMakePair(mn, mx);
+            r = paddedRange(mn, mx, 0.1);
             if (toUnit == "Hz/m") return r;
             double a = r.first, b = r.second;
             if (std::isfinite(a)) a = s.convertGradient(a, "Hz/m", toUnit);
@@ -1972,7 +2108,7 @@ void WaveformDrawer::computeAndLockYAxisRanges()
                 pMax = std::max(pMax, 100.0 * v);
             }
         }
-        m_fixedYRanges[6] = qMakePair(0.0, pMax * 1.05);
+        m_fixedYRanges[6] = zeroBasedPaddedRange(pMax, 120.0);
     }
 
     // 7/8/9: M1x/M1y/M1z. These ranges may become available after the initial

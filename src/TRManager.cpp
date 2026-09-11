@@ -270,6 +270,21 @@ void TRManager::createWidgets()
         m_pMeasureDtButton->setToolTip("Toggle Δt measurement mode");
     }
 
+    m_pFitYAxisButton = new QToolButton(m_mainWindow);
+    m_pFitYAxisButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_pFitYAxisButton->setAutoRaise(false);
+    m_pFitYAxisButton->setCursor(Qt::PointingHandCursor);
+    m_pFitYAxisButton->setToolTip("Fit Y-axis ranges to the visible time window");
+    m_pFitYAxisButton->setStyleSheet(m_pMeasureDtButton->styleSheet());
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->actionFitYAxisToCurrentView)
+    {
+        m_pFitYAxisButton->setDefaultAction(m_mainWindow->ui->actionFitYAxisToCurrentView);
+    }
+    else
+    {
+        m_pFitYAxisButton->setText("Fit Y-axis");
+    }
+
     // Curve Visibility Controls
     m_pShowADCCheckBox = new QCheckBox("ADC", m_mainWindow);
     m_pShowADCCheckBox->setChecked(true); // Default to showing all curves
@@ -311,6 +326,7 @@ void TRManager::setupLayouts(QVBoxLayout* mainLayout)
     modeLayout->addWidget(m_pModeTrRadio);
     modeLayout->addWidget(m_pModeTimeRadio);
     modeLayout->addWidget(m_pMeasureDtButton);
+    modeLayout->addWidget(m_pFitYAxisButton);
     // Keep the rest of the row compact; consume remaining space on the right.
     modeLayout->addStretch();
 
