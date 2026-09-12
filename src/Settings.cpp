@@ -29,6 +29,9 @@ Settings::Settings(QObject* parent)
     , m_qSettings(nullptr)
     , m_zoomInputMode(ZoomInputMode::Wheel)
     , m_panWheelEnabled(false)
+    , m_wheelAction(WheelAction::Zoom)
+    , m_ctrlWheelAction(WheelAction::YAxisScale)
+    , m_altWheelAction(WheelAction::Unassigned)
     , m_gradientUnit(GradientUnit::mTPerM)
     , m_slewUnit(SlewUnit::TPerMPerS)
     , m_timeUnit(TimeUnit::Milliseconds)
@@ -99,6 +102,43 @@ void Settings::setPanWheelEnabled(bool enabled)
 bool Settings::getPanWheelEnabled() const
 {
     return m_panWheelEnabled;
+}
+
+void Settings::setWheelAction(WheelGesture gesture, WheelAction action)
+{
+    WheelAction* target = nullptr;
+    switch (gesture) {
+        case WheelGesture::Wheel: target = &m_wheelAction; break;
+        case WheelGesture::CtrlWheel: target = &m_ctrlWheelAction; break;
+        case WheelGesture::AltWheel: target = &m_altWheelAction; break;
+    }
+
+    if (target && *target != action) {
+        *target = action;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+Settings::WheelAction Settings::getWheelAction(WheelGesture gesture) const
+{
+    switch (gesture) {
+        case WheelGesture::Wheel: return m_wheelAction;
+        case WheelGesture::CtrlWheel: return m_ctrlWheelAction;
+        case WheelGesture::AltWheel: return m_altWheelAction;
+    }
+    return WheelAction::Unassigned;
+}
+
+QString Settings::wheelActionString(WheelAction action) const
+{
+    switch (action) {
+        case WheelAction::Zoom: return QStringLiteral("Zoom");
+        case WheelAction::YAxisScale: return QStringLiteral("YAxisScale");
+        case WheelAction::Pan: return QStringLiteral("Pan");
+        case WheelAction::Unassigned:
+        default: return QStringLiteral("Unassigned");
+    }
 }
 
 void Settings::setAutoReloadOnFileChange(bool enabled)
@@ -487,6 +527,13 @@ void Settings::saveSettings()
     // Input behavior
     obj["zoomInputMode"] = getZoomInputModeString();
     obj["panWheelEnabled"] = m_panWheelEnabled;
+    {
+        QJsonObject gestures;
+        gestures["Wheel"] = wheelActionString(m_wheelAction);
+        gestures["CtrlWheel"] = wheelActionString(m_ctrlWheelAction);
+        gestures["AltWheel"] = wheelActionString(m_altWheelAction);
+        obj["wheelGestureActions"] = gestures;
+    }
     obj["autoReloadOnFileChange"] = m_autoReloadOnFileChange;
     obj["panLeftKey"] = getPanLeftKey();
     obj["panRightKey"] = getPanRightKey();
@@ -600,6 +647,35 @@ void Settings::loadSettings()
     // Load input behavior
     m_zoomInputMode = stringToZoomInputMode(obj.value("zoomInputMode").toString("Wheel"));
     m_panWheelEnabled = obj.value("panWheelEnabled").toBool(false);
+    m_wheelAction = WheelAction::Zoom;
+    m_ctrlWheelAction = WheelAction::YAxisScale;
+    m_altWheelAction = WheelAction::Unassigned;
+    if (obj.value("wheelGestureActions").isObject())
+    {
+        const QJsonObject gestures = obj.value("wheelGestureActions").toObject();
+        m_wheelAction = stringToWheelAction(gestures.value("Wheel").toString("Zoom"));
+        m_ctrlWheelAction = stringToWheelAction(gestures.value("CtrlWheel").toString("YAxisScale"));
+        m_altWheelAction = stringToWheelAction(gestures.value("AltWheel").toString("Unassigned"));
+    }
+    else
+    {
+        if (m_zoomInputMode == ZoomInputMode::CtrlWheel)
+        {
+            m_wheelAction = m_panWheelEnabled ? WheelAction::Pan : WheelAction::Unassigned;
+            m_ctrlWheelAction = WheelAction::Zoom;
+        }
+        else
+        {
+            m_wheelAction = WheelAction::Zoom;
+            m_ctrlWheelAction = WheelAction::YAxisScale;
+        }
+    }
+    auto removeDuplicate = [](WheelAction& action, WheelAction first, WheelAction second = WheelAction::Unassigned) {
+        if (action != WheelAction::Unassigned && (action == first || action == second))
+            action = WheelAction::Unassigned;
+    };
+    removeDuplicate(m_ctrlWheelAction, m_wheelAction);
+    removeDuplicate(m_altWheelAction, m_wheelAction, m_ctrlWheelAction);
     m_autoReloadOnFileChange = obj.value("autoReloadOnFileChange").toBool(false);
     m_panLeftKey = obj.value("panLeftKey").toString("A").toUpper();
     m_panRightKey = obj.value("panRightKey").toString("D").toUpper();
@@ -658,6 +734,10 @@ void Settings::loadSettings()
     qDebug() << "  Log Level:" << getLogLevelString();
     qDebug() << "  Zoom Input Mode:" << getZoomInputModeString();
     qDebug() << "  Pan Wheel Enabled:" << m_panWheelEnabled;
+    qDebug() << "  Wheel Gesture Actions:"
+             << wheelActionString(m_wheelAction)
+             << wheelActionString(m_ctrlWheelAction)
+             << wheelActionString(m_altWheelAction);
     qDebug() << "  Auto Reload On File Change:" << m_autoReloadOnFileChange;
 }
 
@@ -665,6 +745,9 @@ void Settings::resetToDefaults()
 {
     m_zoomInputMode = ZoomInputMode::Wheel;
     m_panWheelEnabled = false;
+    m_wheelAction = WheelAction::Zoom;
+    m_ctrlWheelAction = WheelAction::YAxisScale;
+    m_altWheelAction = WheelAction::Unassigned;
     m_autoReloadOnFileChange = false;
     m_gradientUnit = GradientUnit::mTPerM;
     m_slewUnit = SlewUnit::TPerMPerS;
@@ -784,6 +867,14 @@ Settings::ZoomInputMode Settings::stringToZoomInputMode(const QString& s) const
 {
     if (s == "Wheel") return ZoomInputMode::Wheel;
     return ZoomInputMode::CtrlWheel;
+}
+
+Settings::WheelAction Settings::stringToWheelAction(const QString& s) const
+{
+    if (s == "Zoom") return WheelAction::Zoom;
+    if (s == "YAxisScale") return WheelAction::YAxisScale;
+    if (s == "Pan") return WheelAction::Pan;
+    return WheelAction::Unassigned;
 }
 
 Settings::TimeUnit Settings::stringToTimeUnit(const QString& unitString) const

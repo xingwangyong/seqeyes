@@ -37,9 +37,10 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_timeUnitCombo(nullptr)
     , m_gammaCombo(nullptr)
     , m_logLevelCombo(nullptr)
-    , m_zoomModeCombo(nullptr)
+    , m_wheelActionCombo(nullptr)
+    , m_ctrlWheelActionCombo(nullptr)
+    , m_altWheelActionCombo(nullptr)
     , m_panDragCheck(nullptr)
-    , m_panWheelCheck(nullptr)
     , m_autoReloadOnFileChangeCheck(nullptr)
     , m_showExtensionTooltipCheck(nullptr)
     , m_enableRoosPtxHackAutoDetectionCheck(nullptr)
@@ -202,11 +203,32 @@ void SettingsDialog::setupUI()
     QGroupBox* interactionsGroup = new QGroupBox("", interactionsTab);
     QFormLayout* interactionsForm = new QFormLayout(interactionsGroup);
 
-    // Zoom mode combo
-    m_zoomModeCombo = new QComboBox(interactionsTab);
-    m_zoomModeCombo->addItem("Ctrl+Mouse wheel", static_cast<int>(Settings::ZoomInputMode::CtrlWheel));
-    m_zoomModeCombo->addItem("Mouse wheel", static_cast<int>(Settings::ZoomInputMode::Wheel));
-    interactionsForm->addRow("Zoom:", m_zoomModeCombo);
+    QGroupBox* gesturesGroup = new QGroupBox("Gestures", interactionsTab);
+    QGridLayout* gesturesLayout = new QGridLayout(gesturesGroup);
+    gesturesLayout->setColumnStretch(1, 1);
+    gesturesLayout->addWidget(new QLabel("Gesture", gesturesGroup), 0, 0);
+    gesturesLayout->addWidget(new QLabel("Action", gesturesGroup), 0, 1);
+
+    m_wheelActionCombo = new QComboBox(gesturesGroup);
+    m_ctrlWheelActionCombo = new QComboBox(gesturesGroup);
+    m_altWheelActionCombo = new QComboBox(gesturesGroup);
+    addWheelActionItems(m_wheelActionCombo);
+    addWheelActionItems(m_ctrlWheelActionCombo);
+    addWheelActionItems(m_altWheelActionCombo);
+
+    gesturesLayout->addWidget(new QLabel("Mouse wheel", gesturesGroup), 1, 0);
+    gesturesLayout->addWidget(m_wheelActionCombo, 1, 1);
+    gesturesLayout->addWidget(new QLabel("Ctrl + Mouse wheel", gesturesGroup), 2, 0);
+    gesturesLayout->addWidget(m_ctrlWheelActionCombo, 2, 1);
+    gesturesLayout->addWidget(new QLabel(
+#ifdef Q_OS_MAC
+        "Option + Mouse wheel",
+#else
+        "Alt + Mouse wheel",
+#endif
+        gesturesGroup), 3, 0);
+    gesturesLayout->addWidget(m_altWheelActionCombo, 3, 1);
+    interactionsForm->addRow(gesturesGroup);
 
     // Pan options
     QWidget* panOpts = new QWidget(interactionsTab);
@@ -215,9 +237,7 @@ void SettingsDialog::setupUI()
     m_panDragCheck = new QCheckBox("Drag", panOpts);
     m_panDragCheck->setChecked(true);
     m_panDragCheck->setEnabled(false); // Always enabled but not user-toggleable
-    m_panWheelCheck = new QCheckBox("Mouse wheel", panOpts);
     panLayout->addWidget(m_panDragCheck);
-    panLayout->addWidget(m_panWheelCheck);
     interactionsForm->addRow("Pan:", panOpts);
 
     // Keyboard shortcuts info (fixed, not editable; full-width block under the form)
@@ -227,6 +247,13 @@ void SettingsDialog::setupUI()
         "<b>Pan</b><br>"
         "  A / Left Arrow  : Pan left<br>"
         "  D / Right Arrow : Pan right<br>"
+        "<br>"
+        "<b>Y-axis Scale</b><br>"
+#ifdef Q_OS_MAC
+        "  Option+Mouse wheel : Scale the Y-axis under the cursor<br>"
+#else
+        "  Alt+Mouse wheel    : Scale the Y-axis under the cursor<br>"
+#endif
         "<br>"
         "<b>TR stepping</b><br>"
         "  Alt+Q           : Decrease TR start/end (step = |TR Inc|, default 1)<br>"
@@ -492,10 +519,12 @@ void SettingsDialog::setupUI()
     connect(m_resetButton, &QPushButton::clicked, this, &SettingsDialog::onResetClicked);
     connect(m_gammaCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), 
             this, &SettingsDialog::onGammaComboChanged);
-    connect(m_zoomModeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &SettingsDialog::onZoomModeChanged);
-    connect(m_panWheelCheck, &QCheckBox::toggled,
-            this, &SettingsDialog::onPanWheelToggled);
+    connect(m_wheelActionCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SettingsDialog::onWheelGestureActionChanged);
+    connect(m_ctrlWheelActionCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SettingsDialog::onWheelGestureActionChanged);
+    connect(m_altWheelActionCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &SettingsDialog::onWheelGestureActionChanged);
     connect(m_systemProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SettingsDialog::onSystemProfileChanged);
     connect(m_systemProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -549,9 +578,9 @@ void SettingsDialog::loadCurrentSettings()
     m_originalTrajectoryColormap = settings.getTrajectoryColormap();
     m_originalGamma = settings.getGamma();
     m_originalLogLevel = settings.getLogLevel();
-    m_originalZoomInputMode = settings.getZoomInputMode();
-    m_originalZoomInputMode = settings.getZoomInputMode();
-    m_originalPanWheelEnabled = settings.getPanWheelEnabled();
+    m_originalWheelAction = settings.getWheelAction(Settings::WheelGesture::Wheel);
+    m_originalCtrlWheelAction = settings.getWheelAction(Settings::WheelGesture::CtrlWheel);
+    m_originalAltWheelAction = settings.getWheelAction(Settings::WheelGesture::AltWheel);
     m_originalAutoReloadOnFileChange = settings.getAutoReloadOnFileChange();
     m_originalShowExtensionTooltip = settings.getShowExtensionTooltip();
     m_originalEnableRoosPtxHackAutoDetection = settings.getEnableRoosPtxHackAutoDetection();
@@ -616,12 +645,20 @@ void SettingsDialog::loadCurrentSettings()
     }
 
     // Interactions
-    int zoomIndex = (m_originalZoomInputMode == Settings::ZoomInputMode::Wheel) ? 1 : 0;
-    m_zoomModeCombo->setCurrentIndex(zoomIndex);
-    m_panWheelCheck->setChecked(m_originalPanWheelEnabled);
+    auto setActionCombo = [](QComboBox* combo, Settings::WheelAction action) {
+        if (!combo) return;
+        const int idx = combo->findData(static_cast<int>(action));
+        if (idx >= 0)
+            combo->setCurrentIndex(idx);
+    };
+    const QSignalBlocker wheelBlocker(m_wheelActionCombo);
+    const QSignalBlocker ctrlBlocker(m_ctrlWheelActionCombo);
+    const QSignalBlocker altBlocker(m_altWheelActionCombo);
+    setActionCombo(m_wheelActionCombo, m_originalWheelAction);
+    setActionCombo(m_ctrlWheelActionCombo, m_originalCtrlWheelAction);
+    setActionCombo(m_altWheelActionCombo, m_originalAltWheelAction);
     if (m_autoReloadOnFileChangeCheck)
         m_autoReloadOnFileChangeCheck->setChecked(m_originalAutoReloadOnFileChange);
-    updateInteractionControlsForExclusivity();
 
     if (m_systemProfileCombo)
     {
@@ -727,11 +764,16 @@ bool SettingsDialog::applySettings()
     }
 
     // Apply interactions
-    Settings::ZoomInputMode zoomMode = static_cast<Settings::ZoomInputMode>(m_zoomModeCombo->currentData().toInt());
-    settings.setZoomInputMode(zoomMode);
-    // Enforce exclusivity: if zoom is Wheel, pan wheel must be false
-    bool panWheel = (zoomMode == Settings::ZoomInputMode::Wheel) ? false : m_panWheelCheck->isChecked();
-    settings.setPanWheelEnabled(panWheel);
+    const auto wheelAction = static_cast<Settings::WheelAction>(m_wheelActionCombo->currentData().toInt());
+    const auto ctrlWheelAction = static_cast<Settings::WheelAction>(m_ctrlWheelActionCombo->currentData().toInt());
+    const auto altWheelAction = static_cast<Settings::WheelAction>(m_altWheelActionCombo->currentData().toInt());
+    settings.setWheelAction(Settings::WheelGesture::Wheel, wheelAction);
+    settings.setWheelAction(Settings::WheelGesture::CtrlWheel, ctrlWheelAction);
+    settings.setWheelAction(Settings::WheelGesture::AltWheel, altWheelAction);
+    settings.setZoomInputMode(ctrlWheelAction == Settings::WheelAction::Zoom
+        ? Settings::ZoomInputMode::CtrlWheel
+        : Settings::ZoomInputMode::Wheel);
+    settings.setPanWheelEnabled(wheelAction == Settings::WheelAction::Pan);
     if (m_autoReloadOnFileChangeCheck)
         settings.setAutoReloadOnFileChange(m_autoReloadOnFileChangeCheck->isChecked());
 
@@ -805,8 +847,10 @@ bool SettingsDialog::applySettings()
     qDebug() << "  Time Unit:" << settings.getTimeUnitString();
     qDebug() << "  Gamma:" << gamma << "Hz/T";
     qDebug() << "  Log Level:" << settings.getLogLevelString();
-    qDebug() << "  Zoom Input Mode:" << settings.getZoomInputModeString();
-    qDebug() << "  Pan Wheel Enabled:" << settings.getPanWheelEnabled();
+    qDebug() << "  Wheel Gesture Actions:"
+             << settings.wheelActionString(wheelAction)
+             << settings.wheelActionString(ctrlWheelAction)
+             << settings.wheelActionString(altWheelAction);
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
     return true;
 }
@@ -833,6 +877,13 @@ void SettingsDialog::onCancelClicked()
     settings.setTrajectoryColormap(m_originalTrajectoryColormap);
     settings.setGamma(m_originalGamma);
     settings.setLogLevel(m_originalLogLevel);
+    settings.setWheelAction(Settings::WheelGesture::Wheel, m_originalWheelAction);
+    settings.setWheelAction(Settings::WheelGesture::CtrlWheel, m_originalCtrlWheelAction);
+    settings.setWheelAction(Settings::WheelGesture::AltWheel, m_originalAltWheelAction);
+    settings.setZoomInputMode(m_originalCtrlWheelAction == Settings::WheelAction::Zoom
+        ? Settings::ZoomInputMode::CtrlWheel
+        : Settings::ZoomInputMode::Wheel);
+    settings.setPanWheelEnabled(m_originalWheelAction == Settings::WheelAction::Pan);
     settings.setAutoReloadOnFileChange(m_originalAutoReloadOnFileChange);
     settings.setShowExtensionTooltip(m_originalShowExtensionTooltip);
     settings.setEnableRoosPtxHackAutoDetection(m_originalEnableRoosPtxHackAutoDetection);
@@ -1183,54 +1234,44 @@ void SettingsDialog::onMoveAxisBottomClicked()
     updateAxisOrderButtons();
 }
 
-void SettingsDialog::onZoomModeChanged(int index)
+void SettingsDialog::onWheelGestureActionChanged(int index)
 {
     Q_UNUSED(index);
-    updateInteractionControlsForExclusivity();
+    if (QComboBox* combo = qobject_cast<QComboBox*>(sender()))
+        enforceUniqueWheelAction(combo);
 }
 
-void SettingsDialog::onPanWheelToggled(bool checked)
+void SettingsDialog::addWheelActionItems(QComboBox* combo)
 {
-    Q_UNUSED(checked);
-    updateInteractionControlsForExclusivity();
+    if (!combo)
+        return;
+    combo->addItem("Unassigned", static_cast<int>(Settings::WheelAction::Unassigned));
+    combo->addItem("Zoom", static_cast<int>(Settings::WheelAction::Zoom));
+    combo->addItem("Y-axis Scale", static_cast<int>(Settings::WheelAction::YAxisScale));
+    combo->addItem("Pan", static_cast<int>(Settings::WheelAction::Pan));
 }
 
-void SettingsDialog::updateInteractionControlsForExclusivity()
+void SettingsDialog::enforceUniqueWheelAction(QComboBox* changedCombo)
 {
-    // If Zoom uses Mouse wheel, Pan:Mouse wheel must be disabled and unchecked
-    bool zoomIsWheel = (static_cast<Settings::ZoomInputMode>(m_zoomModeCombo->currentData().toInt()) == Settings::ZoomInputMode::Wheel);
-    if (zoomIsWheel)
-    {
-        if (m_panWheelCheck->isChecked())
-            m_panWheelCheck->setChecked(false);
-        m_panWheelCheck->setEnabled(false);
-    }
-    else
-    {
-        m_panWheelCheck->setEnabled(true);
-    }
+    if (!changedCombo)
+        return;
 
-    // If Pan:Mouse wheel is checked, ensure Zoom cannot be "Mouse wheel"
-    if (m_panWheelCheck->isChecked())
+    const auto action = static_cast<Settings::WheelAction>(changedCombo->currentData().toInt());
+    if (action == Settings::WheelAction::Unassigned)
+        return;
+
+    const QList<QComboBox*> combos = {m_wheelActionCombo, m_ctrlWheelActionCombo, m_altWheelActionCombo};
+    for (QComboBox* combo : combos)
     {
-        if (static_cast<Settings::ZoomInputMode>(m_zoomModeCombo->currentData().toInt()) == Settings::ZoomInputMode::Wheel)
+        if (!combo || combo == changedCombo)
+            continue;
+        const auto otherAction = static_cast<Settings::WheelAction>(combo->currentData().toInt());
+        if (otherAction == action)
         {
-            // Force to Ctrl+Mouse wheel
-            m_zoomModeCombo->setCurrentIndex(0);
-        }
-        // Optionally disable the "Mouse wheel" option visually
-        if (auto* model = qobject_cast<QStandardItemModel*>(m_zoomModeCombo->model()))
-        {
-            if (QStandardItem* item = model->item(1))
-                item->setEnabled(false);
-        }
-    }
-    else
-    {
-        if (auto* model = qobject_cast<QStandardItemModel*>(m_zoomModeCombo->model()))
-        {
-            if (QStandardItem* item = model->item(1))
-                item->setEnabled(true);
+            const QSignalBlocker blocker(combo);
+            const int unassignedIndex = combo->findData(static_cast<int>(Settings::WheelAction::Unassigned));
+            if (unassignedIndex >= 0)
+                combo->setCurrentIndex(unassignedIndex);
         }
     }
 }

@@ -1162,6 +1162,62 @@ void WaveformDrawer::fitYAxisToCurrentView()
     m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
+bool WaveformDrawer::scaleYAxisAt(const QPointF& plotPos, int wheelDelta)
+{
+    if (wheelDelta == 0 || m_vecRects.isEmpty())
+        return false;
+
+    int axisIndex = -1;
+    const QPoint p = plotPos.toPoint();
+    for (int i = 0; i < m_vecRects.size(); ++i)
+    {
+        QCPAxisRect* rect = m_vecRects[i];
+        if (rect && rect->visible() && rect->outerRect().contains(p))
+        {
+            axisIndex = i;
+            break;
+        }
+    }
+
+    // RF/ADC phase is intentionally fixed to [-pi, pi] plus margin.
+    if (axisIndex < 0 || axisIndex == 2 || axisIndex >= m_vecRects.size())
+        return false;
+
+    QCPAxisRect* rect = m_vecRects[axisIndex];
+    QCPAxis* yAxis = rect ? rect->axis(QCPAxis::atLeft) : nullptr;
+    if (!yAxis)
+        return false;
+
+    QCPRange current = yAxis->range();
+    double currentSize = current.size();
+    if (!std::isfinite(current.lower) || !std::isfinite(current.upper) || currentSize <= 0.0)
+        return false;
+
+    const double ticks = wheelDelta / 120.0;
+    const double factor = std::pow(0.9, ticks);
+    double newSize = currentSize * factor;
+    const double minSize = std::max(std::abs(currentSize) * 0.001, 1e-12);
+    if (newSize < minSize)
+        newSize = minSize;
+
+    const double anchor = yAxis->pixelToCoord(p.y());
+    const double anchorRatio = (anchor - current.lower) / currentSize;
+    double newLower = anchor - anchorRatio * newSize;
+    double newUpper = newLower + newSize;
+    if (!std::isfinite(newLower) || !std::isfinite(newUpper) || newUpper <= newLower)
+        return false;
+
+    yAxis->setRange(newLower, newUpper);
+    if (m_fixedYRanges.size() < m_vecRects.size())
+        m_fixedYRanges.resize(m_vecRects.size());
+    m_fixedYRanges[axisIndex] = qMakePair(newLower, newUpper);
+    m_lockYAxisRanges = true;
+
+    if (m_mainWindow)
+        m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "y-axis-scale", "");
+    return true;
+}
+
 void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
 {
     PulseqLoader* loader = m_mainWindow->getPulseqLoader();

@@ -668,7 +668,10 @@ void InteractionHandler::closeBlockInfoDialog()
 void InteractionHandler::onMouseWheel(QWheelEvent* event)
 {
     int delta = event->angleDelta().y();
+    if (delta == 0)
+        delta = event->pixelDelta().y();
     if (delta == 0) return;
+
     // Accumulate and coalesce wheel events; process at ~70Hz to avoid zoom bursts
     m_accumulatedWheelDelta += delta;
     m_lastWheelPos = event->position();
@@ -1128,10 +1131,28 @@ void InteractionHandler::processAccumulatedWheel()
     if (delta == 0) return;
     m_accumulatedWheelDelta = 0;
 
-    bool ctrl = m_lastWheelModifiers & Qt::ControlModifier;
     Settings& appSettings = Settings::getInstance();
-    Settings::ZoomInputMode zoomMode = appSettings.getZoomInputMode();
-    bool panWheelEnabled = appSettings.getPanWheelEnabled();
+    Settings::WheelGesture gesture = Settings::WheelGesture::Wheel;
+    if (m_lastWheelModifiers & Qt::ControlModifier)
+        gesture = Settings::WheelGesture::CtrlWheel;
+    else if (m_lastWheelModifiers & Qt::AltModifier)
+        gesture = Settings::WheelGesture::AltWheel;
+    const Settings::WheelAction action = appSettings.getWheelAction(gesture);
+
+    if (action == Settings::WheelAction::Unassigned)
+    {
+        endInteractionSession();
+        return;
+    }
+
+    if (action == Settings::WheelAction::YAxisScale)
+    {
+        if (WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer())
+            drawer->scaleYAxisAt(m_lastWheelPos, delta);
+        endInteractionSession();
+        return;
+    }
+
     QCustomPlot* plot = m_mainWindow->ui->customPlot;
     QCPRange cur = plot->xAxis->range();
     QCPRange valid = getCurrentTimeRange();
@@ -1183,30 +1204,13 @@ void InteractionHandler::processAccumulatedWheel()
         synchronizeXAxes(QCPRange(newMin, newMax));
     };
 
-    // Behavior matrix based on settings:
-    // - Zoom mode = Wheel: always zoom with wheel; pan by wheel is disabled
-    // - Zoom mode = CtrlWheel:
-    //     * Ctrl pressed => zoom
-    //     * Ctrl not pressed => if panWheelEnabled then pan, else ignore
-    if (zoomMode == Settings::ZoomInputMode::Wheel)
+    if (action == Settings::WheelAction::Zoom)
     {
         doZoom(delta);
     }
-    else // CtrlWheel
+    else if (action == Settings::WheelAction::Pan)
     {
-        if (ctrl)
-        {
-            doZoom(delta);
-        }
-        else if (panWheelEnabled)
-        {
-            doPan(delta);
-        }
-        else
-        {
-            // Ignore wheel for pan if disabled
-            return;
-        }
+        doPan(delta);
     }
 }
 

@@ -51,6 +51,19 @@ public:
         Wheel       // Mouse wheel for zoom
     };
 
+    enum class WheelGesture {
+        Wheel,
+        CtrlWheel,
+        AltWheel
+    };
+
+    enum class WheelAction {
+        Unassigned,
+        Zoom,
+        YAxisScale,
+        Pan
+    };
+
     // Gradient units
     enum class GradientUnit {
         HzPerM,      // Hz/m
@@ -107,6 +120,10 @@ public:
 
     void setPanWheelEnabled(bool enabled);
     bool getPanWheelEnabled() const;
+
+    void setWheelAction(WheelGesture gesture, WheelAction action);
+    WheelAction getWheelAction(WheelGesture gesture) const;
+    QString wheelActionString(WheelAction action) const;
 
     void setAutoReloadOnFileChange(bool enabled);
     bool getAutoReloadOnFileChange() const;
@@ -237,6 +254,9 @@ private:
     // Current settings
     ZoomInputMode m_zoomInputMode;
     bool m_panWheelEnabled;
+    WheelAction m_wheelAction {WheelAction::Zoom};
+    WheelAction m_ctrlWheelAction {WheelAction::YAxisScale};
+    WheelAction m_altWheelAction {WheelAction::Unassigned};
     bool m_autoReloadOnFileChange {false};
     QString m_panLeftKey;
     QString m_panRightKey;
@@ -268,6 +288,7 @@ private:
     GradientUnit stringToGradientUnit(const QString& unitString) const;
     SlewUnit stringToSlewUnit(const QString& unitString) const;
     ZoomInputMode stringToZoomInputMode(const QString& s) const;
+    WheelAction stringToWheelAction(const QString& s) const;
     TimeUnit stringToTimeUnit(const QString& unitString) const;
     TrajectoryUnit stringToTrajectoryUnit(const QString& unitString) const;
     TrajectoryColormap stringToTrajectoryColormap(const QString& name) const;

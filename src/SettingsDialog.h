@@ -37,8 +37,7 @@ private slots:
     void onCancelClicked();
     void onResetClicked();
     void onGammaComboChanged(int index);
-    void onZoomModeChanged(int index);
-    void onPanWheelToggled(bool checked);
+    void onWheelGestureActionChanged(int index);
     void onSystemProfileChanged(int index);
     void onAddSystemProfileClicked();
     void onRemoveSystemProfileClicked();
@@ -57,12 +56,13 @@ private:
     void loadCurrentSettings();
     bool applySettings();
     void showCustomGammaDialog();
-    void updateInteractionControlsForExclusivity();
     void loadCurrentSystemProfileIntoEditor();
     void syncCurrentSystemProfileDraft(bool updateComboText = true);
     int currentSystemProfileIndex() const;
     Settings::SystemProfile buildCurrentSystemProfileFromEditor(bool* ok = nullptr, QString* error = nullptr) const;
     QString resolvedAliasForInput(const QString& alias, int profileIndex) const;
+    void addWheelActionItems(QComboBox* combo);
+    void enforceUniqueWheelAction(QComboBox* changedCombo);
     void populateAxisOrderList(const QStringList& order);
     QStringList currentAxisOrderFromList() const;
     void moveSelectedAxisItem(int delta);
@@ -88,9 +88,10 @@ private:
     QCheckBox* m_autoReloadOnFileChangeCheck;
 
     // Interaction tab
-    QComboBox* m_zoomModeCombo;
+    QComboBox* m_wheelActionCombo;
+    QComboBox* m_ctrlWheelActionCombo;
+    QComboBox* m_altWheelActionCombo;
     QCheckBox* m_panDragCheck;
-    QCheckBox* m_panWheelCheck;
     QLabel* m_shortcutInfoLabel;
 
     // Extension tab - label visibility controls
@@ -140,8 +141,9 @@ private:
     QMap<QString, bool> m_originalExtensionLabelStates;
     double m_originalGamma;
     Settings::LogLevel m_originalLogLevel;
-    Settings::ZoomInputMode m_originalZoomInputMode;
-    bool m_originalPanWheelEnabled;
+    Settings::WheelAction m_originalWheelAction {Settings::WheelAction::Zoom};
+    Settings::WheelAction m_originalCtrlWheelAction {Settings::WheelAction::YAxisScale};
+    Settings::WheelAction m_originalAltWheelAction {Settings::WheelAction::Unassigned};
     bool m_originalAutoReloadOnFileChange {false};
     QVector<Settings::SystemProfile> m_originalSystemProfiles;
     QString m_originalActiveSystemProfileAlias;
