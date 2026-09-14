@@ -248,13 +248,6 @@ void SettingsDialog::setupUI()
         "  A / Left Arrow  : Pan left<br>"
         "  D / Right Arrow : Pan right<br>"
         "<br>"
-        "<b>Y-axis Scale</b><br>"
-#ifdef Q_OS_MAC
-        "  Option+Mouse wheel : Scale the Y-axis under the cursor<br>"
-#else
-        "  Alt+Mouse wheel    : Scale the Y-axis under the cursor<br>"
-#endif
-        "<br>"
         "<b>TR stepping</b><br>"
         "  Alt+Q           : Decrease TR start/end (step = |TR Inc|, default 1)<br>"
         "  Alt+W           : Increase TR start/end (step = |TR Inc|, default 1)<br>"

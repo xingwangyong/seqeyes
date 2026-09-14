@@ -750,6 +750,8 @@ void MainWindow::setupIcons()
         ui->actionResetView->setIcon(QIcon::fromTheme(QStringLiteral("view-restore"), fallbackEmpty));
     if (ui->actionFitYAxisToCurrentView)
         ui->actionFitYAxisToCurrentView->setIcon(QIcon::fromTheme(QStringLiteral("zoom-fit-best"), fallbackEmpty));
+    if (ui->actionResetYAxisRange)
+        ui->actionResetYAxisRange->setIcon(QIcon::fromTheme(QStringLiteral("view-refresh"), fallbackEmpty));
 }
 
 void MainWindow::InitSlots()
@@ -788,6 +790,7 @@ void MainWindow::InitSlots()
     // View Menu
     connect(ui->actionResetView, &QAction::triggered, m_waveformDrawer, &WaveformDrawer::ResetView);
     connect(ui->actionFitYAxisToCurrentView, &QAction::triggered, m_waveformDrawer, &WaveformDrawer::fitYAxisToCurrentView);
+    connect(ui->actionResetYAxisRange, &QAction::triggered, m_waveformDrawer, &WaveformDrawer::resetYAxisRange);
     // Rename and repurpose to a single entry: "Undersample curves" (checked = downsampling ON)
     ui->actionShowFullDetail->setText("Undersample curves");
     ui->actionShowFullDetail->setToolTip("Downsample curves for performance");

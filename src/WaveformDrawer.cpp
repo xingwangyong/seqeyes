@@ -1162,6 +1162,17 @@ void WaveformDrawer::fitYAxisToCurrentView()
     m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
+void WaveformDrawer::resetYAxisRange()
+{
+    PulseqLoader* loader = m_mainWindow ? m_mainWindow->getPulseqLoader() : nullptr;
+    if (!loader || !loader->canRenderSequence())
+        return;
+
+    computeAndLockYAxisRanges();
+    if (m_mainWindow)
+        m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "reset-y-axis", "");
+}
+
 bool WaveformDrawer::scaleYAxisAt(const QPointF& plotPos, int wheelDelta)
 {
     if (wheelDelta == 0 || m_vecRects.isEmpty())

@@ -212,6 +212,7 @@ private:
     QButtonGroup* m_pModeGroup;
     QToolButton* m_pMeasureDtButton {nullptr};
     QToolButton* m_pFitYAxisButton {nullptr};
+    QToolButton* m_pResetYAxisButton {nullptr};
 
     // Legacy compatibility controls
     QSlider* m_pTrSlider;

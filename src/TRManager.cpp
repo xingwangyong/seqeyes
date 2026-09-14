@@ -285,6 +285,21 @@ void TRManager::createWidgets()
         m_pFitYAxisButton->setText("Fit Y-axis");
     }
 
+    m_pResetYAxisButton = new QToolButton(m_mainWindow);
+    m_pResetYAxisButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_pResetYAxisButton->setAutoRaise(false);
+    m_pResetYAxisButton->setCursor(Qt::PointingHandCursor);
+    m_pResetYAxisButton->setToolTip("Reset Y-axis ranges without changing the visible time window");
+    m_pResetYAxisButton->setStyleSheet(m_pMeasureDtButton->styleSheet());
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->actionResetYAxisRange)
+    {
+        m_pResetYAxisButton->setDefaultAction(m_mainWindow->ui->actionResetYAxisRange);
+    }
+    else
+    {
+        m_pResetYAxisButton->setText("Reset Y-axis");
+    }
+
     // Curve Visibility Controls
     m_pShowADCCheckBox = new QCheckBox("ADC", m_mainWindow);
     m_pShowADCCheckBox->setChecked(true); // Default to showing all curves
@@ -327,6 +342,7 @@ void TRManager::setupLayouts(QVBoxLayout* mainLayout)
     modeLayout->addWidget(m_pModeTimeRadio);
     modeLayout->addWidget(m_pMeasureDtButton);
     modeLayout->addWidget(m_pFitYAxisButton);
+    modeLayout->addWidget(m_pResetYAxisButton);
     // Keep the rest of the row compact; consume remaining space on the right.
     modeLayout->addStretch();
 

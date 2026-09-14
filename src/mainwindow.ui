@@ -99,6 +99,7 @@
    <addaction name="actionReopen"/>
    <addaction name="actionResetView"/>
    <addaction name="actionFitYAxisToCurrentView"/>
+   <addaction name="actionResetYAxisRange"/>
    <addaction name="actionMeasureDt"/>
   </widget>
   <action name="actionOpen">
@@ -164,6 +165,14 @@
    </property>
    <property name="toolTip">
     <string>Fit Y-axis ranges to the visible time window</string>
+   </property>
+  </action>
+  <action name="actionResetYAxisRange">
+   <property name="text">
+    <string>Reset Y-axis range</string>
+   </property>
+   <property name="toolTip">
+    <string>Reset Y-axis ranges without changing the visible time window</string>
    </property>
   </action>
   <action name="actionShowFullDetail">
