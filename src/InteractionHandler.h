@@ -15,6 +15,7 @@ class QWheelEvent;
 class QLineEdit;
 class QCPItemRect;
 class QCPItemStraightLine;
+class QCPAxis;
 class EventBlockInfoDialog;
 class QCPRange;
 #include "WaveformDrawer.h"
@@ -80,6 +81,11 @@ private:
     void updateAxisDrag(const QPoint& pos);
     void endAxisDrag(const QPoint& pos);
 
+    // Ctrl + left-drag pans only the Y axis of the subplot where the drag began.
+    bool beginVerticalPan(const QPoint& pos);
+    void updateVerticalPan(const QPoint& pos);
+    void endVerticalPan();
+
 private:
     MainWindow* m_mainWindow; // Pointer to access MainWindow members (like ui and other handlers)
 
@@ -116,6 +122,13 @@ private:
     int m_pendingAxisIndex {-1};
     QPoint m_pressPos;
     const int m_dragStartThresholdPx {6};
+
+    // Single-axis vertical pan state
+    bool m_verticalPanning {false};
+    QCPAxis* m_verticalPanAxis {nullptr};
+    QPoint m_verticalPanStartPos;
+    double m_verticalPanStartLower {0.0};
+    double m_verticalPanStartUpper {0.0};
 
     // Measure Δt mode state
     bool m_measureMode {false};

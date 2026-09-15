@@ -92,6 +92,7 @@ private:
     QComboBox* m_ctrlWheelActionCombo;
     QComboBox* m_altWheelActionCombo;
     QCheckBox* m_panDragCheck;
+    QCheckBox* m_verticalPanDragCheck;
     QLabel* m_shortcutInfoLabel;
 
     // Extension tab - label visibility controls

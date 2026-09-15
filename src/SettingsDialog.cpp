@@ -41,6 +41,7 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_ctrlWheelActionCombo(nullptr)
     , m_altWheelActionCombo(nullptr)
     , m_panDragCheck(nullptr)
+    , m_verticalPanDragCheck(nullptr)
     , m_autoReloadOnFileChangeCheck(nullptr)
     , m_showExtensionTooltipCheck(nullptr)
     , m_enableRoosPtxHackAutoDetectionCheck(nullptr)
@@ -240,6 +241,16 @@ void SettingsDialog::setupUI()
     panLayout->addWidget(m_panDragCheck);
     interactionsForm->addRow("Pan:", panOpts);
 
+    QWidget* verticalPanOpts = new QWidget(interactionsTab);
+    QHBoxLayout* verticalPanLayout = new QHBoxLayout(verticalPanOpts);
+    verticalPanLayout->setContentsMargins(0,0,0,0);
+    m_verticalPanDragCheck = new QCheckBox("Ctrl + Left drag", verticalPanOpts);
+    m_verticalPanDragCheck->setChecked(true);
+    m_verticalPanDragCheck->setEnabled(false); // Fixed default gesture, matching horizontal Pan above
+    m_verticalPanDragCheck->setToolTip("Drag vertically to pan only the subplot under the pointer.");
+    verticalPanLayout->addWidget(m_verticalPanDragCheck);
+    interactionsForm->addRow("Vertical Pan:", verticalPanOpts);
+
     // Keyboard shortcuts info (fixed, not editable; full-width block under the form)
     m_shortcutInfoLabel = new QLabel(interactionsTab);
     m_shortcutInfoLabel->setWordWrap(true);
@@ -247,6 +258,7 @@ void SettingsDialog::setupUI()
         "<b>Pan</b><br>"
         "  A / Left Arrow  : Pan left<br>"
         "  D / Right Arrow : Pan right<br>"
+        "  Ctrl + Left drag: Vertical pan (current subplot only)<br>"
         "<br>"
         "<b>TR stepping</b><br>"
         "  Alt+Q           : Decrease TR start/end (step = |TR Inc|, default 1)<br>"

@@ -1231,6 +1231,16 @@ bool InteractionHandler::eventFilter(QObject* obj, QEvent* event)
             QMouseEvent* me = static_cast<QMouseEvent*>(event);
             if (me->button() == Qt::LeftButton)
             {
+                // Ctrl + left-drag is reserved for a single subplot's Y axis.
+                // Consume the complete gesture here so QCustomPlot's normal
+                // horizontal range drag never starts for the same press.
+                if (!m_measureMode && (me->modifiers() & Qt::ControlModifier)
+                    && beginVerticalPan(me->pos()))
+                {
+                    me->accept();
+                    return true;
+                }
+
                 int axisIndex = -1;
                 // Coordinates are already in plot widget space
                 QPoint plotPos = me->pos();
@@ -1242,6 +1252,13 @@ bool InteractionHandler::eventFilter(QObject* obj, QEvent* event)
                     return true;
                 }
             }
+        }
+        if (event->type() == QEvent::MouseMove && m_verticalPanning)
+        {
+            QMouseEvent* me = static_cast<QMouseEvent*>(event);
+            updateVerticalPan(me->pos());
+            me->accept();
+            return true;
         }
         if (event->type() == QEvent::MouseMove && !m_axisDragging && m_pendingAxisIndex >= 0)
         {
@@ -1264,7 +1281,12 @@ bool InteractionHandler::eventFilter(QObject* obj, QEvent* event)
         if (event->type() == QEvent::MouseButtonRelease)
         {
             QMouseEvent* me = static_cast<QMouseEvent*>(event);
-            Q_UNUSED(me);
+            if (m_verticalPanning && me->button() == Qt::LeftButton)
+            {
+                endVerticalPan();
+                me->accept();
+                return true;
+            }
             if (m_axisDragging)
             {
                 QPoint plotPos = m_mainWindow->ui->customPlot->mapFromGlobal(QCursor::pos());
@@ -1587,6 +1609,61 @@ bool InteractionHandler::eventFilter(QObject* obj, QEvent* event)
     }
     return false; // Return false to let MainWindow continue processing
 }
+
+bool InteractionHandler::beginVerticalPan(const QPoint& pos)
+{
+    if (!m_mainWindow || !m_mainWindow->ui || !m_mainWindow->ui->customPlot)
+        return false;
+
+    QCPAxisRect* rect = m_mainWindow->ui->customPlot->axisRectAt(pos);
+    if (!rect || !rect->visible())
+        return false;
+
+    QCPAxis* axis = rect->axis(QCPAxis::atLeft);
+    if (!axis)
+        return false;
+
+    m_verticalPanning = true;
+    m_verticalPanAxis = axis;
+    m_verticalPanStartPos = pos;
+    m_verticalPanStartLower = axis->range().lower;
+    m_verticalPanStartUpper = axis->range().upper;
+    m_pendingAxisIndex = -1;
+    m_mainWindow->ui->customPlot->setCursor(Qt::ClosedHandCursor);
+    startInteractionSession("VerticalPan");
+    return true;
+}
+
+void InteractionHandler::updateVerticalPan(const QPoint& pos)
+{
+    if (!m_verticalPanning || !m_verticalPanAxis)
+        return;
+
+    const double offset = m_verticalPanAxis->pixelToCoord(m_verticalPanStartPos.y())
+                        - m_verticalPanAxis->pixelToCoord(pos.y());
+    if (WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer())
+    {
+        drawer->setYAxisRange(m_verticalPanAxis,
+                              m_verticalPanStartLower + offset,
+                              m_verticalPanStartUpper + offset);
+    }
+}
+
+void InteractionHandler::endVerticalPan()
+{
+    if (!m_verticalPanning)
+        return;
+
+    m_verticalPanning = false;
+    m_verticalPanAxis = nullptr;
+    if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
+    {
+        m_mainWindow->ui->customPlot->unsetCursor();
+        m_mainWindow->ui->customPlot->replot(QCustomPlot::rpRefreshHint);
+    }
+    endInteractionSession();
+}
+
 bool InteractionHandler::isOverAxisLabelArea(const QPoint& pos, int& axisIndex) const
 {
     WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer();

@@ -1229,6 +1229,35 @@ bool WaveformDrawer::scaleYAxisAt(const QPointF& plotPos, int wheelDelta)
     return true;
 }
 
+bool WaveformDrawer::setYAxisRange(QCPAxis* axis, double lower, double upper)
+{
+    if (!axis || !std::isfinite(lower) || !std::isfinite(upper) || upper <= lower)
+        return false;
+
+    int axisIndex = -1;
+    for (int i = 0; i < m_vecRects.size(); ++i)
+    {
+        QCPAxisRect* rect = m_vecRects[i];
+        if (rect && rect->axis(QCPAxis::atLeft) == axis)
+        {
+            axisIndex = i;
+            break;
+        }
+    }
+    if (axisIndex < 0)
+        return false;
+
+    axis->setRange(lower, upper);
+    if (m_fixedYRanges.size() < m_vecRects.size())
+        m_fixedYRanges.resize(m_vecRects.size());
+    m_fixedYRanges[axisIndex] = qMakePair(lower, upper);
+    m_lockYAxisRanges = true;
+
+    if (m_mainWindow)
+        m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "y-axis-pan", "");
+    return true;
+}
+
 void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
 {
     PulseqLoader* loader = m_mainWindow->getPulseqLoader();
