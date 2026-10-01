@@ -250,6 +250,169 @@ void convertInternalTimesToSec(QVector<double>& times, double tFactor)
     }
 }
 
+// -----------------------------------------------------------------------------
+// Slew rate / |G_xy| helpers.
+//
+// The gradient series is a piecewise-linear polyline (trapezoids and ext-trap
+// are exact; arbitrary gradients are already rasterized to their sample grid),
+// so dG/dt is constant on every segment. Keeping that exact structure (instead
+// of differentiating a decimated screen series) means the plotted peak equals
+// the maxSlew reported by the safety check.
+// -----------------------------------------------------------------------------
+struct SlewSegment
+{
+    double t0 = 0.0;
+    double t1 = 0.0;
+    double slew = 0.0;
+};
+
+QVector<SlewSegment> buildSlewSegments(const QVector<double>& times, const QVector<double>& values)
+{
+    QVector<SlewSegment> segs;
+    const int n = std::min(times.size(), values.size());
+    if (n < 2)
+    {
+        return segs;
+    }
+    segs.reserve(n - 1);
+    for (int i = 1; i < n; ++i)
+    {
+        const double dt = times[i] - times[i - 1];
+        if (!(dt > 0.0))
+        {
+            continue;
+        }
+        const double s = (values[i] - values[i - 1]) / dt;
+        if (!segs.isEmpty())
+        {
+            SlewSegment& last = segs.last();
+            const double tol = 1e-9 * std::max({std::abs(last.slew), std::abs(s), 1.0});
+            if (last.t1 == times[i - 1] && std::abs(last.slew - s) <= tol)
+            {
+                // Same slope continuing: extend instead of emitting a new step.
+                last.t1 = times[i];
+                continue;
+            }
+        }
+        segs.append({times[i - 1], times[i], s});
+    }
+    return segs;
+}
+
+// Two points per segment: (t0,s),(t1,s). Adjacent segments share a timestamp, so
+// drawing the polyline in order yields horizontal plateaus joined by vertical jumps.
+void segmentsToStepPolyline(const QVector<SlewSegment>& segs, QVector<double>& outT, QVector<double>& outV)
+{
+    outT.clear();
+    outV.clear();
+    outT.reserve(segs.size() * 2);
+    outV.reserve(segs.size() * 2);
+    for (const SlewSegment& seg : segs)
+    {
+        outT.append(seg.t0);
+        outV.append(seg.slew);
+        outT.append(seg.t1);
+        outV.append(seg.slew);
+    }
+}
+
+double slewAt(const QVector<SlewSegment>& segs, double t)
+{
+    auto it = std::upper_bound(segs.constBegin(), segs.constEnd(), t,
+                               [](double value, const SlewSegment& seg) { return value < seg.t0; });
+    if (it == segs.constBegin())
+    {
+        return 0.0;
+    }
+    --it;
+    return (t < it->t1) ? it->slew : 0.0;
+}
+
+// sqrt(sx^2 + sy^2) evaluated on the union of the X and Y breakpoints.
+void buildSlewXyPolyline(const QVector<SlewSegment>& sx,
+                         const QVector<SlewSegment>& sy,
+                         QVector<double>& outT,
+                         QVector<double>& outV)
+{
+    QVector<double> breaks;
+    breaks.reserve((sx.size() + sy.size()) * 2);
+    for (const SlewSegment& seg : sx) { breaks.append(seg.t0); breaks.append(seg.t1); }
+    for (const SlewSegment& seg : sy) { breaks.append(seg.t0); breaks.append(seg.t1); }
+    std::sort(breaks.begin(), breaks.end());
+    breaks.erase(std::unique(breaks.begin(), breaks.end()), breaks.end());
+
+    QVector<SlewSegment> merged;
+    merged.reserve(breaks.size());
+    for (int i = 0; i + 1 < breaks.size(); ++i)
+    {
+        const double a = breaks[i];
+        const double b = breaks[i + 1];
+        if (!(b > a))
+        {
+            continue;
+        }
+        const double mid = 0.5 * (a + b);
+        const double s = std::hypot(slewAt(sx, mid), slewAt(sy, mid));
+        if (!merged.isEmpty())
+        {
+            SlewSegment& last = merged.last();
+            const double tol = 1e-9 * std::max({std::abs(last.slew), std::abs(s), 1.0});
+            if (last.t1 == a && std::abs(last.slew - s) <= tol)
+            {
+                last.t1 = b;
+                continue;
+            }
+        }
+        merged.append({a, b, s});
+    }
+    segmentsToStepPolyline(merged, outT, outV);
+}
+
+// sqrt(gx^2 + gy^2) at the union of X/Y breakpoints (linear interpolation of each
+// component, 0 outside its series).
+void buildGxyPolyline(const QVector<double>& tx, const QVector<double>& vx,
+                      const QVector<double>& ty, const QVector<double>& vy,
+                      QVector<double>& outT, QVector<double>& outV)
+{
+    outT.clear();
+    outV.clear();
+    QVector<double> times;
+    times.resize(tx.size() + ty.size());
+    std::merge(tx.constBegin(), tx.constEnd(), ty.constBegin(), ty.constEnd(), times.begin());
+    times.erase(std::unique(times.begin(), times.end()), times.end());
+
+    // Queries are monotonically increasing, so each interpolator keeps a cursor.
+    auto makeInterp = [](const QVector<double>& T, const QVector<double>& V) {
+        return [&T, &V, idx = 0](double t) mutable -> double {
+            const int n = std::min(T.size(), V.size());
+            if (n == 0 || t < T[0] || t > T[n - 1])
+            {
+                return 0.0;
+            }
+            while (idx + 1 < n && T[idx + 1] <= t)
+            {
+                ++idx;
+            }
+            if (idx + 1 >= n)
+            {
+                return V[n - 1];
+            }
+            const double a = (t - T[idx]) / (T[idx + 1] - T[idx]);
+            return V[idx] + (V[idx + 1] - V[idx]) * a;
+        };
+    };
+    auto gx = makeInterp(tx, vx);
+    auto gy = makeInterp(ty, vy);
+
+    outT.reserve(times.size());
+    outV.reserve(times.size());
+    for (double t : times)
+    {
+        outT.append(t);
+        outV.append(std::hypot(gx(t), gy(t)));
+    }
+}
+
 // RF center time (seconds), matching KSpaceTrajectory::rfCenterUs semantics
 // but returning seconds directly.
 double rfCenterSec(SeqBlock* blk)
@@ -400,6 +563,18 @@ Result compute(const Input& input)
     convertInternalTimesToSec(gxTime, input.tFactor);
     convertInternalTimesToSec(gyTime, input.tFactor);
     convertInternalTimesToSec(gzTime, input.tFactor);
+
+    // -- Step 1b: slew rate and |G_xy| curves (independent of RF bookkeeping) --
+    {
+        const QVector<SlewSegment> segX = buildSlewSegments(gxTime, gxVal);
+        const QVector<SlewSegment> segY = buildSlewSegments(gyTime, gyVal);
+        const QVector<SlewSegment> segZ = buildSlewSegments(gzTime, gzVal);
+        segmentsToStepPolyline(segX, result.slewTSec[0], result.slew[0]);
+        segmentsToStepPolyline(segY, result.slewTSec[1], result.slew[1]);
+        segmentsToStepPolyline(segZ, result.slewTSec[2], result.slew[2]);
+        buildSlewXyPolyline(segX, segY, result.slewXyTSec, result.slewXy);
+        buildGxyPolyline(gxTime, gxVal, gyTime, gyVal, result.gxyTSec, result.gxy);
+    }
 
     auto timeRangeSec = [&](const QVector<double>& t) -> std::pair<double,double> {
         if (t.isEmpty()) return {0.0, 0.0};

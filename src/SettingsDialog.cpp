@@ -632,7 +632,9 @@ void SettingsDialog::loadCurrentSettings()
     if (waveformDrawer)
         populateAxisOrderList(waveformDrawer->getAxesOrder());
     else
-        populateAxisOrderList(QStringList() << "RF mag" << "PNS" << "GZ" << "GY" << "GX" << "RF/ADC ph" << "ADC/labels");
+        populateAxisOrderList(QStringList() << "RF mag" << "PNS" << "GZ" << "GY" << "GX" << "RF/ADC ph" << "ADC/labels"
+                                            << "M1x" << "M1y" << "M1z"
+                                            << "Slew X" << "Slew Y" << "Slew Z" << "Slew XYZ" << "Slew |XY|" << "G |XY|");
 
     // Extensions: sync checkboxes from settings
     if (m_showExtensionTooltipCheck)

@@ -301,6 +301,14 @@ public:
     const QVector<double>& getM1X() const { return m_m1Result.m1x; }
     const QVector<double>& getM1Y() const { return m_m1Result.m1y; }
     const QVector<double>& getM1Z() const { return m_m1Result.m1z; }
+    // Slew-rate and |G_xy| curves (step / polyline data in seconds; Hz/m/s and Hz/m).
+    // They ride on the M1 worker's result, so they become available when it finishes.
+    const QVector<double>& getSlewTimeSec(int channel) const { return m_m1Result.slewTSec[qBound(0, channel, 2)]; }
+    const QVector<double>& getSlew(int channel) const { return m_m1Result.slew[qBound(0, channel, 2)]; }
+    const QVector<double>& getSlewXyTimeSec() const { return m_m1Result.slewXyTSec; }
+    const QVector<double>& getSlewXy() const { return m_m1Result.slewXy; }
+    const QVector<double>& getGxyTimeSec() const { return m_m1Result.gxyTSec; }
+    const QVector<double>& getGxy() const { return m_m1Result.gxy; }
     const QVector<double>& getPnsTimeSec() const { return m_pnsResult.timeSec; }
     const QVector<double>& getPnsX() const { return m_pnsResult.pnsX; }
     const QVector<double>& getPnsY() const { return m_pnsResult.pnsY; }

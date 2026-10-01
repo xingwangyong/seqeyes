@@ -37,6 +37,31 @@
 #include <algorithm>
 #include <QFileInfo>
 #include <QPointer>
+#include <QMenu>
+#include <QAction>
+#include <QMouseEvent>
+
+namespace {
+// Menu that stays open when a checkable item is clicked, so several curves can be
+// toggled in one visit.
+class StayOpenMenu : public QMenu
+{
+public:
+    using QMenu::QMenu;
+
+protected:
+    void mouseReleaseEvent(QMouseEvent* event) override
+    {
+        QAction* action = actionAt(event->pos());
+        if (action && action->isCheckable() && action->isEnabled())
+        {
+            action->trigger();
+            return;
+        }
+        QMenu::mouseReleaseEvent(event);
+    }
+};
+}
 
 TRManager::TRManager(MainWindow* mainWindow)
     : QObject(mainWindow),
@@ -325,6 +350,50 @@ void TRManager::createWidgets()
     m_pShowM1zCheckBox = new QCheckBox("M1z", m_mainWindow);
     m_pShowM1zCheckBox->setChecked(false);
 
+    // "More" menu for curves that do not fit on the toolbar row. Adding a curve
+    // later only needs a new entry in this table (plus its WaveformDrawer support).
+    m_pMoreCurvesButton = new QToolButton(m_mainWindow);
+    m_pMoreCurvesButton->setPopupMode(QToolButton::InstantPopup);
+    m_pMoreCurvesButton->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    m_pMoreCurvesButton->setCursor(Qt::PointingHandCursor);
+    m_pMoreCurvesButton->setToolTip("More curves: slew rate and |G_xy|");
+    m_pMoreCurvesButton->setStyleSheet(m_pMeasureDtButton->styleSheet() +
+                                       "QToolButton::menu-indicator { subcontrol-position: right center; }");
+    m_pMoreCurvesMenu = new StayOpenMenu(m_pMoreCurvesButton);
+    m_pMoreCurvesButton->setMenu(m_pMoreCurvesMenu);
+    {
+        struct MoreCurve { const char* label; int curveIndex; const char* tip; };
+        const MoreCurve slewCurves[] = {
+            { "Slew X",     WaveformDrawer::kCurveSlewX,   "Slew rate of GX (own axis)" },
+            { "Slew Y",     WaveformDrawer::kCurveSlewY,   "Slew rate of GY (own axis)" },
+            { "Slew Z",     WaveformDrawer::kCurveSlewZ,   "Slew rate of GZ (own axis)" },
+            { "Slew XYZ",   WaveformDrawer::kCurveSlewXyz, "Slew rate of GX, GY and GZ on one shared axis" },
+            { "Slew |XY|",  WaveformDrawer::kCurveSlewXy,  "sqrt(slewX^2 + slewY^2)" },
+        };
+        const MoreCurve gradCurves[] = {
+            { "G |XY|",     WaveformDrawer::kCurveGxy,     "sqrt(gx^2 + gy^2), e.g. for spiral/radial readouts" },
+        };
+        auto addCurves = [this](const MoreCurve* curves, int count) {
+            for (int i = 0; i < count; ++i)
+            {
+                QAction* action = m_pMoreCurvesMenu->addAction(curves[i].label);
+                action->setCheckable(true);
+                action->setChecked(false);
+                action->setToolTip(curves[i].tip);
+                const int curveIndex = curves[i].curveIndex;
+                connect(action, &QAction::toggled, this, [this, curveIndex](bool checked) {
+                    onMoreCurveToggled(curveIndex, checked);
+                });
+                m_moreCurveActions.append(action);
+            }
+        };
+        m_pMoreCurvesMenu->addSection("Slew rate");
+        addCurves(slewCurves, 5);
+        m_pMoreCurvesMenu->addSection("Gradient");
+        addCurves(gradCurves, 1);
+    }
+    updateMoreCurvesButton();
+
     // Debounce Timer
     m_pUpdateTimer = new QTimer(this);
     m_pUpdateTimer->setSingleShot(true);
@@ -443,6 +512,7 @@ void TRManager::setupLayouts(QVBoxLayout* mainLayout)
     curveVisibilityLayout->addWidget(m_pShowM1xCheckBox);
     curveVisibilityLayout->addWidget(m_pShowM1yCheckBox);
     curveVisibilityLayout->addWidget(m_pShowM1zCheckBox);
+    curveVisibilityLayout->addWidget(m_pMoreCurvesButton);
     curveVisibilityLayout->addSpacing(12);
     curveVisibilityLayout->addWidget(m_pShowBlockEdgesCheckBox);
     // Remove toolbar-level Undersample (menu contains the single source of truth)
@@ -1984,6 +2054,49 @@ void TRManager::onShowM1zToggled(bool checked)
                     win->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
             });
         }
+    }
+}
+
+void TRManager::updateMoreCurvesButton()
+{
+    if (!m_pMoreCurvesButton)
+        return;
+    int active = 0;
+    for (const QAction* action : m_moreCurveActions)
+    {
+        if (action && action->isChecked())
+            ++active;
+    }
+    m_pMoreCurvesButton->setText(active > 0 ? QStringLiteral("More (%1)").arg(active) : QStringLiteral("More"));
+    QFont f = m_pMoreCurvesButton->font();
+    f.setBold(active > 0);
+    m_pMoreCurvesButton->setFont(f);
+}
+
+// Curves chosen through the "More" menu. Data is precomputed by PulseqLoader, so
+// this only flips visibility and triggers a redraw of the visible window.
+void TRManager::onMoreCurveToggled(int curveIndex, bool checked)
+{
+    updateMoreCurvesButton();
+    WaveformDrawer* drawer = m_mainWindow ? m_mainWindow->getWaveformDrawer() : nullptr;
+    if (!drawer)
+        return;
+    drawer->setShowCurve(curveIndex, checked);
+    drawer->updateCurveVisibility();
+    if (m_mainWindow->ui && m_mainWindow->ui->customPlot)
+        m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
+    if (checked)
+    {
+        // Defer one tick so axis rect geometry is final before decimation uses rect width.
+        QPointer<MainWindow> win(m_mainWindow);
+        QTimer::singleShot(0, m_mainWindow, [win]() {
+            if (!win) return;
+            auto* d = win->getWaveformDrawer();
+            if (!d) return;
+            d->DrawGWaveform();
+            if (win->ui && win->ui->customPlot)
+                win->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
+        });
     }
 }
 

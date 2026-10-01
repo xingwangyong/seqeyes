@@ -6,6 +6,7 @@
 #include <QColor>
 #include <QPen>
 #include <QHash>
+#include <QMap>
 #include <QDateTime>
 #include <QString>
 #include <QTimer>
@@ -158,6 +159,14 @@ public:
     void setShowTeGuides(bool show);
     void setShowKxKyZeroGuides(bool show);
 
+    // Index of each curve in m_curveVisibility / m_fixedYRanges / m_vecRects.
+    enum CurveIndex {
+        kCurveAdc = 0, kCurveRfMag, kCurveRfPhase, kCurveGx, kCurveGy, kCurveGz, kCurvePns,
+        kCurveM1x, kCurveM1y, kCurveM1z,
+        kCurveSlewX, kCurveSlewY, kCurveSlewZ, kCurveSlewXyz, kCurveSlewXy, kCurveGxy,
+        kCurveCount
+    };
+
 public slots:
     void ResetView();
     void fitYAxisToCurrentView();
@@ -171,6 +180,9 @@ public slots:
     void DrawTriggerOverlay();
 
 private:
+    // Slew / |G_xy| curves; called at the end of DrawGWaveform with the same viewport.
+    void drawDerivedGradientCurves(class PulseqLoader* loader, double visibleStart, double visibleEnd, double tFactor);
+    QMap<QString, QCPAxisRect*> axisLabelToRectMap() const;
     void ensureRfChannelGraphs(int channelCount);
     QPen makeRfChannelPen(int channelIndex) const;
     void rebindVerticalLinesToRects();
@@ -203,6 +215,14 @@ private:
     QCPAxisRect* m_pM1xRect {nullptr};
     QCPAxisRect* m_pM1yRect {nullptr};
     QCPAxisRect* m_pM1zRect {nullptr};
+    // Derived gradient curves exposed through the toolbar "More" menu.
+    // Rect index == curve index (see CurveIndex).
+    QCPAxisRect* m_pSlewXRect {nullptr};
+    QCPAxisRect* m_pSlewYRect {nullptr};
+    QCPAxisRect* m_pSlewZRect {nullptr};
+    QCPAxisRect* m_pSlewXyzRect {nullptr};
+    QCPAxisRect* m_pSlewXyRect {nullptr};
+    QCPAxisRect* m_pGxyRect {nullptr};
     // Persistent graphs to avoid flicker on redraws
     QCPGraph* m_graphADC {nullptr};
     QCPGraph* m_graphRFMag {nullptr};
@@ -220,6 +240,11 @@ private:
     QCPGraph* m_graphM1x {nullptr};
     QCPGraph* m_graphM1y {nullptr};
     QCPGraph* m_graphM1z {nullptr};
+    // Slew graphs: one per axis rect, plus three sharing the combined XYZ rect.
+    QCPGraph* m_graphSlew[3] {nullptr, nullptr, nullptr};
+    QCPGraph* m_graphSlewXyz[3] {nullptr, nullptr, nullptr};
+    QCPGraph* m_graphSlewXy {nullptr};
+    QCPGraph* m_graphGxy {nullptr};
 
     // ADC custom phase graph (scatter dots only)
     QCPGraph* m_graphADCPh {nullptr};
@@ -237,7 +262,7 @@ private:
     // Plotting state
     QVector<QColor> colors;
     bool bShowBlocksEdges;
-    QVector<bool> m_curveVisibility; // Track visibility of each curve (0: ADC, 1: RF Mag, 2: RF Phase, 3: GX, 4: GY, 5: GZ, 6: PNS, 7: M1x, 8: M1y, 9: M1z)
+    QVector<bool> m_curveVisibility; // Track visibility of each curve, indexed by CurveIndex
     bool m_autoExpandMode; // Control behavior: true = auto expand remaining curves, false = just hide curves
 
     // Performance optimization data
@@ -319,9 +344,9 @@ private:
     // Extension labels overlay (SLC/REP/AVG...)
     std::unique_ptr<ExtensionPlotter> m_extensionPlotter;
 
-    // Fixed Y-axis ranges per rect (0..9). When locked, draw functions won't adjust Y ranges dynamically.
+    // Fixed Y-axis ranges per rect (indexed by CurveIndex). When locked, draw functions won't adjust Y ranges dynamically.
     bool m_lockYAxisRanges {false};
-    QVector<QPair<double,double>> m_fixedYRanges; // size 10, (min,max) per axis rect
+    QVector<QPair<double,double>> m_fixedYRanges; // size kCurveCount, (min,max) per axis rect
 
     // Simple cached render state
     double m_lastViewportLower { std::numeric_limits<double>::infinity() };

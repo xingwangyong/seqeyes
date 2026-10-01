@@ -66,6 +66,22 @@ struct Result
     QVector<double> m1y;
     QVector<double> m1z;
 
+    // Gradient-derived curves computed from the same piecewise-linear gradient
+    // series as M1 (so they share the async worker and the sequence generation
+    // guards). Times are seconds; gradient values are Hz/m, slew is Hz/m/s.
+    //
+    // Slew is piecewise constant, so it is stored as a step polyline: two points
+    // (t0,s),(t1,s) per segment. Consecutive segments therefore produce a vertical
+    // jump at the shared breakpoint.
+    QVector<double> slewTSec[3];   // per axis X/Y/Z, signed slew
+    QVector<double> slew[3];
+    QVector<double> slewXyTSec;    // sqrt(slewX^2 + slewY^2), also a step polyline
+    QVector<double> slewXy;
+    // |G_xy| = sqrt(gx^2 + gy^2) sampled at the union of the X/Y breakpoints
+    // and connected linearly.
+    QVector<double> gxyTSec;
+    QVector<double> gxy;
+
     // Diagnostics / advisory messages (non-fatal).
     QStringList warnings;
 

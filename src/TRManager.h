@@ -2,6 +2,7 @@
 #define TRMANAGER_H
 
 #include <QObject>
+#include <QList>
 
 // Forward declarations
 class MainWindow;
@@ -18,6 +19,8 @@ class QRadioButton;
 class QButtonGroup;
 class QCPRange;
 class QToolButton;
+class QMenu;
+class QAction;
 
 class TRManager : public QObject
 {
@@ -101,6 +104,8 @@ public slots:
     void onShowM1xToggled(bool checked);
     void onShowM1yToggled(bool checked);
     void onShowM1zToggled(bool checked);
+    // Curves offered through the toolbar "More" menu (WaveformDrawer::CurveIndex).
+    void onMoreCurveToggled(int curveIndex, bool checked);
     void onShowTeToggled(bool checked);
     void onShowKxKyZeroToggled(bool checked);
     void onShowTrajectoryToggled(bool checked);
@@ -205,6 +210,11 @@ private:
     QCheckBox* m_pShowM1xCheckBox {nullptr};
     QCheckBox* m_pShowM1yCheckBox {nullptr};
     QCheckBox* m_pShowM1zCheckBox {nullptr};
+    // "More" curves menu: extra curves that do not fit on the toolbar row.
+    QToolButton* m_pMoreCurvesButton {nullptr};
+    QMenu* m_pMoreCurvesMenu {nullptr};
+    QList<QAction*> m_moreCurveActions;
+    void updateMoreCurvesButton();
 
     // Render mode controls
     QRadioButton* m_pModeTrRadio;

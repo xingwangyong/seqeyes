@@ -149,20 +149,21 @@ WaveformDrawer::WaveformDrawer(MainWindow* mainWindow)
     // Initialize curve visibility.
     // Keep PNS and M1x/y/z hidden by default so initial layout is deterministic
     // and does not depend on a later checkbox sync from TRManager.
-    m_curveVisibility.resize(10);
-    for (int i = 0; i < 10; i++) { m_curveVisibility[i] = true; }
-    m_curveVisibility[6] = false; // PNS
-    m_curveVisibility[7] = false; // M1x
-    m_curveVisibility[8] = false; // M1y
-    m_curveVisibility[9] = false; // M1z
+    m_curveVisibility.resize(kCurveCount);
+    for (int i = 0; i < kCurveCount; i++) { m_curveVisibility[i] = true; }
+    m_curveVisibility[kCurvePns] = false;
+    // M1 and the derived slew / |G_xy| curves are opt-in.
+    for (int i = kCurveM1x; i < kCurveCount; i++) { m_curveVisibility[i] = false; }
 
     // Initialize auto expand mode - default to true (auto expand behavior)
     m_autoExpandMode = true;
 
     // Default axes order (UI config default)
-    m_axesOrder = QStringList() << "RF mag" << "PNS" << "GZ" << "GY" << "GX" << "RF/ADC ph" << "ADC/labels" << "M1x" << "M1y" << "M1z";
+    m_axesOrder = QStringList() << "RF mag" << "PNS" << "GZ" << "GY" << "GX" << "RF/ADC ph" << "ADC/labels"
+                                << "M1x" << "M1y" << "M1z"
+                                << "Slew X" << "Slew Y" << "Slew Z" << "Slew XYZ" << "Slew |XY|" << "G |XY|";
     // Initialize fixed Y ranges container
-    m_fixedYRanges.resize(10);
+    m_fixedYRanges.resize(kCurveCount);
 }
 
 WaveformDrawer::~WaveformDrawer()
@@ -244,6 +245,12 @@ void WaveformDrawer::InitSequenceFigure()
     m_pM1xRect = new QCPAxisRect(customPlot);
     m_pM1yRect = new QCPAxisRect(customPlot);
     m_pM1zRect = new QCPAxisRect(customPlot);
+    m_pSlewXRect = new QCPAxisRect(customPlot);
+    m_pSlewYRect = new QCPAxisRect(customPlot);
+    m_pSlewZRect = new QCPAxisRect(customPlot);
+    m_pSlewXyzRect = new QCPAxisRect(customPlot);
+    m_pSlewXyRect = new QCPAxisRect(customPlot);
+    m_pGxyRect = new QCPAxisRect(customPlot);
 
     m_vecRects.append(m_pADCLabelsRect);
     m_vecRects.append(m_pRfMagRect);
@@ -255,6 +262,12 @@ void WaveformDrawer::InitSequenceFigure()
     m_vecRects.append(m_pM1xRect);
     m_vecRects.append(m_pM1yRect);
     m_vecRects.append(m_pM1zRect);
+    m_vecRects.append(m_pSlewXRect);
+    m_vecRects.append(m_pSlewYRect);
+    m_vecRects.append(m_pSlewZRect);
+    m_vecRects.append(m_pSlewXyzRect);
+    m_vecRects.append(m_pSlewXyRect);
+    m_vecRects.append(m_pGxyRect);
 
     auto m_pMarginGroup = new QCPMarginGroup(customPlot);
     // Single-column grid: only plot rects; drag will target axis label area directly
@@ -298,15 +311,8 @@ void WaveformDrawer::InitSequenceFigure()
         qDebug() << "[X-AXIS] Last axis in order:" << lastAxisName;
         
         // Find the rect corresponding to the last axis name
-        QCPAxisRect* targetRect = nullptr;
-        if (lastAxisName == "ADC/labels") targetRect = m_pADCLabelsRect;
-        else if (lastAxisName == "RF mag") targetRect = m_pRfMagRect;
-        else if (lastAxisName == "RF/ADC ph") targetRect = m_pRfADCPhaseRect;
-        else if (lastAxisName == "GX") targetRect = m_pGxRect;
-        else if (lastAxisName == "GY") targetRect = m_pGyRect;
-        else if (lastAxisName == "GZ") targetRect = m_pGzRect;
-        else if (lastAxisName == "PNS") targetRect = m_pPnsRect;
-        
+        QCPAxisRect* targetRect = axisLabelToRectMap().value(lastAxisName, nullptr);
+
         if (targetRect) {
             targetRect->axis(QCPAxis::atBottom)->setTickLabels(true);
             targetRect->axis(QCPAxis::atBottom)->setLabel(currentTimeAxisLabel());
@@ -567,6 +573,44 @@ void WaveformDrawer::InitSequenceFigure()
     if (m_pM1yRect) m_pM1yRect->axis(QCPAxis::atLeft)->setLabel("M1y ref=t [s/m]");
     if (m_pM1zRect) m_pM1zRect->axis(QCPAxis::atLeft)->setLabel("M1z ref=t [s/m]");
 
+    // Slew rate / |G_xy| graphs (toolbar "More" menu). Axis colors follow GX/GY/GZ.
+    {
+        auto axisColor = [&](int colorIndex, const QColor& fallback) {
+            return colors.isEmpty() ? fallback : colors[colorIndex % colors.size()];
+        };
+        // lsLine on step polylines: vertical jumps come from repeated x values.
+        auto makeGraph = [&](QCPAxisRect* rect, const QColor& color, int curveIdx, QCPGraph::LineStyle style = QCPGraph::lsLine) {
+            QCPGraph* g = customPlot->addGraph(rect->axis(QCPAxis::atBottom), rect->axis(QCPAxis::atLeft));
+            QPen pen(color);
+            pen.setWidthF(1.4);
+            g->setPen(pen);
+            g->setLineStyle(style);
+            g->setScatterStyle(QCPScatterStyle::ssNone);
+            g->setAdaptiveSampling(false);
+            g->setAntialiased(true);
+            g->setVisible(m_curveVisibility.value(curveIdx, false));
+            return g;
+        };
+        const QColor axisColors[3] = { axisColor(2, Qt::red), axisColor(3, Qt::darkYellow), axisColor(4, Qt::darkCyan) };
+        QCPAxisRect* slewRects[3] = { m_pSlewXRect, m_pSlewYRect, m_pSlewZRect };
+        for (int ch = 0; ch < 3; ++ch)
+        {
+            m_graphSlew[ch] = makeGraph(slewRects[ch], axisColors[ch], kCurveSlewX + ch);
+            m_graphSlewXyz[ch] = makeGraph(m_pSlewXyzRect, axisColors[ch], kCurveSlewXyz);
+        }
+        m_graphSlewXy = makeGraph(m_pSlewXyRect, axisColor(0, Qt::blue), kCurveSlewXy);
+        m_graphGxy = makeGraph(m_pGxyRect, axisColor(5, Qt::darkMagenta), kCurveGxy);
+    }
+    {
+        const QString slewUnit = settings.getSlewUnitString();
+        m_pSlewXRect->axis(QCPAxis::atLeft)->setLabel("Slew X (" + slewUnit + ")");
+        m_pSlewYRect->axis(QCPAxis::atLeft)->setLabel("Slew Y (" + slewUnit + ")");
+        m_pSlewZRect->axis(QCPAxis::atLeft)->setLabel("Slew Z (" + slewUnit + ")");
+        m_pSlewXyzRect->axis(QCPAxis::atLeft)->setLabel("Slew XYZ (" + slewUnit + ")");
+        m_pSlewXyRect->axis(QCPAxis::atLeft)->setLabel("Slew |XY| (" + slewUnit + ")");
+        m_pGxyRect->axis(QCPAxis::atLeft)->setLabel("G |XY| (" + gradientUnit + ")");
+    }
+
     // Persistent block-edge graphs for each rect
     m_blockEdgeGraphs.resize(m_vecRects.size());
     for (int i = 0; i < m_vecRects.size(); ++i)
@@ -620,6 +664,28 @@ void WaveformDrawer::InitSequenceFigure()
     }
 }
 
+QMap<QString, QCPAxisRect*> WaveformDrawer::axisLabelToRectMap() const
+{
+    QMap<QString, QCPAxisRect*> labelToRect;
+    labelToRect["ADC/labels"] = m_pADCLabelsRect;
+    labelToRect["RF mag"] = m_pRfMagRect;
+    labelToRect["RF/ADC ph"] = m_pRfADCPhaseRect;
+    labelToRect["GX"] = m_pGxRect;
+    labelToRect["GY"] = m_pGyRect;
+    labelToRect["GZ"] = m_pGzRect;
+    labelToRect["PNS"] = m_pPnsRect;
+    labelToRect["M1x"] = m_pM1xRect;
+    labelToRect["M1y"] = m_pM1yRect;
+    labelToRect["M1z"] = m_pM1zRect;
+    labelToRect["Slew X"] = m_pSlewXRect;
+    labelToRect["Slew Y"] = m_pSlewYRect;
+    labelToRect["Slew Z"] = m_pSlewZRect;
+    labelToRect["Slew XYZ"] = m_pSlewXyzRect;
+    labelToRect["Slew |XY|"] = m_pSlewXyRect;
+    labelToRect["G |XY|"] = m_pGxyRect;
+    return labelToRect;
+}
+
 void WaveformDrawer::setAxesOrder(const QStringList& order)
 {
     if (order.size() != m_vecRects.size()) return;
@@ -639,14 +705,7 @@ void WaveformDrawer::setAxesOrder(const QStringList& order)
         safeTake(m_vecRects[i]);
     }
     // Map labels to rects
-    QMap<QString, QCPAxisRect*> labelToRect;
-    labelToRect["ADC/labels"] = m_pADCLabelsRect;
-    labelToRect["RF mag"] = m_pRfMagRect;
-    labelToRect["RF/ADC ph"] = m_pRfADCPhaseRect;
-    labelToRect["GX"] = m_pGxRect;
-    labelToRect["GY"] = m_pGyRect;
-    labelToRect["GZ"] = m_pGzRect;
-    labelToRect["PNS"] = m_pPnsRect;
+    const QMap<QString, QCPAxisRect*> labelToRect = axisLabelToRectMap();
     for (int row = 0; row < m_axesOrder.size(); ++row)
     {
         // single column rect grid
@@ -908,7 +967,7 @@ void WaveformDrawer::loadUiConfig()
     if (!f.open(QIODevice::ReadOnly))
     {
         // Initialize with default order and persist a default ui_config.json
-        setAxesOrder(QStringList() << "RF mag" << "PNS" << "GZ" << "GY" << "GX" << "RF/ADC ph" << "ADC/labels");
+        setAxesOrder(m_axesOrder);
         saveUiConfig();
         return;
     }
@@ -918,8 +977,20 @@ void WaveformDrawer::loadUiConfig()
     auto obj = doc.object();
     if (obj.contains("axes_order") && obj.value("axes_order").isArray())
     {
+        // Keep the saved order, but tolerate configs written by older versions:
+        // drop unknown/duplicate labels and append any missing ones (curves added
+        // later) at the end in their default order.
+        const QStringList defaults = m_axesOrder;
         QStringList order;
-        for (auto v : obj.value("axes_order").toArray()) order << v.toString();
+        for (auto v : obj.value("axes_order").toArray())
+        {
+            const QString label = v.toString();
+            if (defaults.contains(label) && !order.contains(label)) order << label;
+        }
+        for (const QString& label : defaults)
+        {
+            if (!order.contains(label)) order << label;
+        }
         if (order.size() == m_vecRects.size()) setAxesOrder(order);
     }
 }
@@ -1146,6 +1217,12 @@ void WaveformDrawer::fitYAxisToCurrentView()
     fitFromGraphs(7, {m_graphM1x}, 1.0);
     fitFromGraphs(8, {m_graphM1y}, 1.0);
     fitFromGraphs(9, {m_graphM1z}, 1.0);
+    fitFromGraphs(kCurveSlewX, {m_graphSlew[0]}, 1.0);
+    fitFromGraphs(kCurveSlewY, {m_graphSlew[1]}, 1.0);
+    fitFromGraphs(kCurveSlewZ, {m_graphSlew[2]}, 1.0);
+    fitFromGraphs(kCurveSlewXyz, {m_graphSlewXyz[0], m_graphSlewXyz[1], m_graphSlewXyz[2]}, 1.0);
+    fitZeroBasedFromGraphs(kCurveSlewXy, {m_graphSlewXy});
+    fitZeroBasedFromGraphs(kCurveGxy, {m_graphGxy});
 
     for (int i = 0; i < m_vecRects.size() && i < m_fixedYRanges.size(); ++i)
     {
@@ -1428,6 +1505,13 @@ void WaveformDrawer::clearAllWaveformData()
     clearGraph(m_graphM1x);
     clearGraph(m_graphM1y);
     clearGraph(m_graphM1z);
+    for (int ch = 0; ch < 3; ++ch)
+    {
+        clearGraph(m_graphSlew[ch]);
+        clearGraph(m_graphSlewXyz[ch]);
+    }
+    clearGraph(m_graphSlewXy);
+    clearGraph(m_graphGxy);
 
     for (QCPGraph* edge : m_blockEdgeGraphs)
         clearGraph(edge);
@@ -2136,6 +2220,167 @@ void WaveformDrawer::DrawGWaveform(const double& dStartTime, double dEndTime)
             }
         }
     }
+
+    drawDerivedGradientCurves(loader, visibleStart, visibleEnd, tFactor);
+}
+
+void WaveformDrawer::drawDerivedGradientCurves(PulseqLoader* loader, double visibleStart, double visibleEnd, double tFactor)
+{
+    // Slew rate (per axis / combined / |XY|) and |G_xy|. Data is precomputed by the
+    // M1 worker; here we slice the visible window, min-max downsample to the rect
+    // width and convert to the user-selected units.
+    const bool slewOn[3] = { m_curveVisibility.value(kCurveSlewX, false),
+                             m_curveVisibility.value(kCurveSlewY, false),
+                             m_curveVisibility.value(kCurveSlewZ, false) };
+    const bool xyzOn = m_curveVisibility.value(kCurveSlewXyz, false);
+    const bool xyOn = m_curveVisibility.value(kCurveSlewXy, false);
+    const bool gxyOn = m_curveVisibility.value(kCurveGxy, false);
+
+    auto hideAll = [&]() {
+        for (int ch = 0; ch < 3; ++ch)
+        {
+            if (m_graphSlew[ch]) m_graphSlew[ch]->setVisible(false);
+            if (m_graphSlewXyz[ch]) m_graphSlewXyz[ch]->setVisible(false);
+        }
+        if (m_graphSlewXy) m_graphSlewXy->setVisible(false);
+        if (m_graphGxy) m_graphGxy->setVisible(false);
+    };
+
+    const bool anyOn = slewOn[0] || slewOn[1] || slewOn[2] || xyzOn || xyOn || gxyOn;
+    if (!loader || !anyOn || (m_mainWindow && m_mainWindow->isInteractionFastMode()) || tFactor <= 0.0)
+    {
+        hideAll();
+        return;
+    }
+
+    struct Slice
+    {
+        QVector<double> t;
+        QVector<double> v;
+        bool downsampled = false;
+    };
+
+    const Settings& settings = Settings::getInstance();
+    const double slewScale = settings.convertSlew(1.0, "Hz/m/s", settings.getSlewUnitString());
+    const double gradScale = settings.convertGradient(1.0, "Hz/m", settings.getGradientUnitString());
+    const double secStart = visibleStart / (1e6 * tFactor);
+    const double secEnd = visibleEnd / (1e6 * tFactor);
+
+    auto buildSlice = [&](const QVector<double>& tSec, const QVector<double>& vals, double scale,
+                          QCPAxisRect* rect, Slice& out) {
+        const int n = std::min(tSec.size(), vals.size());
+        if (n <= 0) return;
+        // Keep one point on each side of the window so lines reach the plot edges.
+        int i0 = static_cast<int>(std::lower_bound(tSec.constBegin(), tSec.constBegin() + n, secStart) - tSec.constBegin());
+        i0 = std::max(0, i0 - 1);
+        int i1 = static_cast<int>(std::upper_bound(tSec.constBegin() + i0, tSec.constBegin() + n, secEnd) - tSec.constBegin());
+        i1 = std::min(n, i1 + 1);
+        out.t.reserve(std::max(0, i1 - i0));
+        out.v.reserve(std::max(0, i1 - i0));
+        for (int i = i0; i < i1; ++i)
+        {
+            out.t.append(tSec[i] * 1e6 * tFactor);
+            out.v.append(vals[i] * scale);
+        }
+        const int px = (rect && m_mainWindow)
+            ? std::max(1, static_cast<int>(qRound(rect->width() * m_mainWindow->devicePixelRatioF())))
+            : 1;
+        const int target = std::max(160, px);
+        if (out.t.size() > 2 * target)
+        {
+            QVector<double> dt, dv;
+            applyMinMaxDownsampling(out.t, out.v, target, dt, dv);
+            out.t = std::move(dt);
+            out.v = std::move(dv);
+            out.downsampled = true;
+        }
+    };
+
+    auto setSlice = [](QCPGraph* graph, const Slice& s, bool visible) {
+        if (!graph) return;
+        // Un-downsampled step data relies on equal-x points keeping their order.
+        graph->setData(s.t, s.v, !s.downsampled);
+        graph->setVisible(visible && !s.t.isEmpty());
+    };
+
+    // Y range: fixed (locked) range if well-formed, otherwise fit to what is drawn.
+    auto applyRange = [&](int slot, QCPAxisRect* rect, bool zeroBased, std::initializer_list<const Slice*> slices) {
+        if (!rect) return;
+        QCPAxis* axis = rect->axis(QCPAxis::atLeft);
+        if (m_lockYAxisRanges && slot < m_fixedYRanges.size())
+        {
+            const double lo = m_fixedYRanges[slot].first;
+            const double hi = m_fixedYRanges[slot].second;
+            if (std::isfinite(lo) && std::isfinite(hi) && hi > lo)
+            {
+                axis->setRange(lo, hi);
+                return;
+            }
+        }
+        double mn = std::numeric_limits<double>::infinity();
+        double mx = -std::numeric_limits<double>::infinity();
+        for (const Slice* s : slices)
+        {
+            for (double v : s->v)
+            {
+                if (!std::isfinite(v)) continue;
+                mn = std::min(mn, v);
+                mx = std::max(mx, v);
+            }
+        }
+        if (mx < mn) return;
+        const QPair<double, double> r = zeroBased ? zeroBasedPaddedRange(mx, 1.0) : paddedRange(mn, mx, 1.0);
+        axis->setRange(r.first, r.second);
+        // Locked with no stored range yet (data arrived after the initial lock): remember it.
+        if (m_lockYAxisRanges && slot < m_fixedYRanges.size())
+            m_fixedYRanges[slot] = r;
+    };
+
+    QCPAxisRect* slewRects[3] = { m_pSlewXRect, m_pSlewYRect, m_pSlewZRect };
+    Slice axisSlice[3];
+    for (int ch = 0; ch < 3; ++ch)
+    {
+        if (!(slewOn[ch] || xyzOn))
+        {
+            if (m_graphSlew[ch]) m_graphSlew[ch]->setVisible(false);
+            if (m_graphSlewXyz[ch]) m_graphSlewXyz[ch]->setVisible(false);
+            continue;
+        }
+        // The combined rect and the per-axis rect can differ in width; size the
+        // decimation to the wider of the two so neither looks coarse.
+        QCPAxisRect* sizingRect = slewOn[ch] ? slewRects[ch] : m_pSlewXyzRect;
+        buildSlice(loader->getSlewTimeSec(ch), loader->getSlew(ch), slewScale, sizingRect, axisSlice[ch]);
+        setSlice(m_graphSlew[ch], axisSlice[ch], slewOn[ch]);
+        setSlice(m_graphSlewXyz[ch], axisSlice[ch], xyzOn);
+        if (slewOn[ch])
+            applyRange(kCurveSlewX + ch, slewRects[ch], false, {&axisSlice[ch]});
+    }
+    if (xyzOn)
+        applyRange(kCurveSlewXyz, m_pSlewXyzRect, false, {&axisSlice[0], &axisSlice[1], &axisSlice[2]});
+
+    Slice xySlice;
+    if (xyOn)
+    {
+        buildSlice(loader->getSlewXyTimeSec(), loader->getSlewXy(), slewScale, m_pSlewXyRect, xySlice);
+        setSlice(m_graphSlewXy, xySlice, true);
+        applyRange(kCurveSlewXy, m_pSlewXyRect, true, {&xySlice});
+    }
+    else if (m_graphSlewXy)
+    {
+        m_graphSlewXy->setVisible(false);
+    }
+
+    Slice gxySlice;
+    if (gxyOn)
+    {
+        buildSlice(loader->getGxyTimeSec(), loader->getGxy(), gradScale, m_pGxyRect, gxySlice);
+        setSlice(m_graphGxy, gxySlice, true);
+        applyRange(kCurveGxy, m_pGxyRect, true, {&gxySlice});
+    }
+    else if (m_graphGxy)
+    {
+        m_graphGxy->setVisible(false);
+    }
 }
 
 void WaveformDrawer::computeAndLockYAxisRanges()
@@ -2214,6 +2459,49 @@ void WaveformDrawer::computeAndLockYAxisRanges()
         m_fixedYRanges[7] = computeRange(loader->getM1X());
         m_fixedYRanges[8] = computeRange(loader->getM1Y());
         m_fixedYRanges[9] = computeRange(loader->getM1Z());
+    }
+
+    // 10..15: slew X/Y/Z, combined slew, slew |XY|, G |XY| (converted to display units).
+    // Like M1, these arrive with the async worker; empty data leaves an unset (0,0)
+    // entry that drawDerivedGradientCurves() fills in from the first visible draw.
+    if (m_fixedYRanges.size() >= kCurveCount)
+    {
+        Settings& s = Settings::getInstance();
+        const double slewScale = s.convertSlew(1.0, "Hz/m/s", s.getSlewUnitString());
+        const double gradScale = s.convertGradient(1.0, "Hz/m", s.getGradientUnitString());
+        auto extent = [](const QVector<double>& vals, double scale, double& mn, double& mx) {
+            for (double v : vals)
+            {
+                if (!std::isfinite(v)) continue;
+                mn = std::min(mn, v * scale);
+                mx = std::max(mx, v * scale);
+            }
+        };
+        for (int i = kCurveSlewX; i < kCurveCount; ++i)
+            m_fixedYRanges[i] = qMakePair(0.0, 0.0);
+        const double inf = std::numeric_limits<double>::infinity();
+        double xyzMn = inf, xyzMx = -inf;
+        for (int ch = 0; ch < 3; ++ch)
+        {
+            double mn = inf, mx = -inf;
+            extent(loader->getSlew(ch), slewScale, mn, mx);
+            if (mx >= mn)
+            {
+                m_fixedYRanges[kCurveSlewX + ch] = paddedRange(mn, mx, 1.0);
+                xyzMn = std::min(xyzMn, mn);
+                xyzMx = std::max(xyzMx, mx);
+            }
+        }
+        if (xyzMx >= xyzMn)
+            m_fixedYRanges[kCurveSlewXyz] = paddedRange(xyzMn, xyzMx, 1.0);
+        double mn = inf, mx = -inf;
+        extent(loader->getSlewXy(), slewScale, mn, mx);
+        if (mx >= mn)
+            m_fixedYRanges[kCurveSlewXy] = zeroBasedPaddedRange(mx, 1.0);
+        mn = inf; mx = -inf;
+        extent(loader->getGxy(), gradScale, mn, mx);
+        if (mx >= mn)
+            m_fixedYRanges[kCurveGxy] = zeroBasedPaddedRange(mx, 1.0);
     }
 
     // Apply ranges now
@@ -2304,22 +2592,16 @@ void WaveformDrawer::updateCurveVisibility()
         if (rect == m_pM1xRect) return 7;
         if (rect == m_pM1yRect) return 8;
         if (rect == m_pM1zRect) return 9;
+        for (int i = kCurveSlewX; i < kCurveCount; ++i)
+        {
+            if (m_vecRects.value(i) == rect) return i;
+        }
         return -1;
     };
 
     // Map label -> rect pointer. Used to rebuild layout with/without hidden rects.
-    QMap<QString, QCPAxisRect*> labelToRect;
-    labelToRect["ADC/labels"] = m_pADCLabelsRect;
-    labelToRect["RF mag"] = m_pRfMagRect;
-    labelToRect["RF/ADC ph"] = m_pRfADCPhaseRect;
-    labelToRect["GX"] = m_pGxRect;
-    labelToRect["GY"] = m_pGyRect;
-    labelToRect["GZ"] = m_pGzRect;
-    labelToRect["PNS"] = m_pPnsRect;
-    labelToRect["M1x"] = m_pM1xRect;
-    labelToRect["M1y"] = m_pM1yRect;
-    labelToRect["M1z"] = m_pM1zRect;
-    
+    const QMap<QString, QCPAxisRect*> labelToRect = axisLabelToRectMap();
+
     // Handle auto-expand mode vs fixed layout mode
     if (m_autoExpandMode) {
         const int kMinAxisRectHeightPx = 50;
@@ -2418,6 +2700,17 @@ void WaveformDrawer::updateCurveVisibility()
         m_graphM1y->setVisible(m_curveVisibility.value(8, false));
     if (m_graphM1z)
         m_graphM1z->setVisible(m_curveVisibility.value(9, false));
+    for (int ch = 0; ch < 3; ++ch)
+    {
+        if (m_graphSlew[ch])
+            m_graphSlew[ch]->setVisible(m_curveVisibility.value(kCurveSlewX + ch, false));
+        if (m_graphSlewXyz[ch])
+            m_graphSlewXyz[ch]->setVisible(m_curveVisibility.value(kCurveSlewXyz, false));
+    }
+    if (m_graphSlewXy)
+        m_graphSlewXy->setVisible(m_curveVisibility.value(kCurveSlewXy, false));
+    if (m_graphGxy)
+        m_graphGxy->setVisible(m_curveVisibility.value(kCurveGxy, false));
     if (m_graphTrigMarkers)
         m_graphTrigMarkers->setVisible(m_curveVisibility.value(0, false));
     if (m_graphTrigDurations)
@@ -2468,6 +2761,16 @@ void WaveformDrawer::setM1InteractionFastVisibility(bool enabled)
     if (m_graphM1x) m_graphM1x->setVisible(!enabled && m1xEnabled);
     if (m_graphM1y) m_graphM1y->setVisible(!enabled && m1yEnabled);
     if (m_graphM1z) m_graphM1z->setVisible(!enabled && m1zEnabled);
+    // The derived slew / |G_xy| curves are just as dense, so they follow the same rule.
+    for (int ch = 0; ch < 3; ++ch)
+    {
+        if (m_graphSlew[ch])
+            m_graphSlew[ch]->setVisible(!enabled && m_curveVisibility.value(kCurveSlewX + ch, false));
+        if (m_graphSlewXyz[ch])
+            m_graphSlewXyz[ch]->setVisible(!enabled && m_curveVisibility.value(kCurveSlewXyz, false));
+    }
+    if (m_graphSlewXy) m_graphSlewXy->setVisible(!enabled && m_curveVisibility.value(kCurveSlewXy, false));
+    if (m_graphGxy) m_graphGxy->setVisible(!enabled && m_curveVisibility.value(kCurveGxy, false));
 
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot)
     {
@@ -2558,6 +2861,8 @@ WaveformDrawer::RenderStats WaveformDrawer::ensureRenderedForCurrentViewport()
         gradPoints += (m_graphGz && m_graphGz->data() ? m_graphGz->data()->size() : 0);
         gradPoints += (m_graphPnsNorm && m_graphPnsNorm->data() ? m_graphPnsNorm->data()->size() : 0);
         gradPoints += (m_graphM1x && m_graphM1x->data() ? m_graphM1x->data()->size() : 0);
+        gradPoints += (m_graphSlewXy && m_graphSlewXy->data() ? m_graphSlewXy->data()->size() : 0);
+        gradPoints += (m_graphGxy && m_graphGxy->data() ? m_graphGxy->data()->size() : 0);
 
         DrawTriggerOverlay();
         trigTime = stageTimer.restart();
@@ -2683,6 +2988,13 @@ void WaveformDrawer::updateAxisLabels()
     if (m_pGyRect)          m_pGyRect->axis(QCPAxis::atLeft)->setLabel("GY (" + gradientUnit + ")");
     if (m_pGzRect)          m_pGzRect->axis(QCPAxis::atLeft)->setLabel("GZ (" + gradientUnit + ")");
     if (m_pPnsRect)         m_pPnsRect->axis(QCPAxis::atLeft)->setLabel("PNS (%)");
+    const QString slewUnit = settings.getSlewUnitString();
+    if (m_pSlewXRect)       m_pSlewXRect->axis(QCPAxis::atLeft)->setLabel("Slew X (" + slewUnit + ")");
+    if (m_pSlewYRect)       m_pSlewYRect->axis(QCPAxis::atLeft)->setLabel("Slew Y (" + slewUnit + ")");
+    if (m_pSlewZRect)       m_pSlewZRect->axis(QCPAxis::atLeft)->setLabel("Slew Z (" + slewUnit + ")");
+    if (m_pSlewXyzRect)     m_pSlewXyzRect->axis(QCPAxis::atLeft)->setLabel("Slew XYZ (" + slewUnit + ")");
+    if (m_pSlewXyRect)      m_pSlewXyRect->axis(QCPAxis::atLeft)->setLabel("Slew |XY| (" + slewUnit + ")");
+    if (m_pGxyRect)         m_pGxyRect->axis(QCPAxis::atLeft)->setLabel("G |XY| (" + gradientUnit + ")");
 
     // Update x-axis label on the bottom-most visible rect
     if (m_mainWindow && m_mainWindow->ui && m_mainWindow->ui->customPlot) {
