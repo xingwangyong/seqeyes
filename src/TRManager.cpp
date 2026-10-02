@@ -230,12 +230,12 @@ void TRManager::createWidgets()
 	m_pZoomOutButton->setIconSize(iconSz);
 
     // Display Options
-    m_pShowBlockEdgesCheckBox = new QCheckBox("Show Block Boundaries", m_mainWindow);
+    m_pShowBlockEdgesCheckBox = new QCheckBox("Block Boundaries", m_mainWindow);
     m_pShowBlockEdgesCheckBox->setChecked(false); // Default to OFF to reduce clutter
-    m_pShowTeCheckBox = new QCheckBox("Show TE", m_mainWindow);
+    m_pShowTeCheckBox = new QCheckBox("TE", m_mainWindow);
     m_pShowTeCheckBox->setChecked(false);
     m_pShowTeCheckBox->setToolTip("Draw excitation center and TE guide lines");
-    m_pShowKxKyZeroCheckBox = new QCheckBox("Show kxy=0 (ADC)", m_mainWindow);
+    m_pShowKxKyZeroCheckBox = new QCheckBox("kxy=0 (ADC)", m_mainWindow);
     m_pShowKxKyZeroCheckBox->setChecked(false);
     m_pShowKxKyZeroCheckBox->setToolTip(
         "Draw vertical lines at ADC samples where kx≈0 and ky≈0 (k-space center).\n\n"
@@ -244,7 +244,7 @@ void TRManager::createWidgets()
         "• Tolerance = 0.2×deltak (where deltak = 1/FOV)\n"
         "• Only shown within ADC acquisition blocks"
     );
-    m_pShowTrajectoryCheckBox = new QCheckBox("Show trajectory", m_mainWindow);
+    m_pShowTrajectoryCheckBox = new QCheckBox("Trajectory", m_mainWindow);
     m_pShowTrajectoryCheckBox->setChecked(false);
 
     // Extension legend
