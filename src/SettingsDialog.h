@@ -5,7 +5,6 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QPushButton>
-#include <QTabWidget>
 #include <QScrollArea>
 #include <QCheckBox>
 #include <QLineEdit>
@@ -15,6 +14,7 @@
 
 QT_BEGIN_NAMESPACE
 class QFormLayout;
+class QStackedWidget;
 class QGroupBox;
 class QLabel;
 class QLineEdit;
@@ -30,6 +30,9 @@ class SettingsDialog : public QDialog
 public:
     explicit SettingsDialog(QWidget *parent = nullptr);
     ~SettingsDialog();
+
+    // Select the settings page with the given name (e.g. "Layout").
+    void showPage(const QString& pageName);
 
 private slots:
     void onApplyClicked();
@@ -50,6 +53,7 @@ private slots:
     void onMoveAxisBottomClicked();
     void onAxisOrderRowsMoved();
     void updateSystemProfileWarningBanner();
+    void onSearchTextChanged(const QString& text);
 
 private:
     void setupUI();
@@ -68,9 +72,16 @@ private:
     void moveSelectedAxisItem(int delta);
     void updateAxisOrderButtons();
     void showEvent(QShowEvent* event) override;
+    static QString searchableText(QWidget* page);
 
-    // UI components - Ribbon style
-    QTabWidget* m_tabWidget;
+    // UI components - vertical page navigation
+    QListWidget* m_pageList;
+    QStackedWidget* m_pageStack;
+    QLineEdit* m_searchEdit;
+    QLabel* m_noMatchPage;
+    int m_preSearchRow;            // page shown before the current search started
+    bool m_searchActive;
+    bool m_changingPageForSearch;  // page change driven by search filtering, not the user
 
     // Display Units tab
     QComboBox* m_gradientUnitCombo;

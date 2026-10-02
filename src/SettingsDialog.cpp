@@ -19,6 +19,11 @@
 #include "RuntimeContext.h"
 #include <QInputDialog>
 #include <QListWidgetItem>
+#include <QStackedWidget>
+#include <QAbstractButton>
+#include <QRegularExpression>
+#include <QPalette>
+#include <QFrame>
 #include <QSignalBlocker>
 #include <QSet>
 #include <algorithm>
@@ -31,7 +36,13 @@
 
 SettingsDialog::SettingsDialog(QWidget *parent)
     : QDialog(parent)
-    , m_tabWidget(nullptr)
+    , m_pageList(nullptr)
+    , m_pageStack(nullptr)
+    , m_searchEdit(nullptr)
+    , m_noMatchPage(nullptr)
+    , m_preSearchRow(-1)
+    , m_searchActive(false)
+    , m_changingPageForSearch(false)
     , m_gradientUnitCombo(nullptr)
     , m_slewUnitCombo(nullptr)
     , m_timeUnitCombo(nullptr)
@@ -100,10 +111,27 @@ void SettingsDialog::setupUI()
 	pathLayout->addWidget(m_settingsPathValue, 1);
 	mainLayout->addWidget(pathWidget);
     
-    // Create ribbon-style tab widget
-    m_tabWidget = new QTabWidget(this);
-    m_tabWidget->setTabPosition(QTabWidget::North);
-    m_tabWidget->setMovable(false);
+    // Vertical page navigation: search box and category list on the left, page content on the right
+    m_searchEdit = new QLineEdit(this);
+    m_searchEdit->setPlaceholderText("Search settings");
+    m_searchEdit->setClearButtonEnabled(true);
+
+    m_pageList = new QListWidget(this);
+    m_pageList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_pageList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_pageList->setFrameShape(QFrame::NoFrame);
+    // Blend the list into the dialog background instead of the white input-field base
+    QPalette listPalette = m_pageList->palette();
+    listPalette.setColor(QPalette::Base, listPalette.color(QPalette::Window));
+    // Keep the current page highlighted even when focus is elsewhere (e.g. the search box)
+    listPalette.setColor(QPalette::Inactive, QPalette::Highlight,
+                         listPalette.color(QPalette::Active, QPalette::Highlight));
+    listPalette.setColor(QPalette::Inactive, QPalette::HighlightedText,
+                         listPalette.color(QPalette::Active, QPalette::HighlightedText));
+    m_pageList->setPalette(listPalette);
+    m_pageList->setStyleSheet("QListWidget::item { padding: 4px 6px; }");
+
+    m_pageStack = new QStackedWidget(this);
     
     // ============================================================================
     // Display Units Tab (includes Physics Parameters)
@@ -488,16 +516,59 @@ void SettingsDialog::setupUI()
     safetyLayout->addWidget(systemGroup);
     safetyLayout->addStretch();
 
-    m_tabWidget->addTab(displayUnitsTab, "Display Units");
-    m_tabWidget->addTab(experimentalTab, "Experimental");
-    m_tabWidget->addTab(extensionsTab, "Extensions");
-    m_tabWidget->addTab(interactionsTab, "Interactions");
-    m_tabWidget->addTab(layoutTab, "Layout");
-    m_tabWidget->addTab(miscTab, "Misc");
-    m_tabWidget->addTab(safetyTab, "Safety");
-    
-    // Add tab widget to main layout
-    mainLayout->addWidget(m_tabWidget);
+    // Pages in alphabetical order
+    const QList<QPair<QWidget*, QString>> pages = {
+        {displayUnitsTab, "Display Units"},
+        {experimentalTab, "Experimental"},
+        {extensionsTab, "Extensions"},
+        {interactionsTab, "Interactions"},
+        {layoutTab, "Layout"},
+        {miscTab, "Misc"},
+        {safetyTab, "Safety"},
+    };
+    int maxTextWidth = 0;
+    for (const auto& page : pages)
+    {
+        // Drop the page's own outer margins so its first row lines up with the top of the list
+        if (page.first->layout())
+            page.first->layout()->setContentsMargins(0, 0, 0, 0);
+        m_pageList->addItem(page.second);
+        m_pageStack->addWidget(page.first);
+        maxTextWidth = std::max(maxTextWidth, m_pageList->fontMetrics().horizontalAdvance(page.second));
+    }
+
+    // Placeholder shown when the search matches no page
+    m_noMatchPage = new QLabel("No matching settings.", this);
+    m_noMatchPage->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+    m_noMatchPage->setEnabled(false);
+    m_pageStack->addWidget(m_noMatchPage);
+
+    connect(m_pageList, &QListWidget::currentRowChanged, this, [this](int row) {
+        // A page picked by the user during a search is kept after the search is cleared
+        if (m_searchActive && !m_changingPageForSearch)
+            m_preSearchRow = -1;
+        if (row >= 0)
+            m_pageStack->setCurrentIndex(row);
+    });
+    connect(m_searchEdit, &QLineEdit::textChanged, this, &SettingsDialog::onSearchTextChanged);
+    m_pageList->setCurrentRow(0);
+
+    QWidget* navWidget = new QWidget(this);
+    navWidget->setFixedWidth(std::max(maxTextWidth + 40, 160));
+    QVBoxLayout* navLayout = new QVBoxLayout(navWidget);
+    navLayout->setContentsMargins(0, 0, 0, 0);
+    navLayout->addWidget(m_searchEdit);
+    navLayout->addWidget(m_pageList, 1);
+
+    QFrame* navSeparator = new QFrame(this);
+    navSeparator->setFrameShape(QFrame::VLine);
+    navSeparator->setFrameShadow(QFrame::Sunken);
+
+    QHBoxLayout* pagesLayout = new QHBoxLayout();
+    pagesLayout->addWidget(navWidget);
+    pagesLayout->addWidget(navSeparator);
+    pagesLayout->addWidget(m_pageStack, 1);
+    mainLayout->addLayout(pagesLayout, 1);
     
     // ============================================================================
     // Button Layout
@@ -926,6 +997,95 @@ void SettingsDialog::onResetClicked()
         QMessageBox::information(this, "Settings Reset", 
                                "All settings have been reset to default values and saved to settings.json");
     }
+}
+
+void SettingsDialog::showPage(const QString& pageName)
+{
+    if (!m_pageList)
+        return;
+    // Make sure the requested page is not hidden by an active search filter
+    if (m_searchEdit)
+        m_searchEdit->clear();
+    const QList<QListWidgetItem*> matches = m_pageList->findItems(pageName, Qt::MatchExactly);
+    if (!matches.isEmpty())
+        m_pageList->setCurrentItem(matches.first());
+}
+
+QString SettingsDialog::searchableText(QWidget* page)
+{
+    QStringList parts;
+    auto add = [&parts](QString text) {
+        text.remove(QRegularExpression("<[^>]*>")); // rich-text labels
+        text.remove('&');
+        if (!text.trimmed().isEmpty())
+            parts << text;
+    };
+    for (QLabel* label : page->findChildren<QLabel*>())
+        add(label->text());
+    for (QAbstractButton* button : page->findChildren<QAbstractButton*>())
+        add(button->text());
+    for (QGroupBox* group : page->findChildren<QGroupBox*>())
+        add(group->title());
+    for (QComboBox* combo : page->findChildren<QComboBox*>())
+        for (int i = 0; i < combo->count(); ++i)
+            add(combo->itemText(i));
+    for (QListWidget* list : page->findChildren<QListWidget*>())
+        for (int i = 0; i < list->count(); ++i)
+            add(list->item(i)->text());
+    for (QLineEdit* edit : page->findChildren<QLineEdit*>())
+        add(edit->placeholderText());
+    for (QWidget* widget : page->findChildren<QWidget*>())
+        add(widget->toolTip());
+    return parts.join(QLatin1Char('\n'));
+}
+
+void SettingsDialog::onSearchTextChanged(const QString& text)
+{
+    const QString query = text.trimmed();
+    if (!query.isEmpty() && !m_searchActive)
+    {
+        // Remember where the user was so clearing the search can return there
+        m_searchActive = true;
+        m_preSearchRow = m_pageList->currentRow();
+    }
+
+    QListWidgetItem* firstVisible = nullptr;
+    for (int row = 0; row < m_pageList->count(); ++row)
+    {
+        QListWidgetItem* item = m_pageList->item(row);
+        const bool match = query.isEmpty()
+            || item->text().contains(query, Qt::CaseInsensitive)
+            || searchableText(m_pageStack->widget(row)).contains(query, Qt::CaseInsensitive);
+        item->setHidden(!match);
+        if (match && !firstVisible)
+            firstVisible = item;
+    }
+
+    m_changingPageForSearch = true;
+    if (query.isEmpty())
+    {
+        if (m_searchActive)
+        {
+            int row = m_preSearchRow >= 0 ? m_preSearchRow : m_pageList->currentRow();
+            m_pageList->setCurrentRow(row >= 0 ? row : 0);
+            m_searchActive = false;
+            m_preSearchRow = -1;
+        }
+    }
+    else if (!firstVisible)
+    {
+        m_pageList->setCurrentItem(nullptr);
+        m_pageStack->setCurrentWidget(m_noMatchPage);
+    }
+    else
+    {
+        QListWidgetItem* current = m_pageList->currentItem();
+        if (!current || current->isHidden())
+            m_pageList->setCurrentItem(firstVisible);
+        else
+            m_pageStack->setCurrentIndex(m_pageList->row(current));
+    }
+    m_changingPageForSearch = false;
 }
 
 void SettingsDialog::showEvent(QShowEvent* event)

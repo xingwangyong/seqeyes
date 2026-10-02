@@ -804,6 +804,16 @@ void MainWindow::InitSlots()
         ui->menuView->addSeparator();
         ui->menuView->addAction(logAction);
         connect(logAction, &QAction::triggered, this, &MainWindow::openLogWindow);
+
+        // View -> Subplot Layout (shortcut to the Layout page of Settings)
+        QAction* subplotLayoutAction = new QAction(tr("Layout"), this);
+        subplotLayoutAction->setStatusTip("Adjust subplot order");
+        ui->menuView->addAction(subplotLayoutAction);
+        connect(subplotLayoutAction, &QAction::triggered, this, [this]() {
+            if (m_settingsDialog)
+                m_settingsDialog->showPage("Layout");
+            openSettings();
+        });
     }
     // Tools
     connect(ui->actionMeasureDt, &QAction::triggered, m_interactionHandler, &InteractionHandler::toggleMeasureDtMode);
