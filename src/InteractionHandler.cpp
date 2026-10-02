@@ -156,7 +156,6 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
 	if (m_axisDragging)
 	{
 		updateAxisDrag(event->pos());
-		m_mainWindow->getWaveformDrawer()->updateAxisDragVisual(event->pos().y());
 		return;
 	}
 
@@ -166,9 +165,7 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
 		if ((event->pos() - m_pressPos).manhattanLength() >= m_dragStartThresholdPx)
 		{
 			beginAxisDrag(m_pendingAxisIndex, m_pressPos);
-			m_mainWindow->getWaveformDrawer()->startAxisDragVisual(m_pendingAxisIndex, m_pressPos);
 			updateAxisDrag(event->pos());
-			m_mainWindow->getWaveformDrawer()->updateAxisDragVisual(event->pos().y());
 			return;
 		}
 	}
@@ -626,7 +623,6 @@ void InteractionHandler::onMouseRelease(QMouseEvent* event)
     if (m_axisDragging)
     {
         endAxisDrag(event->pos());
-        m_mainWindow->getWaveformDrawer()->finishAxisDragVisual();
         event->accept();
         return;
     }
@@ -1250,6 +1246,13 @@ bool InteractionHandler::eventFilter(QObject* obj, QEvent* event)
     TRManager* trManager = m_mainWindow->getTRManager();
     if (!trManager) return false;
 
+    if (m_axisDragging && event->type() == QEvent::KeyPress
+        && static_cast<QKeyEvent*>(event)->key() == Qt::Key_Escape)
+    {
+        cancelAxisDrag();
+        return true;
+    }
+
     // Axis drag begin/end (use label area to start) -> only when interacting with the main plot.
     if (obj == m_mainWindow->ui->customPlot)
     {
@@ -1298,7 +1301,6 @@ bool InteractionHandler::eventFilter(QObject* obj, QEvent* event)
             if ((plotPos - m_pressPos).manhattanLength() >= m_dragStartThresholdPx)
             {
                 beginAxisDrag(m_pendingAxisIndex, m_pressPos);
-                m_mainWindow->getWaveformDrawer()->startAxisDragVisual(m_pendingAxisIndex, m_pressPos);
             }
         }
         if (event->type() == QEvent::MouseMove && m_axisDragging)
@@ -1306,7 +1308,6 @@ bool InteractionHandler::eventFilter(QObject* obj, QEvent* event)
             QMouseEvent* me = static_cast<QMouseEvent*>(event);
             QPoint plotPos = me->pos();
             updateAxisDrag(plotPos);
-            m_mainWindow->getWaveformDrawer()->updateAxisDragVisual(plotPos.y());
             return true;
         }
         if (event->type() == QEvent::MouseButtonRelease)
@@ -1322,7 +1323,8 @@ bool InteractionHandler::eventFilter(QObject* obj, QEvent* event)
             {
                 QPoint plotPos = m_mainWindow->ui->customPlot->mapFromGlobal(QCursor::pos());
                 endAxisDrag(plotPos);
-                m_mainWindow->getWaveformDrawer()->finishAxisDragVisual();
+                m_pendingAxisIndex = -1;
+                return true;
             }
             // Reset pending state to avoid treating click/double-click as drag
             m_pendingAxisIndex = -1;
@@ -1717,58 +1719,46 @@ bool InteractionHandler::isOverAxisLabelArea(const QPoint& pos, int& axisIndex) 
 
 void InteractionHandler::beginAxisDrag(int axisIndex, const QPoint& pos)
 {
+    WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer();
+    if (!drawer || !drawer->beginAxisDrag(axisIndex, pos))
+    {
+        m_pendingAxisIndex = -1;
+        return;
+    }
     m_axisDragging = true;
-    m_dragSourceIndex = axisIndex;
-    m_dragStartPos = pos;
     // Temporarily disable interactions to avoid conflict while dragging order
     m_prevInteractions = m_mainWindow->ui->customPlot->interactions();
     m_mainWindow->ui->customPlot->setInteractions(QCP::iNone);
-    m_mainWindow->getWaveformDrawer()->showDropIndicatorAt(axisIndex);
+    m_mainWindow->ui->customPlot->setCursor(Qt::ClosedHandCursor);
 }
 
 void InteractionHandler::updateAxisDrag(const QPoint& pos)
 {
-    WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer();
-    if (!drawer) return;
-    // Compute target strictly within title band under mouse; if not over title, clear highlight
-    int targetIndex = -1;
-    QCustomPlot* plot = m_mainWindow->ui->customPlot;
-    if (plot && plot->plotLayout())
-    {
-        int rowCount = plot->plotLayout()->rowCount();
-        for (int row = 0; row < rowCount; ++row)
-        {
-            QCPLayoutElement* el = plot->plotLayout()->element(row, 0);
-            QCPAxisRect* rect = qobject_cast<QCPAxisRect*>(el);
-            if (!rect) continue;
-            QRect outer = rect->outerRect(); QRect plotRect = rect->rect();
-            int leftBandWidth = plotRect.left() - outer.left(); if (leftBandWidth < 1) leftBandWidth = 1;
-            QRect titleBand(outer.left(), outer.top(), leftBandWidth, outer.height());
-            if (titleBand.contains(pos)) { targetIndex = row; break; }
-        }
-    }
-    if (targetIndex >= 0)
-        drawer->showDropIndicatorAt(targetIndex);
-    else
-        drawer->clearDropIndicator(); // Clear highlight when mouse leaves title area
+    if (WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer())
+        drawer->updateAxisDrag(pos);
 }
 
 void InteractionHandler::endAxisDrag(const QPoint& pos)
 {
-    WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer();
-    if (!drawer) { m_axisDragging = false; m_pendingAxisIndex = -1; return; }
-    int targetIndex = drawer->axisIndexAtPositionY(pos.y());
-    if (targetIndex >= 0 && m_dragSourceIndex >= 0)
-    {
-        drawer->moveAxis(m_dragSourceIndex, targetIndex);
-        drawer->saveUiConfig();
-    }
-    drawer->clearDropIndicator();
+    finishAxisDrag(pos, true);
+}
+
+void InteractionHandler::cancelAxisDrag()
+{
+    finishAxisDrag(QPoint(), false);
+}
+
+void InteractionHandler::finishAxisDrag(const QPoint& pos, bool commit)
+{
+    if (!m_axisDragging)
+        return;
+    if (WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer())
+        drawer->endAxisDrag(pos, commit); // also saves the new order
     m_axisDragging = false;
-    m_dragSourceIndex = -1;
     m_pendingAxisIndex = -1; // Reset pending axis index to prevent issues
     // Restore interactions
     m_mainWindow->ui->customPlot->setInteractions(static_cast<QCP::Interactions>(m_prevInteractions));
+    m_mainWindow->ui->customPlot->unsetCursor();
 }
 
 void InteractionHandler::setPanBoundaryMode(bool enableBoundaries)

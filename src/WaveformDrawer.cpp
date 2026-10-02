@@ -812,52 +812,6 @@ void WaveformDrawer::applyTimeAxisFormatting(QCPAxis* axis) const
     axis->setNumberPrecision(useMicro ? 0 : 3);
 }
 
-int WaveformDrawer::axisIndexAtPositionY(int yInPlot) const
-{
-    // Map Y in plot widget coordinates to rect layout row index
-    QCustomPlot* customPlot = m_mainWindow->ui->customPlot;
-    int rowCount = customPlot->plotLayout()->rowCount();
-    for (int row = 0; row < rowCount; ++row)
-    {
-        QCPLayoutElement* el = customPlot->plotLayout()->element(row, 0);
-        QCPAxisRect* rect = qobject_cast<QCPAxisRect*>(el);
-        if (!rect) continue;
-        const QRect rOuter = rect->outerRect();
-        if (yInPlot >= rOuter.top() && yInPlot <= rOuter.bottom()) return row;
-    }
-    return -1;
-}
-
-int WaveformDrawer::axisCenterY(int index) const
-{
-    QCustomPlot* customPlot = m_mainWindow->ui->customPlot;
-    int rowCount = customPlot->plotLayout()->rowCount();
-    if (index < 0 || index >= rowCount) return -1;
-    QCPLayoutElement* el = customPlot->plotLayout()->element(index, 0);
-    QCPAxisRect* rect = qobject_cast<QCPAxisRect*>(el);
-    if (!rect) return -1;
-    QRect rOuter = rect->outerRect();
-    return rOuter.center().y();
-}
-
-void WaveformDrawer::swapAxes(int i, int j)
-{
-    if (i < 0 || j < 0 || i >= m_axesOrder.size() || j >= m_axesOrder.size() || i == j) return;
-    m_axesOrder.swapItemsAt(i, j);
-    setAxesOrder(m_axesOrder);
-}
-
-void WaveformDrawer::moveAxis(int fromIndex, int toIndex)
-{
-    if (fromIndex < 0 || toIndex < 0 || fromIndex >= m_axesOrder.size() || toIndex >= m_axesOrder.size()) return;
-    if (fromIndex == toIndex) return;
-    QStringList newOrder = m_axesOrder;
-    QString item = newOrder.takeAt(fromIndex);
-    // Insert-before semantics: when dragging to a target row, insert at that row index
-    newOrder.insert(toIndex, item);
-    applyAxesOrderAndSave(newOrder);
-}
-
 QString WaveformDrawer::axisLabelForRect(const QCPAxisRect* rect) const
 {
     if (!rect)
@@ -919,82 +873,232 @@ void WaveformDrawer::moveVisibleAxis(const QString& label, AxisMove move)
     m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
 }
 
-void WaveformDrawer::showDropIndicatorAt(int index)
+QList<QCPAxisRect*> WaveformDrawer::shownAxisRects() const
 {
-    m_dropIndicatorIndex = index;
-    // Highlight by layout row index to avoid mismatch after reordering
+    QList<QCPAxisRect*> rects;
     QCustomPlot* plot = m_mainWindow->ui->customPlot;
-    if (!plot || !plot->plotLayout()) return;
-    int rows = plot->plotLayout()->rowCount();
-    if (index < 0 || index >= rows) return;
-    for (int r = 0; r < rows; ++r)
+    if (!plot || !plot->plotLayout())
+        return rects;
+    for (int row = 0; row < plot->plotLayout()->rowCount(); ++row)
     {
-        QCPAxisRect* rect = qobject_cast<QCPAxisRect*>(plot->plotLayout()->element(r, 0));
-        if (!rect) continue;
-        QBrush bg = (r == index) ? QBrush(QColor(235, 242, 255)) : QBrush(Qt::NoBrush);
-        rect->setBackground(bg);
+        QCPAxisRect* rect = qobject_cast<QCPAxisRect*>(plot->plotLayout()->element(row, 0));
+        if (rect && rect->visible())
+            rects << rect;
     }
-    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
+    return rects;
 }
 
-void WaveformDrawer::clearDropIndicator()
+WaveformDrawer::AxisDropTarget WaveformDrawer::axisDropTargetAt(int yInPlot) const
 {
-    m_dropIndicatorIndex = -1;
-    QCustomPlot* plot = m_mainWindow->ui->customPlot;
-    if (plot && plot->plotLayout())
+    AxisDropTarget target;
+    const QList<QCPAxisRect*> rects = shownAxisRects();
+    const int source = rects.indexOf(axisLabelToRectMap().value(m_dragSourceLabel, nullptr));
+    if (rects.isEmpty() || source < 0)
+        return target;
+
+    // Each subplot is split into three bands: its top/bottom edges insert above/below it,
+    // its middle replaces (swaps with) it. Above the first / below the last subplot inserts at the ends.
+    if (yInPlot < rects.first()->outerRect().top())
     {
-        int rows = plot->plotLayout()->rowCount();
-        for (int r = 0; r < rows; ++r)
+        target.mode = AxisDropTarget::Insert;
+        target.index = 0;
+    }
+    else if (yInPlot > rects.last()->outerRect().bottom())
+    {
+        target.mode = AxisDropTarget::Insert;
+        target.index = rects.size();
+    }
+    else
+    {
+        for (int i = 0; i < rects.size(); ++i)
         {
-            QCPAxisRect* rect = qobject_cast<QCPAxisRect*>(plot->plotLayout()->element(r, 0));
-            if (rect) rect->setBackground(QBrush(Qt::NoBrush));
+            const QRect outer = rects[i]->outerRect();
+            // A gap between two subplots belongs to the upper one's bottom edge
+            const int nextTop = (i + 1 < rects.size()) ? rects[i + 1]->outerRect().top() : outer.bottom() + 1;
+            if (yInPlot > std::max(outer.bottom(), nextTop - 1))
+                continue;
+            const int edge = std::clamp(outer.height() / 4, 8, 40);
+            if (yInPlot < outer.top() + edge)
+            {
+                target.mode = AxisDropTarget::Insert;
+                target.index = i;
+            }
+            else if (yInPlot > outer.bottom() - edge)
+            {
+                target.mode = AxisDropTarget::Insert;
+                target.index = i + 1;
+            }
+            else
+            {
+                target.mode = AxisDropTarget::Replace;
+                target.index = i;
+            }
+            break;
         }
     }
-    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
+
+    // Dropping onto itself or into the gap directly above/below itself changes nothing
+    if ((target.mode == AxisDropTarget::Replace && target.index == source)
+        || (target.mode == AxisDropTarget::Insert && (target.index == source || target.index == source + 1)))
+        target = AxisDropTarget();
+    return target;
 }
 
-QString WaveformDrawer::defaultLabelForRect(int layoutRowIndex) const
+bool WaveformDrawer::beginAxisDrag(int layoutRow, const QPoint& pos)
 {
-    if (layoutRowIndex >= 0 && layoutRowIndex < m_axesOrder.size())
-    {
-        return m_axesOrder[layoutRowIndex];
-    }
-    return "";
-}
-
-void WaveformDrawer::startAxisDragVisual(int sourceIndex, const QPoint& startPos)
-{
-    if (m_dragGhost)
-    {
-        finishAxisDragVisual();
-    }
     QCustomPlot* plot = m_mainWindow->ui->customPlot;
+    if (!plot || !plot->plotLayout() || layoutRow < 0 || layoutRow >= plot->plotLayout()->rowCount())
+        return false;
+    const QString label = axisLabelForRect(qobject_cast<QCPAxisRect*>(plot->plotLayout()->element(layoutRow, 0)));
+    if (label.isEmpty())
+        return false;
+
+    endAxisDrag(pos, false);
+    m_dragSourceLabel = label;
+
+    // Feedback items live on the buffered "overlay" layer, so moving them only repaints that layer.
+    // They use absolute pixel positions and must not be clipped to a single axis rect.
+    const QColor accent(0, 90, 255);
+    auto setupItem = [](QCPAbstractItem* item) {
+        item->setLayer(QLatin1String("overlay"));
+        item->setClipToAxisRect(false);
+        item->setSelectable(false);
+        item->setVisible(false);
+    };
+
+    m_dragSourceBox = new QCPItemRect(plot);
+    setupItem(m_dragSourceBox);
+    m_dragSourceBox->topLeft->setType(QCPItemPosition::ptAbsolute);
+    m_dragSourceBox->bottomRight->setType(QCPItemPosition::ptAbsolute);
+    m_dragSourceBox->setPen(QPen(QColor(120, 120, 120), 1.5, Qt::DashLine));
+    m_dragSourceBox->setBrush(QColor(0, 0, 0, 18));
+
+    m_dropReplaceBox = new QCPItemRect(plot);
+    setupItem(m_dropReplaceBox);
+    m_dropReplaceBox->topLeft->setType(QCPItemPosition::ptAbsolute);
+    m_dropReplaceBox->bottomRight->setType(QCPItemPosition::ptAbsolute);
+    m_dropReplaceBox->setPen(QPen(accent, 2.5));
+    QColor fill = accent;
+    fill.setAlpha(30);
+    m_dropReplaceBox->setBrush(fill);
+
+    m_dropInsertLine = new QCPItemLine(plot);
+    setupItem(m_dropInsertLine);
+    m_dropInsertLine->start->setType(QCPItemPosition::ptAbsolute);
+    m_dropInsertLine->end->setType(QCPItemPosition::ptAbsolute);
+    QPen linePen(accent, 4);
+    linePen.setCapStyle(Qt::RoundCap);
+    m_dropInsertLine->setPen(linePen);
+
     m_dragGhost = new QCPItemText(plot);
+    setupItem(m_dragGhost);
     m_dragGhost->position->setType(QCPItemPosition::ptAbsolute);
-    m_dragGhost->position->setCoords(10, startPos.y());
-    m_dragGhost->setColor(QColor(50, 50, 50));
-    QFont f = plot->font(); f.setBold(true);
+    m_dragGhost->setPositionAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    QFont f = plot->font();
+    f.setBold(true);
     m_dragGhost->setFont(f);
-    m_dragGhost->setBrush(QBrush(QColor(255, 255, 255, 220)));
-    m_dragGhost->setPen(QPen(QColor(100, 100, 255)));
-    m_dragGhost->setText(defaultLabelForRect(sourceIndex));
-    m_dragGhost->setVisible(true);
-    m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
+    m_dragGhost->setColor(QColor(40, 40, 40));
+    m_dragGhost->setBrush(QBrush(QColor(255, 255, 255, 235)));
+    m_dragGhost->setPen(QPen(accent));
+    m_dragGhost->setPadding(QMargins(6, 3, 6, 3));
+
+    if (QCPAxisRect* sourceRect = axisLabelToRectMap().value(label, nullptr))
+    {
+        const QRect r = sourceRect->outerRect().adjusted(1, 1, -1, -1);
+        m_dragSourceBox->topLeft->setCoords(r.left(), r.top());
+        m_dragSourceBox->bottomRight->setCoords(r.right(), r.bottom());
+        m_dragSourceBox->setVisible(true);
+    }
+
+    // New items change the layer contents, so the first paint has to be a full replot
+    updateAxisDrag(pos);
+    plot->replot(QCustomPlot::rpQueuedReplot);
+    return true;
 }
 
-void WaveformDrawer::updateAxisDragVisual(int yInPlot)
+void WaveformDrawer::updateAxisDrag(const QPoint& pos)
 {
-    if (!m_dragGhost) return;
-    m_dragGhost->position->setCoords(10, yInPlot);
-    m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
-}
-
-void WaveformDrawer::finishAxisDragVisual()
-{
-    if (!m_dragGhost) return;
+    if (m_dragSourceLabel.isEmpty() || !m_dragGhost)
+        return;
     QCustomPlot* plot = m_mainWindow->ui->customPlot;
-    plot->removeItem(m_dragGhost);
+    const QList<QCPAxisRect*> rects = shownAxisRects();
+    const AxisDropTarget target = axisDropTargetAt(pos.y());
+
+    m_dropReplaceBox->setVisible(false);
+    m_dropInsertLine->setVisible(false);
+    QString hint = m_dragSourceLabel;
+    if (target.mode == AxisDropTarget::Replace)
+    {
+        const QRect r = rects[target.index]->outerRect().adjusted(2, 2, -2, -2);
+        m_dropReplaceBox->topLeft->setCoords(r.left(), r.top());
+        m_dropReplaceBox->bottomRight->setCoords(r.right(), r.bottom());
+        m_dropReplaceBox->setVisible(true);
+        hint = QString("Swap %1 ↔ %2").arg(m_dragSourceLabel, axisLabelForRect(rects[target.index]));
+    }
+    else if (target.mode == AxisDropTarget::Insert)
+    {
+        int y;
+        if (target.index == 0)
+            y = rects.first()->outerRect().top() + 2;
+        else if (target.index == rects.size())
+            y = rects.last()->outerRect().bottom() - 2;
+        else
+            y = (rects[target.index - 1]->outerRect().bottom() + rects[target.index]->outerRect().top()) / 2;
+        const QRect outer = rects.first()->outerRect();
+        m_dropInsertLine->start->setCoords(outer.left() + 4, y);
+        m_dropInsertLine->end->setCoords(outer.right() - 4, y);
+        m_dropInsertLine->setVisible(true);
+        hint = QString("Insert %1 here").arg(m_dragSourceLabel);
+    }
+
+    m_dragGhost->setText(hint);
+    m_dragGhost->position->setCoords(pos.x() + 16, pos.y());
+    m_dragGhost->setVisible(true);
+    plot->layer(QLatin1String("overlay"))->replot();
+}
+
+void WaveformDrawer::endAxisDrag(const QPoint& pos, bool commit)
+{
+    if (m_dragSourceLabel.isEmpty())
+        return;
+
+    const AxisDropTarget target = commit ? axisDropTargetAt(pos.y()) : AxisDropTarget();
+    const QList<QCPAxisRect*> rects = shownAxisRects();
+    const QString source = m_dragSourceLabel;
+    m_dragSourceLabel.clear();
+
+    QCustomPlot* plot = m_mainWindow->ui->customPlot;
+    const QList<QCPAbstractItem*> items = {m_dragGhost, m_dragSourceBox, m_dropReplaceBox, m_dropInsertLine};
+    for (QCPAbstractItem* item : items)
+    {
+        if (item)
+            plot->removeItem(item);
+    }
     m_dragGhost = nullptr;
+    m_dragSourceBox = nullptr;
+    m_dropReplaceBox = nullptr;
+    m_dropInsertLine = nullptr;
+
+    // Reorder by label in m_axesOrder; hidden subplots keep their slots
+    QStringList newOrder = m_axesOrder;
+    if (target.mode == AxisDropTarget::Replace)
+    {
+        const int a = newOrder.indexOf(source);
+        const int b = newOrder.indexOf(axisLabelForRect(rects[target.index]));
+        if (a >= 0 && b >= 0)
+            newOrder.swapItemsAt(a, b);
+    }
+    else if (target.mode == AxisDropTarget::Insert)
+    {
+        newOrder.removeAll(source);
+        if (target.index < rects.size())
+            newOrder.insert(newOrder.indexOf(axisLabelForRect(rects[target.index])), source);
+        else
+            newOrder.insert(newOrder.indexOf(axisLabelForRect(rects.last())) + 1, source);
+    }
+    if (newOrder.size() == m_axesOrder.size() && newOrder != m_axesOrder)
+        applyAxesOrderAndSave(newOrder);
+
     m_mainWindow->requestReplot(QCustomPlot::rpQueuedReplot, "unknown", "");
 }
 

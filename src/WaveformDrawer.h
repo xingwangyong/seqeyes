@@ -23,6 +23,8 @@ class QCPItemStraightLine;
 class QCPGraph;
 class QCPMarginGroup;
 class QCPItemText;
+class QCPItemRect;
+class QCPItemLine;
 class Settings;
 class ZoomManager;
 namespace QCP { class Range; }
@@ -107,23 +109,18 @@ public:
     const QStringList& getAxesOrder() const { return m_axesOrder; }
     void setAxesOrder(const QStringList& order); // reorders UI accordingly
     void applyAxesOrderAndSave(const QStringList& order);
-    int axisIndexAtPositionY(int yInPlot) const; // hit-test by Y to nearest axis rect
-    int axisCenterY(int index) const; // center Y of rect in widget coords
-    void swapAxes(int i, int j); // swap two axes (visual order)
-    void moveAxis(int fromIndex, int toIndex); // move axis to target position (insert-before semantics)
     // Context-menu reordering, expressed in terms of the subplots currently shown
     enum class AxisMove { Top, Up, Down, Bottom };
     QString axisLabelForRect(const QCPAxisRect* rect) const;
     QStringList visibleAxesOrder() const; // labels of shown subplots, top to bottom
     void moveVisibleAxis(const QString& label, AxisMove move); // reorders, saves and replots
-    void showDropIndicatorAt(int index);
-    void clearDropIndicator();
-    QString defaultLabelForRect(int index) const;
 
-    // Drag ghost visual
-    void startAxisDragVisual(int sourceIndex, const QPoint& startPos);
-    void updateAxisDragVisual(int yInPlot);
-    void finishAxisDragVisual();
+    // Drag-to-reorder: drop on the middle of a subplot swaps with it, drop near its
+    // top/bottom edge inserts above/below it. Positions are in plot widget pixels.
+    bool beginAxisDrag(int layoutRow, const QPoint& pos);
+    void updateAxisDrag(const QPoint& pos);
+    void endAxisDrag(const QPoint& pos, bool commit); // commit=false cancels
+    bool isAxisDragging() const { return !m_dragSourceLabel.isEmpty(); }
 
     // Persistence
     void loadUiConfig();
@@ -372,8 +369,19 @@ public:
 
     // Axis reorder state
     QStringList m_axesOrder; // labels in current visual order
-    int m_dropIndicatorIndex {-1};
+    struct AxisDropTarget
+    {
+        enum Mode { None, Replace, Insert };
+        Mode mode {None};
+        int index {-1}; // Replace: shown-subplot index; Insert: gap index (0 = above the first)
+    };
+    QList<QCPAxisRect*> shownAxisRects() const; // subplots currently laid out, top to bottom
+    AxisDropTarget axisDropTargetAt(int yInPlot) const;
+    QString m_dragSourceLabel;
     QCPItemText* m_dragGhost {nullptr};
+    QCPItemRect* m_dragSourceBox {nullptr};
+    QCPItemRect* m_dropReplaceBox {nullptr};
+    QCPItemLine* m_dropInsertLine {nullptr};
     
 
 public:
@@ -394,8 +402,6 @@ public:
     static constexpr bool DEBUG_LOD_DOWNSAMPLING = true;       // Downsampling operations
     static constexpr bool DEBUG_LOD_DEBOUNCE = true;          // Debounce mechanism debug
     // ===== END DEBUG CONTROL SECTION =====
-
-    int getDropIndicatorIndex() const { return m_dropIndicatorIndex; }
 };
 
 #endif // WAVEFORMDRAWER_H

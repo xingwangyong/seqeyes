@@ -80,6 +80,8 @@ private:
     void beginAxisDrag(int axisIndex, const QPoint& pos);
     void updateAxisDrag(const QPoint& pos);
     void endAxisDrag(const QPoint& pos);
+    void cancelAxisDrag();
+    void finishAxisDrag(const QPoint& pos, bool commit);
 
     // Ctrl + left-drag pans only the Y axis of the subplot where the drag began.
     bool beginVerticalPan(const QPoint& pos);
@@ -114,8 +116,6 @@ private:
 
     // Axis drag state
     bool m_axisDragging {false};
-    int m_dragSourceIndex {-1};
-    QPoint m_dragStartPos;
     bool m_overAxisHandle {false};
     unsigned int m_prevInteractions {0};
     // Drag gesture recognition
