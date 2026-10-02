@@ -858,6 +858,67 @@ void WaveformDrawer::moveAxis(int fromIndex, int toIndex)
     applyAxesOrderAndSave(newOrder);
 }
 
+QString WaveformDrawer::axisLabelForRect(const QCPAxisRect* rect) const
+{
+    if (!rect)
+        return QString();
+    const QMap<QString, QCPAxisRect*> labelToRect = axisLabelToRectMap();
+    for (auto it = labelToRect.cbegin(); it != labelToRect.cend(); ++it)
+    {
+        if (it.value() == rect)
+            return it.key();
+    }
+    return QString();
+}
+
+QStringList WaveformDrawer::visibleAxesOrder() const
+{
+    const QMap<QString, QCPAxisRect*> labelToRect = axisLabelToRectMap();
+    QStringList visible;
+    for (const QString& label : m_axesOrder)
+    {
+        QCPAxisRect* rect = labelToRect.value(label, nullptr);
+        if (rect && rect->visible())
+            visible << label;
+    }
+    return visible;
+}
+
+void WaveformDrawer::moveVisibleAxis(const QString& label, AxisMove move)
+{
+    // Hidden subplots keep their slot in m_axesOrder, so Up/Down step over the
+    // neighbouring *visible* subplot rather than the neighbouring list entry.
+    const QStringList visible = visibleAxesOrder();
+    const int visibleIndex = visible.indexOf(label);
+    if (visibleIndex < 0)
+        return;
+
+    QStringList newOrder = m_axesOrder;
+    newOrder.removeAll(label);
+    switch (move)
+    {
+    case AxisMove::Top:
+        newOrder.prepend(label);
+        break;
+    case AxisMove::Bottom:
+        newOrder.append(label);
+        break;
+    case AxisMove::Up:
+        if (visibleIndex == 0)
+            return;
+        newOrder.insert(newOrder.indexOf(visible[visibleIndex - 1]), label);
+        break;
+    case AxisMove::Down:
+        if (visibleIndex >= visible.size() - 1)
+            return;
+        newOrder.insert(newOrder.indexOf(visible[visibleIndex + 1]) + 1, label);
+        break;
+    }
+
+    applyAxesOrderAndSave(newOrder);
+    m_mainWindow->requestReplot(QCustomPlot::rpRefreshHint, "unknown", "");
+}
+
 void WaveformDrawer::showDropIndicatorAt(int index)
 {
     m_dropIndicatorIndex = index;

@@ -111,6 +111,11 @@ public:
     int axisCenterY(int index) const; // center Y of rect in widget coords
     void swapAxes(int i, int j); // swap two axes (visual order)
     void moveAxis(int fromIndex, int toIndex); // move axis to target position (insert-before semantics)
+    // Context-menu reordering, expressed in terms of the subplots currently shown
+    enum class AxisMove { Top, Up, Down, Bottom };
+    QString axisLabelForRect(const QCPAxisRect* rect) const;
+    QStringList visibleAxesOrder() const; // labels of shown subplots, top to bottom
+    void moveVisibleAxis(const QString& label, AxisMove move); // reorders, saves and replots
     void showDropIndicatorAt(int index);
     void clearDropIndicator();
     QString defaultLabelForRect(int index) const;

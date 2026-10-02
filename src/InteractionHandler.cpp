@@ -704,6 +704,37 @@ void InteractionHandler::showContextMenu(const QPoint& pos)
     connect(actionZoomOut, &QAction::triggered, this, &InteractionHandler::zoomOut);
     contextMenu.addAction(actionZoomOut);
 
+    // Subplot reordering for the subplot under the cursor
+    WaveformDrawer* drawer = m_mainWindow->getWaveformDrawer();
+    const QString axisLabel = drawer
+        ? drawer->axisLabelForRect(m_mainWindow->ui->customPlot->axisRectAt(pos))
+        : QString();
+    if (!axisLabel.isEmpty())
+    {
+        const QStringList visible = drawer->visibleAxesOrder();
+        const int visibleIndex = visible.indexOf(axisLabel);
+        const bool canMoveUp = visibleIndex > 0;
+        const bool canMoveDown = visibleIndex >= 0 && visibleIndex < visible.size() - 1;
+
+        contextMenu.addSeparator();
+        QMenu* moveMenu = contextMenu.addMenu(QString("Move \"%1\"").arg(axisLabel));
+        const struct { const char* text; WaveformDrawer::AxisMove move; bool enabled; } moves[] = {
+            {"Top", WaveformDrawer::AxisMove::Top, canMoveUp},
+            {"Up", WaveformDrawer::AxisMove::Up, canMoveUp},
+            {"Down", WaveformDrawer::AxisMove::Down, canMoveDown},
+            {"Bottom", WaveformDrawer::AxisMove::Bottom, canMoveDown},
+        };
+        for (const auto& m : moves)
+        {
+            QAction* action = moveMenu->addAction(m.text);
+            action->setEnabled(m.enabled);
+            const WaveformDrawer::AxisMove move = m.move;
+            connect(action, &QAction::triggered, this, [drawer, axisLabel, move]() {
+                drawer->moveVisibleAxis(axisLabel, move);
+            });
+        }
+    }
+
     contextMenu.exec(m_mainWindow->ui->customPlot->mapToGlobal(pos));
 }
 
