@@ -155,6 +155,20 @@ bool Settings::getAutoReloadOnFileChange() const
     return m_autoReloadOnFileChange;
 }
 
+void Settings::setSystemProfileSwitch(SystemProfileSwitch policy)
+{
+    if (m_systemProfileSwitch != policy) {
+        m_systemProfileSwitch = policy;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+Settings::SystemProfileSwitch Settings::getSystemProfileSwitch() const
+{
+    return m_systemProfileSwitch;
+}
+
 void Settings::setPanLeftKey(const QString& key)
 {
     if (m_panLeftKey != key.toUpper())
@@ -535,6 +549,11 @@ void Settings::saveSettings()
         obj["wheelGestureActions"] = gestures;
     }
     obj["autoReloadOnFileChange"] = m_autoReloadOnFileChange;
+    switch (m_systemProfileSwitch) {
+        case SystemProfileSwitch::Always: obj["systemProfileSwitch"] = QStringLiteral("Always"); break;
+        case SystemProfileSwitch::Never:  obj["systemProfileSwitch"] = QStringLiteral("Never"); break;
+        default:                          obj["systemProfileSwitch"] = QStringLiteral("Ask"); break;
+    }
     obj["panLeftKey"] = getPanLeftKey();
     obj["panRightKey"] = getPanRightKey();
     // Zoom & performance
@@ -677,6 +696,15 @@ void Settings::loadSettings()
     removeDuplicate(m_ctrlWheelAction, m_wheelAction);
     removeDuplicate(m_altWheelAction, m_wheelAction, m_ctrlWheelAction);
     m_autoReloadOnFileChange = obj.value("autoReloadOnFileChange").toBool(false);
+    {
+        const QString policy = obj.value("systemProfileSwitch").toString(QStringLiteral("Ask"));
+        if (policy == QLatin1String("Always"))
+            m_systemProfileSwitch = SystemProfileSwitch::Always;
+        else if (policy == QLatin1String("Never"))
+            m_systemProfileSwitch = SystemProfileSwitch::Never;
+        else
+            m_systemProfileSwitch = SystemProfileSwitch::Ask;
+    }
     m_panLeftKey = obj.value("panLeftKey").toString("A").toUpper();
     m_panRightKey = obj.value("panRightKey").toString("D").toUpper();
     // Approximate overlay dialogs (default true)
@@ -749,6 +777,7 @@ void Settings::resetToDefaults()
     m_ctrlWheelAction = WheelAction::YAxisScale;
     m_altWheelAction = WheelAction::Unassigned;
     m_autoReloadOnFileChange = false;
+    m_systemProfileSwitch = SystemProfileSwitch::Ask;
     m_gradientUnit = GradientUnit::mTPerM;
     m_slewUnit = SlewUnit::TPerMPerS;
     m_timeUnit = TimeUnit::Milliseconds;

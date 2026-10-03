@@ -18,6 +18,8 @@
 #include <QFileDialog>
 #include <QFileSystemWatcher>
 #include <QMessageBox>
+#include <QSignalBlocker>
+#include <QPushButton>
 #include <QSettings>
 #include <QDir>
 #include <QFileInfo>
@@ -142,6 +144,19 @@ QString normalizedSystemName(const QString& name)
     return name.trimmed().toCaseFolded();
 }
 
+// Name of the Settings > Safety profile matching a SystemName (case-insensitive), or empty
+QString findSystemProfileAlias(const QString& systemName)
+{
+    const QString requested = normalizedSystemName(systemName);
+    if (requested.isEmpty())
+        return QString();
+    for (const Settings::SystemProfile& candidate : Settings::getInstance().getSystemProfiles()) {
+        if (normalizedSystemName(candidate.alias) == requested)
+            return candidate.alias.trimmed();
+    }
+    return QString();
+}
+
 ResolvedB0 resolveB0Tesla(const std::shared_ptr<ExternalSequence>& sequence)
 {
     ResolvedB0 resolved;
@@ -155,28 +170,15 @@ ResolvedB0 resolveB0Tesla(const std::shared_ptr<ExternalSequence>& sequence)
         resolved.systemName = QString::fromStdString(sequence->GetDefinitionStr("SystemName")).trimmed();
     }
 
-    Settings::SystemProfile profile;
-    bool hasProfile = false;
-    const QVector<Settings::SystemProfile> profiles = Settings::getInstance().getSystemProfiles();
-    if (!resolved.systemName.isEmpty()) {
-        const QString requested = normalizedSystemName(resolved.systemName);
-        for (const Settings::SystemProfile& candidate : profiles) {
-            if (normalizedSystemName(candidate.alias) == requested) {
-                profile = candidate;
-                hasProfile = true;
-                break;
-            }
-        }
-        if (!hasProfile) {
-            resolved.warnings.append(
-                QStringLiteral("Sequence requests SystemName \"%1\", but no matching system profile was found.")
-                    .arg(resolved.systemName));
-        }
-    }
-
-    if (!hasProfile) {
-        profile = Settings::getInstance().globalSystemProfile();
-        hasProfile = !profile.alias.trimmed().isEmpty();
+    // The selected profile in Settings > Safety is always the one in effect. A SystemName
+    // only offers to switch it (see PulseqLoader::offerSystemProfileSwitch).
+    const Settings::SystemProfile profile = Settings::getInstance().globalSystemProfile();
+    const bool hasProfile = !profile.alias.trimmed().isEmpty();
+    if (!resolved.systemName.isEmpty() && findSystemProfileAlias(resolved.systemName).isEmpty()) {
+        resolved.warnings.append(
+            QStringLiteral("Sequence declares SystemName \"%1\", but no system profile with that name exists. "
+                           "SeqEyes uses the selected profile \"%2\".")
+                .arg(resolved.systemName, profile.alias.trimmed()));
     }
 
 
@@ -1317,6 +1319,8 @@ bool PulseqLoader::loadParserFile(const QString& path, LoadedSequenceState& stat
 
     // Do not use setWindowFilePath for the main window title, because it can auto-compose
     // "file - AppName" which conflicts with our explicit "SeqEyes - file.seq" title.
+    if (state.sequence)
+        offerSystemProfileSwitch(path, QString::fromStdString(state.sequence->GetDefinitionStr("SystemName")).trimmed());
     const ResolvedB0 resolvedB0 = resolveB0Tesla(state.sequence);
     state.b0Tesla = resolvedB0.b0Tesla;
     state.systemName = resolvedB0.systemName;
@@ -1478,6 +1482,61 @@ bool PulseqLoader::decodeBlocks(LoadedSequenceState& state, LoadError* error)
     std::cout << "Sequence total duration: " << state.totalDuration_us / 1e6 << " seconds" << std::endl;
     if (m_loadUi) m_loadUi->hideProgress();
     return true;
+}
+
+void PulseqLoader::offerSystemProfileSwitch(const QString& path, const QString& systemName)
+{
+    Settings& settings = Settings::getInstance();
+    const QString target = findSystemProfileAlias(systemName);
+    const QString current = settings.globalSystemProfileAlias().trimmed();
+    if (target.isEmpty() || target.compare(current, Qt::CaseInsensitive) == 0)
+        return;
+
+    bool doSwitch = false;
+    switch (settings.getSystemProfileSwitch())
+    {
+    case Settings::SystemProfileSwitch::Always:
+        doSwitch = true;
+        break;
+    case Settings::SystemProfileSwitch::Never:
+        break;
+    case Settings::SystemProfileSwitch::Ask:
+    {
+        // Don't ask during automation/headless loads, auto reloads, or again for the same file
+        if (m_silentMode || !m_mainWindow || m_isFileWatcherReload || path == m_systemProfilePromptedPath)
+            break;
+        m_systemProfilePromptedPath = path;
+
+        QMessageBox box(m_mainWindow);
+        box.setIcon(QMessageBox::Question);
+        box.setWindowTitle(QStringLiteral("System profile"));
+        box.setText(QStringLiteral("This sequence declares SystemName \"%1\", but the selected system profile is \"%2\".")
+                        .arg(systemName, current));
+        box.setInformativeText(
+            QStringLiteral("Safety limits, PNS and B0 come from the selected profile. Switch it to \"%1\"?\n\n"
+                           "You can change this behavior in Settings > Misc > System Profile.")
+                .arg(target));
+        QPushButton* switchButton = box.addButton(QStringLiteral("Switch to %1").arg(target), QMessageBox::AcceptRole);
+        box.addButton(QStringLiteral("Keep %1").arg(current), QMessageBox::RejectRole);
+        box.setDefaultButton(switchButton);
+        box.exec();
+        doSwitch = (box.clickedButton() == switchButton);
+        break;
+    }
+    }
+
+    if (!doSwitch)
+        return;
+    {
+        // The new sequence is not committed yet; it is analysed with the new profile once
+        // loading finishes, so skip the settings-changed recompute of the old sequence.
+        const QSignalBlocker blocker(&settings);
+        settings.setGlobalSystemProfileAlias(target);
+    }
+    LogManager::getInstance().appendStructured(
+        QtInfoMsg, QStringLiteral("PulseqLoader"),
+        QStringLiteral("Selected system profile switched from \"%1\" to \"%2\" to match the sequence SystemName.")
+            .arg(current, target));
 }
 
 void PulseqLoader::commitStagedSequence(LoadedSequenceState& state)

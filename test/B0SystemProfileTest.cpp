@@ -160,6 +160,7 @@ private slots:
         m_originalProfiles = Settings::getInstance().getSystemProfiles();
         m_originalActiveProfile = Settings::getInstance().globalSystemProfileAlias();
         m_originalLogLevel = Settings::getInstance().getLogLevel();
+        m_originalProfileSwitch = Settings::getInstance().getSystemProfileSwitch();
 
         m_v142Gre = resolveSeq(QStringLiteral("v142/writeGradientEcho.seq"));
         m_v150Gre = resolveSeq(QStringLiteral("v150/writeGradientEcho.seq"));
@@ -173,11 +174,13 @@ private slots:
         settings.setSystemProfiles(m_originalProfiles);
         Settings::getInstance().setGlobalSystemProfileAlias(m_originalActiveProfile);
         settings.setLogLevel(m_originalLogLevel);
+        settings.setSystemProfileSwitch(m_originalProfileSwitch);
     }
 
     void init()
     {
         setProfiles({profile(QStringLiteral("Active7T"), 7.0)}, QStringLiteral("Active7T"));
+        Settings::getInstance().setSystemProfileSwitch(Settings::SystemProfileSwitch::Ask);
     }
 
     void v14WithoutB0_keepsLegacyOffsetsEvenWithActiveProfileB0()
@@ -245,19 +248,46 @@ private slots:
                    10.0 + 2.0e-6 * gamma * 2.89);
     }
 
-    void systemNameMatch_usesMatchedProfileB0InsteadOfActiveProfile()
+    QString writeSystemNamePrismaSeq(QTemporaryDir& dir, const QString& fileName)
+    {
+        return writeTempSeq(dir, m_v150Gre, fileName, {QStringLiteral("SystemName Prisma")}, true);
+    }
+
+    void systemNameMatch_withoutSwitch_keepsSelectedProfile()
+    {
+        // Ask in silent mode behaves like Never: no prompt, selected profile stays in effect
+        for (Settings::SystemProfileSwitch policy : {Settings::SystemProfileSwitch::Ask,
+                                                     Settings::SystemProfileSwitch::Never})
+        {
+            setProfiles({profile(QStringLiteral("Other"), 7.0),
+                         profile(QStringLiteral("Prisma"), 2.89)},
+                        QStringLiteral("Other"));
+            Settings::getInstance().setSystemProfileSwitch(policy);
+
+            QTemporaryDir dir;
+            QVERIFY(dir.isValid());
+            const QString path = writeSystemNamePrismaSeq(dir, QStringLiteral("system_name_keep.seq"));
+            QVERIFY2(QFile::exists(path), qPrintable(path));
+
+            std::unique_ptr<MainWindow> window(makeWindow());
+            PulseqLoader* loader = window->getPulseqLoader();
+            QVERIFY2(loader->OpenPulseqFilePath(path), qPrintable(path));
+            QVERIFY(loader->waitForBackgroundComputations());
+            QCOMPARE(loader->getB0Tesla(), 7.0);
+            QCOMPARE(Settings::getInstance().globalSystemProfileAlias(), QStringLiteral("Other"));
+        }
+    }
+
+    void systemNameMatch_alwaysSwitch_selectsMatchedProfile()
     {
         setProfiles({profile(QStringLiteral("Other"), 7.0),
                      profile(QStringLiteral("Prisma"), 2.89)},
                     QStringLiteral("Other"));
+        Settings::getInstance().setSystemProfileSwitch(Settings::SystemProfileSwitch::Always);
 
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
-        const QString path = writeTempSeq(dir,
-                                          m_v150Gre,
-                                          QStringLiteral("system_name_match.seq"),
-                                          {QStringLiteral("SystemName Prisma")},
-                                          true);
+        const QString path = writeSystemNamePrismaSeq(dir, QStringLiteral("system_name_switch.seq"));
         QVERIFY2(QFile::exists(path), qPrintable(path));
 
         std::unique_ptr<MainWindow> window(makeWindow());
@@ -265,6 +295,7 @@ private slots:
         QVERIFY2(loader->OpenPulseqFilePath(path), qPrintable(path));
         QVERIFY(loader->waitForBackgroundComputations());
         QCOMPARE(loader->getB0Tesla(), 2.89);
+        QCOMPARE(Settings::getInstance().globalSystemProfileAlias(), QStringLiteral("Prisma"));
     }
 
     void systemNameMissing_fallsBackToActiveProfileAndLogsWarning()
@@ -287,7 +318,7 @@ private slots:
         QVERIFY(loader->waitForBackgroundComputations());
         QCOMPARE(loader->getB0Tesla(), 7.0);
         QVERIFY(recentLogsContainSince(logStart,
-                                       QStringLiteral("Sequence requests SystemName \"Prisma\"")));
+                                       QStringLiteral("Sequence declares SystemName \"Prisma\", but no system profile")));
     }
 
     void sequenceB0ConflictWithMatchedProfile_logsWarningAndKeepsSequenceB0()
@@ -320,6 +351,7 @@ private:
     QVector<Settings::SystemProfile> m_originalProfiles;
     QString m_originalActiveProfile;
     Settings::LogLevel m_originalLogLevel {Settings::LogLevel::Warning};
+    Settings::SystemProfileSwitch m_originalProfileSwitch {Settings::SystemProfileSwitch::Ask};
 };
 
 int main(int argc, char** argv)

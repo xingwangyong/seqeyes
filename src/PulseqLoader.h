@@ -437,6 +437,9 @@ private:
     void setM1State(M1State state);
     void setPnsState(PnsState state);
     void computeSafetyAnalysis(bool showWarningDialog);
+    // If the sequence's SystemName names a profile other than the selected one, switch
+    // the selected profile according to Settings::SystemProfileSwitch (asking if needed).
+    void offerSystemProfileSwitch(const QString& path, const QString& systemName);
     void computePnsSynchronously();
     void startPnsComputationAsync();
     void startPnsComputationIfEnabled();
@@ -483,6 +486,7 @@ private:
     std::uint64_t m_fileHashRequestSerial {0};
     std::uint64_t m_activeFileHashRequestSerial {0};
     bool m_isFileWatcherReload {false};
+    QString m_systemProfilePromptedPath; // last file the SystemName switch prompt was shown for
     bool m_hasSavedViewport {false};
     QPair<double, double> m_savedViewportRange;
     bool m_savedWasTrMode {false};

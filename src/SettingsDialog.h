@@ -52,7 +52,6 @@ private slots:
     void onMoveAxisTopClicked();
     void onMoveAxisBottomClicked();
     void onAxisOrderRowsMoved();
-    void updateSystemProfileWarningBanner();
     void onSearchTextChanged(const QString& text);
 
 private:
@@ -97,6 +96,7 @@ private:
     QComboBox* m_logLevelCombo;
     QLabel* m_settingsPathValue;
     QCheckBox* m_autoReloadOnFileChangeCheck;
+    QComboBox* m_systemProfileSwitchCombo;
 
     // Interaction tab
     QComboBox* m_wheelActionCombo;
@@ -112,7 +112,6 @@ private:
     QMap<QString, QCheckBox*> m_extensionLabelCheckboxes;
 
     // Safety/System tab
-    QLabel* m_pSystemProfileOverrideBanner;
     QComboBox* m_systemProfileCombo;
     QPushButton* m_addSystemProfileButton;
     QPushButton* m_removeSystemProfileButton;
@@ -157,6 +156,7 @@ private:
     Settings::WheelAction m_originalCtrlWheelAction {Settings::WheelAction::YAxisScale};
     Settings::WheelAction m_originalAltWheelAction {Settings::WheelAction::Unassigned};
     bool m_originalAutoReloadOnFileChange {false};
+    Settings::SystemProfileSwitch m_originalSystemProfileSwitch {Settings::SystemProfileSwitch::Ask};
     QVector<Settings::SystemProfile> m_originalSystemProfiles;
     QString m_originalActiveSystemProfileAlias;
     QVector<Settings::SystemProfile> m_systemProfilesDraft;

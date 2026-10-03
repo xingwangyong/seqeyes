@@ -54,6 +54,7 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_panDragCheck(nullptr)
     , m_verticalPanDragCheck(nullptr)
     , m_autoReloadOnFileChangeCheck(nullptr)
+    , m_systemProfileSwitchCombo(nullptr)
     , m_showExtensionTooltipCheck(nullptr)
     , m_enableRoosPtxHackAutoDetectionCheck(nullptr)
     , m_systemProfileCombo(nullptr)
@@ -219,8 +220,20 @@ void SettingsDialog::setupUI()
         "Automatically reload the current .seq file after another program changes it.");
     fileMonitoringForm->addRow(m_autoReloadOnFileChangeCheck);
 
+    QGroupBox* systemProfileGroup = new QGroupBox("System Profile", miscTab);
+    QFormLayout* systemProfileForm = new QFormLayout(systemProfileGroup);
+    m_systemProfileSwitchCombo = new QComboBox(miscTab);
+    m_systemProfileSwitchCombo->addItem("Ask", static_cast<int>(Settings::SystemProfileSwitch::Ask));
+    m_systemProfileSwitchCombo->addItem("Always switch", static_cast<int>(Settings::SystemProfileSwitch::Always));
+    m_systemProfileSwitchCombo->addItem("Never switch", static_cast<int>(Settings::SystemProfileSwitch::Never));
+    m_systemProfileSwitchCombo->setToolTip(
+        "When a loaded .seq declares a SystemName that matches a profile in Settings > Safety other than "
+        "the selected one, choose whether to switch the selected profile to it.");
+    systemProfileForm->addRow("When SystemName differs:", m_systemProfileSwitchCombo);
+
     miscLayout->addWidget(loggingGroup);
     miscLayout->addWidget(fileMonitoringGroup);
+    miscLayout->addWidget(systemProfileGroup);
     miscLayout->addStretch();
 
     // ============================================================================
@@ -438,11 +451,6 @@ void SettingsDialog::setupUI()
     QGroupBox* systemGroup = new QGroupBox("", safetyTab);
     QVBoxLayout* systemGroupLayout = new QVBoxLayout(systemGroup);
 
-    m_pSystemProfileOverrideBanner = new QLabel(systemGroup);
-    m_pSystemProfileOverrideBanner->setStyleSheet("QLabel { background-color: #fff3cd; color: #856404; padding: 8px; border: 1px solid #ffeeba; border-radius: 4px; }");
-    m_pSystemProfileOverrideBanner->setWordWrap(true);
-    m_pSystemProfileOverrideBanner->setVisible(false);
-    systemGroupLayout->addWidget(m_pSystemProfileOverrideBanner);
 
     QWidget* systemMetaWidget = new QWidget(systemGroup);
     QFormLayout* systemForm = new QFormLayout(systemMetaWidget);
@@ -603,8 +611,6 @@ void SettingsDialog::setupUI()
             this, &SettingsDialog::onWheelGestureActionChanged);
     connect(m_systemProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SettingsDialog::onSystemProfileChanged);
-    connect(m_systemProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &SettingsDialog::updateSystemProfileWarningBanner);
     connect(m_addSystemProfileButton, &QPushButton::clicked,
             this, &SettingsDialog::onAddSystemProfileClicked);
     connect(m_removeSystemProfileButton, &QPushButton::clicked,
@@ -658,6 +664,7 @@ void SettingsDialog::loadCurrentSettings()
     m_originalCtrlWheelAction = settings.getWheelAction(Settings::WheelGesture::CtrlWheel);
     m_originalAltWheelAction = settings.getWheelAction(Settings::WheelGesture::AltWheel);
     m_originalAutoReloadOnFileChange = settings.getAutoReloadOnFileChange();
+    m_originalSystemProfileSwitch = settings.getSystemProfileSwitch();
     m_originalShowExtensionTooltip = settings.getShowExtensionTooltip();
     m_originalEnableRoosPtxHackAutoDetection = settings.getEnableRoosPtxHackAutoDetection();
     m_originalSystemProfiles = settings.getSystemProfiles();
@@ -737,6 +744,11 @@ void SettingsDialog::loadCurrentSettings()
     setActionCombo(m_altWheelActionCombo, m_originalAltWheelAction);
     if (m_autoReloadOnFileChangeCheck)
         m_autoReloadOnFileChangeCheck->setChecked(m_originalAutoReloadOnFileChange);
+    if (m_systemProfileSwitchCombo)
+    {
+        const int idx = m_systemProfileSwitchCombo->findData(static_cast<int>(m_originalSystemProfileSwitch));
+        if (idx >= 0) m_systemProfileSwitchCombo->setCurrentIndex(idx);
+    }
 
     if (m_systemProfileCombo)
     {
@@ -854,6 +866,9 @@ bool SettingsDialog::applySettings()
     settings.setPanWheelEnabled(wheelAction == Settings::WheelAction::Pan);
     if (m_autoReloadOnFileChangeCheck)
         settings.setAutoReloadOnFileChange(m_autoReloadOnFileChangeCheck->isChecked());
+    if (m_systemProfileSwitchCombo)
+        settings.setSystemProfileSwitch(
+            static_cast<Settings::SystemProfileSwitch>(m_systemProfileSwitchCombo->currentData().toInt()));
 
     QVector<Settings::SystemProfile> nextProfiles = m_systemProfilesDraft;
     const int idx = currentSystemProfileIndex();
@@ -963,6 +978,7 @@ void SettingsDialog::onCancelClicked()
         : Settings::ZoomInputMode::Wheel);
     settings.setPanWheelEnabled(m_originalWheelAction == Settings::WheelAction::Pan);
     settings.setAutoReloadOnFileChange(m_originalAutoReloadOnFileChange);
+    settings.setSystemProfileSwitch(m_originalSystemProfileSwitch);
     settings.setShowExtensionTooltip(m_originalShowExtensionTooltip);
     settings.setEnableRoosPtxHackAutoDetection(m_originalEnableRoosPtxHackAutoDetection);
     settings.setSystemProfiles(m_originalSystemProfiles);
@@ -1092,38 +1108,6 @@ void SettingsDialog::showEvent(QShowEvent* event)
 {
     QDialog::showEvent(event);
     loadCurrentSettings();
-    updateSystemProfileWarningBanner();
-}
-
-void SettingsDialog::updateSystemProfileWarningBanner()
-{
-    MainWindow* mw = qobject_cast<MainWindow*>(parentWidget());
-    if (!mw || !mw->getPulseqLoader()) {
-        m_pSystemProfileOverrideBanner->setVisible(false);
-        return;
-    }
-    
-    PulseqLoader* loader = mw->getPulseqLoader();
-    if (!RuntimeContext::isProfileOverridden(loader)) {
-        m_pSystemProfileOverrideBanner->setVisible(false);
-        return;
-    }
-
-    QString seqSystemName = loader->getSequenceSystemName().trimmed();
-    QString currentComboAlias = m_systemProfileCombo->currentText().trimmed();
-    
-    // Only show the banner if the user is looking at a profile that is NOT the one required by the sequence
-    if (seqSystemName.compare(currentComboAlias, Qt::CaseInsensitive) != 0) {
-        m_pSystemProfileOverrideBanner->setText(
-            QStringLiteral("<b>Warning:</b> The currently loaded sequence requires profile <b>%1</b>, "
-                           "but you are editing the global profile <b>%2</b>. "
-                           "Changes made here will NOT apply to the current sequence.")
-            .arg(seqSystemName.toHtmlEscaped())
-            .arg(currentComboAlias.toHtmlEscaped()));
-        m_pSystemProfileOverrideBanner->setVisible(true);
-    } else {
-        m_pSystemProfileOverrideBanner->setVisible(false);
-    }
 }
 
 void SettingsDialog::onGammaComboChanged(int index)

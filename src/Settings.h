@@ -102,6 +102,13 @@ public:
         Plasma
     };
 
+    // What to do when a loaded sequence's SystemName names a profile other than the selected one
+    enum class SystemProfileSwitch {
+        Ask,     // Prompt on load
+        Always,  // Switch the selected profile without asking
+        Never    // Keep the selected profile without asking
+    };
+
     // Log levels (aligned with Qt: qCritical, qWarning, qInfo, qDebug)
     enum class LogLevel {
         Fatal    = 0,   // Abort after logging
@@ -127,6 +134,9 @@ public:
 
     void setAutoReloadOnFileChange(bool enabled);
     bool getAutoReloadOnFileChange() const;
+
+    void setSystemProfileSwitch(SystemProfileSwitch policy);
+    SystemProfileSwitch getSystemProfileSwitch() const;
 
     // Keyboard shortcuts (pan / TR stepping)
     void setPanLeftKey(const QString& key);
@@ -258,6 +268,7 @@ private:
     WheelAction m_ctrlWheelAction {WheelAction::YAxisScale};
     WheelAction m_altWheelAction {WheelAction::Unassigned};
     bool m_autoReloadOnFileChange {false};
+    SystemProfileSwitch m_systemProfileSwitch {SystemProfileSwitch::Ask};
     QString m_panLeftKey;
     QString m_panRightKey;
     GradientUnit m_gradientUnit;
