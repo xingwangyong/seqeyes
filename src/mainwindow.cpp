@@ -6,6 +6,7 @@
 #include "TRManager.h"
 #include "WaveformDrawer.h"
 #include "SettingsDialog.h"
+#include <QMenu>
 #include "LogTableDialog.h"
 #include <QCommandLineParser>
 #include "Settings.h"
@@ -358,6 +359,24 @@ MainWindow::MainWindow(QWidget* parent)
     m_pCoordLabel->setMinimumWidth(120);
     ui->statusbar->addWidget(m_pCoordLabel, 1);
 
+    // Right-click the status bar -> jump to its settings page
+    auto showStatusBarMenu = [this](QWidget* source, const QPoint& pos) {
+        QMenu menu(source);
+        QAction* configure = menu.addAction(tr("Configure Status Bar..."));
+        if (menu.exec(source->mapToGlobal(pos)) == configure)
+        {
+            if (m_settingsDialog)
+                m_settingsDialog->showPage(QStringLiteral("Status Bar"));
+            openSettings();
+        }
+    };
+    for (QWidget* w : {static_cast<QWidget*>(ui->statusbar), static_cast<QWidget*>(m_pCoordLabel)})
+    {
+        w->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(w, &QWidget::customContextMenuRequested, this,
+                [w, showStatusBarMenu](const QPoint& pos) { showStatusBarMenu(w, pos); });
+    }
+
     // This needs to be called after the plot rects are created in InitSequenceFigure
     m_waveformDrawer->InitTracers();
 
@@ -535,12 +554,6 @@ MainWindow::~MainWindow()
 
 QString MainWindow::getPnsStatusText() const
 {
-    const bool showByCheckbox = (m_trManager && m_trManager->isShowPnsChecked());
-    if (!showByCheckbox)
-    {
-        return QString();
-    }
-
     const QString ascPath = RuntimeContext::systemProfile(m_pulseqLoader).ascPath.trimmed();
     if (ascPath.isEmpty())
     {
@@ -616,14 +629,6 @@ QString MainWindow::getPnsStatusText() const
 
 QString MainWindow::getM1StatusText() const
 {
-    const bool showX = (m_trManager && m_trManager->isShowM1xChecked());
-    const bool showY = (m_trManager && m_trManager->isShowM1yChecked());
-    const bool showZ = (m_trManager && m_trManager->isShowM1zChecked());
-    if (!showX && !showY && !showZ)
-    {
-        return QString();
-    }
-
     if (!m_pulseqLoader ||
         m_pulseqLoader->getM1State() != PulseqLoader::M1State::Ready ||
         !m_pulseqLoader->hasM1Data())
@@ -692,25 +697,7 @@ QString MainWindow::getM1StatusText() const
         z = maxAbsSigned(m1Z);
     }
 
-    QString axes;
-    QStringList values;
-    if (showX)
-    {
-        axes += QLatin1Char('x');
-        values << fmt(x);
-    }
-    if (showY)
-    {
-        axes += QLatin1Char('y');
-        values << fmt(y);
-    }
-    if (showZ)
-    {
-        axes += QLatin1Char('z');
-        values << fmt(z);
-    }
-
-    return QStringLiteral("M1%1=%2 s/m").arg(axes, values.join(QLatin1Char(',')));
+    return QStringLiteral("M1xyz=%1,%2,%3 s/m").arg(fmt(x), fmt(y), fmt(z));
 }
 
 void MainWindow::updatePnsStatusIndicator()

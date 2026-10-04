@@ -138,6 +138,14 @@ public:
     void setSystemProfileSwitch(SystemProfileSwitch policy);
     SystemProfileSwitch getSystemProfileSwitch() const;
 
+    // Status bar fields, identified by key (see statusBarFieldKeys()); shown in that fixed order.
+    void setStatusBarFields(const QStringList& keys);
+    QStringList getStatusBarFields() const;
+    bool isStatusBarFieldEnabled(const QString& key) const;
+    static QStringList statusBarFieldKeys();
+    static QStringList defaultStatusBarFields();
+    static QString statusBarFieldTitle(const QString& key);
+
     // Keyboard shortcuts (pan / TR stepping)
     void setPanLeftKey(const QString& key);
     void setPanRightKey(const QString& key);
@@ -269,6 +277,7 @@ private:
     WheelAction m_altWheelAction {WheelAction::Unassigned};
     bool m_autoReloadOnFileChange {false};
     SystemProfileSwitch m_systemProfileSwitch {SystemProfileSwitch::Ask};
+    QStringList m_statusBarFields {defaultStatusBarFields()};
     QString m_panLeftKey;
     QString m_panRightKey;
     GradientUnit m_gradientUnit;

@@ -524,6 +524,35 @@ void SettingsDialog::setupUI()
     safetyLayout->addWidget(systemGroup);
     safetyLayout->addStretch();
 
+    // ============================================================================
+    // Status Bar Tab
+    // ============================================================================
+    QWidget* statusBarTab = new QWidget();
+    QVBoxLayout* statusBarLayout = new QVBoxLayout(statusBarTab);
+
+    QGroupBox* statusFieldsGroup = new QGroupBox("Fields", statusBarTab);
+    QVBoxLayout* statusFieldsLayout = new QVBoxLayout(statusFieldsGroup);
+    QLabel* statusFieldsHint = new QLabel(
+        "Choose what the status bar shows, from left to right in the order listed.",
+        statusFieldsGroup);
+    statusFieldsHint->setWordWrap(true);
+    statusFieldsLayout->addWidget(statusFieldsHint);
+
+    // Two columns, filled top-to-bottom so the reading order matches the status bar order
+    QGridLayout* statusFieldsGrid = new QGridLayout();
+    const QStringList fieldKeys = Settings::statusBarFieldKeys();
+    const int fieldRows = (fieldKeys.size() + 1) / 2;
+    for (int i = 0; i < fieldKeys.size(); ++i)
+    {
+        QCheckBox* cb = new QCheckBox(Settings::statusBarFieldTitle(fieldKeys[i]), statusFieldsGroup);
+        statusFieldsGrid->addWidget(cb, i % fieldRows, i / fieldRows);
+        m_statusBarFieldChecks.insert(fieldKeys[i], cb);
+    }
+    statusFieldsLayout->addLayout(statusFieldsGrid);
+    statusBarLayout->addWidget(statusFieldsGroup);
+
+    statusBarLayout->addStretch();
+
     // Pages in alphabetical order
     const QList<QPair<QWidget*, QString>> pages = {
         {displayUnitsTab, "Display Units"},
@@ -533,6 +562,7 @@ void SettingsDialog::setupUI()
         {layoutTab, "Layout"},
         {miscTab, "Misc"},
         {safetyTab, "Safety"},
+        {statusBarTab, "Status Bar"},
     };
     int maxTextWidth = 0;
     for (const auto& page : pages)
@@ -664,6 +694,7 @@ void SettingsDialog::loadCurrentSettings()
     m_originalCtrlWheelAction = settings.getWheelAction(Settings::WheelGesture::CtrlWheel);
     m_originalAltWheelAction = settings.getWheelAction(Settings::WheelGesture::AltWheel);
     m_originalAutoReloadOnFileChange = settings.getAutoReloadOnFileChange();
+    m_originalStatusBarFields = settings.getStatusBarFields();
     m_originalSystemProfileSwitch = settings.getSystemProfileSwitch();
     m_originalShowExtensionTooltip = settings.getShowExtensionTooltip();
     m_originalEnableRoosPtxHackAutoDetection = settings.getEnableRoosPtxHackAutoDetection();
@@ -719,6 +750,9 @@ void SettingsDialog::loadCurrentSettings()
         m_showExtensionTooltipCheck->setChecked(settings.getShowExtensionTooltip());
     if (m_enableRoosPtxHackAutoDetectionCheck)
         m_enableRoosPtxHackAutoDetectionCheck->setChecked(settings.getEnableRoosPtxHackAutoDetection());
+
+    for (auto it = m_statusBarFieldChecks.begin(); it != m_statusBarFieldChecks.end(); ++it)
+        it.value()->setChecked(m_originalStatusBarFields.contains(it.key()));
 
     for (auto it = m_extensionLabelCheckboxes.begin(); it != m_extensionLabelCheckboxes.end(); ++it)
     {
@@ -843,6 +877,14 @@ bool SettingsDialog::applySettings()
         settings.setShowExtensionTooltip(m_showExtensionTooltipCheck->isChecked());
     if (m_enableRoosPtxHackAutoDetectionCheck)
         settings.setEnableRoosPtxHackAutoDetection(m_enableRoosPtxHackAutoDetectionCheck->isChecked());
+
+    {
+        QStringList fields;
+        for (auto it = m_statusBarFieldChecks.cbegin(); it != m_statusBarFieldChecks.cend(); ++it)
+            if (it.value()->isChecked())
+                fields << it.key();
+        settings.setStatusBarFields(fields);
+    }
 
     // Apply extension label visibility
     for (auto it = m_extensionLabelCheckboxes.begin(); it != m_extensionLabelCheckboxes.end(); ++it)
@@ -979,6 +1021,7 @@ void SettingsDialog::onCancelClicked()
     settings.setPanWheelEnabled(m_originalWheelAction == Settings::WheelAction::Pan);
     settings.setAutoReloadOnFileChange(m_originalAutoReloadOnFileChange);
     settings.setSystemProfileSwitch(m_originalSystemProfileSwitch);
+    settings.setStatusBarFields(m_originalStatusBarFields);
     settings.setShowExtensionTooltip(m_originalShowExtensionTooltip);
     settings.setEnableRoosPtxHackAutoDetection(m_originalEnableRoosPtxHackAutoDetection);
     settings.setSystemProfiles(m_originalSystemProfiles);

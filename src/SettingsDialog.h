@@ -110,6 +110,7 @@ private:
     QCheckBox* m_showExtensionTooltipCheck;
     QCheckBox* m_enableRoosPtxHackAutoDetectionCheck;
     QMap<QString, QCheckBox*> m_extensionLabelCheckboxes;
+    QMap<QString, QCheckBox*> m_statusBarFieldChecks; // keyed by Settings::statusBarFieldKeys()
 
     // Safety/System tab
     QComboBox* m_systemProfileCombo;
@@ -156,6 +157,7 @@ private:
     Settings::WheelAction m_originalCtrlWheelAction {Settings::WheelAction::YAxisScale};
     Settings::WheelAction m_originalAltWheelAction {Settings::WheelAction::Unassigned};
     bool m_originalAutoReloadOnFileChange {false};
+    QStringList m_originalStatusBarFields;
     Settings::SystemProfileSwitch m_originalSystemProfileSwitch {Settings::SystemProfileSwitch::Ask};
     QVector<Settings::SystemProfile> m_originalSystemProfiles;
     QString m_originalActiveSystemProfileAlias;

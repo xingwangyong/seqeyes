@@ -352,6 +352,9 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
             return QString::number(value, 'f', decimals);
         };
 
+        // Status bar fields (Settings > Status Bar)
+        auto fieldOn = [&s](const char* key) { return s.isStatusBarFieldEnabled(QLatin1String(key)); };
+
         // Time (2 decimals for ms, integer for us)
         QString segTime = fixed(QString("t=%1%2").arg(formatTime(guideX, 2)).arg(loader->getTimeUnits()), W_TIME);
 
@@ -403,6 +406,7 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
         }
         QString segGrad = fixed(QString("Gxyz=%1,%2,%3 %4").arg(gx, gy, gz, toUnit), W_GRAD);
         QString segKSpace;
+        if (fieldOn("kspace"))
         {
             double kxVal = 0.0, kyVal = 0.0, kzVal = 0.0;
             auto fmt1 = [](double v){ return QString::number(v, 'f', 1); };
@@ -443,17 +447,70 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
         // RF amplitude/phase (1 decimal)
         auto fmt1 = [](double v){ return QString::number(v, 'f', 1); };
         QString segRF;
+        QString rfAmpText = QStringLiteral("--.-");
+        QString rfPhaseText = QStringLiteral("--.-");
+        if (fieldOn("rf"))
         {
             double amp=0.0, ph=0.0;
             char rfUseChar = (blockIdx >= 0 ? loader->getRfUseForBlock(blockIdx) : 'u');
             if (allowHeavyHoverWork && blockIdx >= 0 && loader->sampleRFAtTime(guideX, blockIdx, amp, ph))
-                segRF = fixed(QString("RF a=%1 Hz, ph=%2 rad, use=%3")
-                              .arg(fmt1(amp), fmt1(ph), QString(rfUseChar)), W_RF);
-            else
-                segRF = fixed(QString("RF a=%1 Hz, ph=%2 rad, use=%3")
-                              .arg("--.-", "--.-", QString(rfUseChar)), W_RF);
+            {
+                rfAmpText = fmt1(amp);
+                rfPhaseText = fmt1(ph);
+            }
+            segRF = fixed(QString("RF a=%1 Hz, ph=%2 rad, use=%3")
+                          .arg(rfAmpText, rfPhaseText, QString(rfUseChar)), W_RF);
         }
-        QString coordText = segVer + " | " + segTime + " | " + segBlock + " | " + segGrad + " | " + segKSpace + " | " + segRF;
+
+        // Slew rate / |G_xy| come from the precomputed M1-worker curves (seconds; Hz/m/s and Hz/m)
+        const double tFactorForDerived = loader->getTFactor();
+        const double cursorSec = tFactorForDerived > 0.0 ? guideX / tFactorForDerived * 1e-6 : 0.0;
+        auto sampleStep = [cursorSec](const QVector<double>& t, const QVector<double>& v) {
+            const int n = std::min(t.size(), v.size());
+            if (n <= 0) return 0.0;
+            // Step data: value of the last sample at or before the cursor
+            const int i = static_cast<int>(std::upper_bound(t.constBegin(), t.constBegin() + n, cursorSec) - t.constBegin()) - 1;
+            return v[std::clamp(i, 0, n - 1)];
+        };
+        auto sampleLinear = [cursorSec](const QVector<double>& t, const QVector<double>& v) {
+            const int n = std::min(t.size(), v.size());
+            if (n <= 0) return 0.0;
+            if (cursorSec <= t[0]) return v[0];
+            if (cursorSec >= t[n - 1]) return v[n - 1];
+            const int i1 = static_cast<int>(std::lower_bound(t.constBegin(), t.constBegin() + n, cursorSec) - t.constBegin());
+            const int i0 = std::max(0, i1 - 1);
+            if (i1 <= i0 || t[i1] <= t[i0]) return v[i0];
+            return v[i0] + (v[i1] - v[i0]) * (cursorSec - t[i0]) / (t[i1] - t[i0]);
+        };
+        const bool derivedReady = loader->hasM1Data();
+        const QString slewUnit = s.getSlewUnitString();
+        const double slewScale = s.convertSlew(1.0, "Hz/m/s", slewUnit);
+        const double gradScale = s.convertGradient(1.0, "Hz/m", toUnit);
+        auto slewAxisText = [&](int ch) { return fmt1(sampleStep(loader->getSlewTimeSec(ch), loader->getSlew(ch)) * slewScale); };
+        auto slewXyText = [&]() { return fmt1(sampleStep(loader->getSlewXyTimeSec(), loader->getSlewXy()) * slewScale); };
+        auto gxyText = [&]() { return fmt2(sampleLinear(loader->getGxyTimeSec(), loader->getGxy()) * gradScale); };
+
+        QString segSlew;
+        if (fieldOn("slew"))
+        {
+            segSlew = derivedReady
+                ? QString("Slewxyz=%1,%2,%3 |XY|=%4 %5")
+                      .arg(slewAxisText(0), slewAxisText(1), slewAxisText(2), slewXyText(), slewUnit)
+                : QStringLiteral("Slew=not ready");
+        }
+        QString segGxy;
+        if (fieldOn("gxy"))
+            segGxy = derivedReady ? QString("G|XY|=%1 %2").arg(gxyText(), toUnit) : QStringLiteral("G|XY|=not ready");
+
+        QStringList segments;
+        if (fieldOn("file")) segments << segVer;
+        if (fieldOn("time")) segments << segTime;
+        if (fieldOn("block")) segments << segBlock;
+        if (fieldOn("grad")) segments << segGrad;
+        if (!segGxy.isEmpty()) segments << segGxy;
+        if (!segSlew.isEmpty()) segments << segSlew;
+        if (!segKSpace.isEmpty()) segments << segKSpace;
+        if (fieldOn("rf")) segments << segRF;
         if (m_mainWindow)
         {
             // Keep sequence red guide responsive: trajectory/pns cursor update can be
@@ -461,6 +518,7 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
             TRManager* trm = m_mainWindow->getTRManager();
             const bool needCursorValue =
                 m_mainWindow->isTrajectoryVisible() ||
+                fieldOn("pns") || fieldOn("m1") ||
                 (trm && (trm->isShowPnsChecked() ||
                          trm->isShowM1xChecked() ||
                          trm->isShowM1yChecked() ||
@@ -484,13 +542,14 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
         // Channel-specific inline appends removed; now summarized above
         if (m_mainWindow)
         {
-            const QString pnsStatus = m_mainWindow->getPnsStatusText();
+            const QString pnsStatus = fieldOn("pns") ? m_mainWindow->getPnsStatusText() : QString();
             if (!pnsStatus.isEmpty())
-                coordText += " | " + pnsStatus;
-            const QString m1Status = m_mainWindow->getM1StatusText();
+                segments << pnsStatus;
+            const QString m1Status = fieldOn("m1") ? m_mainWindow->getM1StatusText() : QString();
             if (!m1Status.isEmpty())
-                coordText += " | " + m1Status;
+                segments << m1Status;
         }
+        QString coordText = segments.join(QStringLiteral(" | "));
         // If measuring and at least one point exists, append Δt info
         if (m_measureMode)
         {

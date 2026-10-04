@@ -169,6 +169,60 @@ Settings::SystemProfileSwitch Settings::getSystemProfileSwitch() const
     return m_systemProfileSwitch;
 }
 
+QStringList Settings::statusBarFieldKeys()
+{
+    return {QStringLiteral("file"), QStringLiteral("time"), QStringLiteral("block"),
+            QStringLiteral("grad"), QStringLiteral("gxy"), QStringLiteral("slew"),
+            QStringLiteral("kspace"), QStringLiteral("rf"), QStringLiteral("pns"),
+            QStringLiteral("m1")};
+}
+
+QStringList Settings::defaultStatusBarFields()
+{
+    return {QStringLiteral("file"), QStringLiteral("time"), QStringLiteral("block"),
+            QStringLiteral("grad"), QStringLiteral("kspace"), QStringLiteral("rf"),
+            QStringLiteral("pns")};
+}
+
+QString Settings::statusBarFieldTitle(const QString& key)
+{
+    if (key == QLatin1String("file"))   return QStringLiteral("File version");
+    if (key == QLatin1String("time"))   return QStringLiteral("Time");
+    if (key == QLatin1String("block"))  return QStringLiteral("Block index");
+    if (key == QLatin1String("grad"))   return QStringLiteral("Gradients (Gx, Gy, Gz)");
+    if (key == QLatin1String("gxy"))    return QStringLiteral("G |XY|");
+    if (key == QLatin1String("slew"))   return QStringLiteral("Slew rate");
+    if (key == QLatin1String("kspace")) return QStringLiteral("k-space (kx, ky, kz)");
+    if (key == QLatin1String("rf"))     return QStringLiteral("RF amplitude / phase");
+    if (key == QLatin1String("pns"))    return QStringLiteral("PNS");
+    if (key == QLatin1String("m1"))     return QStringLiteral("M1");
+    return key;
+}
+
+void Settings::setStatusBarFields(const QStringList& keys)
+{
+    // Keep only known keys, in canonical order
+    QStringList normalized;
+    for (const QString& key : statusBarFieldKeys())
+        if (keys.contains(key))
+            normalized << key;
+    if (m_statusBarFields != normalized) {
+        m_statusBarFields = normalized;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+QStringList Settings::getStatusBarFields() const
+{
+    return m_statusBarFields;
+}
+
+bool Settings::isStatusBarFieldEnabled(const QString& key) const
+{
+    return m_statusBarFields.contains(key);
+}
+
 void Settings::setPanLeftKey(const QString& key)
 {
     if (m_panLeftKey != key.toUpper())
@@ -549,6 +603,7 @@ void Settings::saveSettings()
         obj["wheelGestureActions"] = gestures;
     }
     obj["autoReloadOnFileChange"] = m_autoReloadOnFileChange;
+    obj["statusBarFields"] = QJsonArray::fromStringList(m_statusBarFields);
     switch (m_systemProfileSwitch) {
         case SystemProfileSwitch::Always: obj["systemProfileSwitch"] = QStringLiteral("Always"); break;
         case SystemProfileSwitch::Never:  obj["systemProfileSwitch"] = QStringLiteral("Never"); break;
@@ -696,6 +751,17 @@ void Settings::loadSettings()
     removeDuplicate(m_ctrlWheelAction, m_wheelAction);
     removeDuplicate(m_altWheelAction, m_wheelAction, m_ctrlWheelAction);
     m_autoReloadOnFileChange = obj.value("autoReloadOnFileChange").toBool(false);
+    if (obj.contains("statusBarFields") && obj.value("statusBarFields").isArray()) {
+        QStringList stored;
+        for (const QJsonValue& v : obj.value("statusBarFields").toArray())
+            stored << v.toString();
+        m_statusBarFields.clear();
+        for (const QString& key : statusBarFieldKeys())
+            if (stored.contains(key))
+                m_statusBarFields << key;
+    } else {
+        m_statusBarFields = defaultStatusBarFields();
+    }
     {
         const QString policy = obj.value("systemProfileSwitch").toString(QStringLiteral("Ask"));
         if (policy == QLatin1String("Always"))
@@ -778,6 +844,7 @@ void Settings::resetToDefaults()
     m_altWheelAction = WheelAction::Unassigned;
     m_autoReloadOnFileChange = false;
     m_systemProfileSwitch = SystemProfileSwitch::Ask;
+    m_statusBarFields = defaultStatusBarFields();
     m_gradientUnit = GradientUnit::mTPerM;
     m_slewUnit = SlewUnit::TPerMPerS;
     m_timeUnit = TimeUnit::Milliseconds;
