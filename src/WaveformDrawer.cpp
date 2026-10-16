@@ -343,7 +343,7 @@ void WaveformDrawer::InitSequenceFigure()
     }
 
     m_pADCLabelsRect->axis(QCPAxis::atLeft)->setLabel("ADC/labels");
-    m_pRfMagRect->axis(QCPAxis::atLeft)->setLabel("RF mag(Hz)");
+    m_pRfMagRect->axis(QCPAxis::atLeft)->setLabel("RF mag(" + Settings::getInstance().getRfUnitString() + ")");
     m_pRfADCPhaseRect->axis(QCPAxis::atLeft)->setLabel("RF/ADC ph(rad)");
     // Set gradient axis labels with current unit from settings
     Settings& settings = Settings::getInstance();
@@ -1568,6 +1568,17 @@ void WaveformDrawer::DrawRFWaveform(const double& dStartTime, double dEndTime)
     loader->getUnifiedRfViewport(visibleStart, visibleEnd, pxRFEffective, rfViewport);
     ensureRfChannelGraphs(rfViewport.ampTimeByChannel.size());
 
+    // Apply unit conversion from internal standard (Hz) to selected RF display unit
+    {
+        Settings& s = Settings::getInstance();
+        const double rfScale = s.convertRf(1.0, "Hz", s.getRfUnitString());
+        if (rfScale != 1.0) {
+            for (QVector<double>& values : rfViewport.ampValueByChannel)
+                for (double& v : values)
+                    v *= rfScale;
+        }
+    }
+
     auto computeMinMax = [](const QVector<QVector<double>>& allValues, double& mn, double& mx) {
         for (const QVector<double>& values : allValues) {
             for (double value : values) {
@@ -2580,8 +2591,10 @@ void WaveformDrawer::computeAndLockYAxisRanges()
 
     // 1: RF mag, 2: RF/ADC phase (use on-demand global ranges without needing merged arrays)
     {
+        Settings& s = Settings::getInstance();
+        const double rfScale = s.convertRf(1.0, "Hz", s.getRfUnitString());
         auto rAmp = loader->getRfGlobalRangeAmp();
-        m_fixedYRanges[1] = paddedRange(rAmp.first, rAmp.second, 1.0);
+        m_fixedYRanges[1] = paddedRange(rAmp.first * rfScale, rAmp.second * rfScale, 1.0);
         m_fixedYRanges[2] = qMakePair(kPhaseAxisLower, kPhaseAxisUpper);
     }
 
@@ -3147,7 +3160,7 @@ void WaveformDrawer::updateAxisLabels()
     QString gradientUnit = settings.getGradientUnitString();
 
     if (m_pADCLabelsRect)   m_pADCLabelsRect->axis(QCPAxis::atLeft)->setLabel("ADC/labels");
-    if (m_pRfMagRect)       m_pRfMagRect->axis(QCPAxis::atLeft)->setLabel("RF mag(Hz)");
+    if (m_pRfMagRect)       m_pRfMagRect->axis(QCPAxis::atLeft)->setLabel("RF mag(" + settings.getRfUnitString() + ")");
     if (m_pRfADCPhaseRect)  m_pRfADCPhaseRect->axis(QCPAxis::atLeft)->setLabel("RF/ADC ph(rad)");
     if (m_pGxRect)          m_pGxRect->axis(QCPAxis::atLeft)->setLabel("GX (" + gradientUnit + ")");
     if (m_pGyRect)          m_pGyRect->axis(QCPAxis::atLeft)->setLabel("GY (" + gradientUnit + ")");

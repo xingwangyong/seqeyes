@@ -455,11 +455,11 @@ void InteractionHandler::onMouseMove(QMouseEvent* event)
             char rfUseChar = (blockIdx >= 0 ? loader->getRfUseForBlock(blockIdx) : 'u');
             if (allowHeavyHoverWork && blockIdx >= 0 && loader->sampleRFAtTime(guideX, blockIdx, amp, ph))
             {
-                rfAmpText = fmt1(amp);
+                rfAmpText = fmt1(s.convertRf(amp, "Hz", s.getRfUnitString()));
                 rfPhaseText = fmt1(ph);
             }
-            segRF = fixed(QString("RF a=%1 Hz, ph=%2 rad, use=%3")
-                          .arg(rfAmpText, rfPhaseText, QString(rfUseChar)), W_RF);
+            segRF = fixed(QString("RF a=%1 %2, ph=%3 rad, use=%4")
+                          .arg(rfAmpText, s.getRfUnitString(), rfPhaseText, QString(rfUseChar)), W_RF);
         }
 
         // Slew rate / |G_xy| come from the precomputed M1-worker curves (seconds; Hz/m/s and Hz/m)

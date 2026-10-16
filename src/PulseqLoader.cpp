@@ -2297,8 +2297,11 @@ void PulseqLoader::setBlockInfoContent(EventBlockInfoDialog* dialog, int current
         const RFEvent& rf = pSeqBlock->GetRFEvent();
         const double fullFreqOffset = effectiveFrequencyOffsetHz(rf.freqOffset, rf.freqPPM, m_b0Tesla);
         const double fullPhaseOffset = effectivePhaseOffsetRad(rf.phaseOffset, rf.phasePPM, m_b0Tesla);
-        blockInfo += QString("RF Event:\nAmplitude: %1 Hz\nFrequency Offset: %2 Hz\nPhase Offset: %3 rad\nDelay: %4 us\n")
-            .arg(rf.amplitude)
+        Settings& rfSettings = Settings::getInstance();
+        const QString rfDispUnit = rfSettings.getRfUnitString();
+        blockInfo += QString("RF Event:\nAmplitude: %1 %2\nFrequency Offset: %3 Hz\nPhase Offset: %4 rad\nDelay: %5 us\n")
+            .arg(rfSettings.convertRf(rf.amplitude, "Hz", rfDispUnit))
+            .arg(rfDispUnit)
             .arg(fullFreqOffset)
             .arg(fullPhaseOffset)
             .arg(rf.delay);

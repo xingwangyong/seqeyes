@@ -45,6 +45,7 @@ SettingsDialog::SettingsDialog(QWidget *parent)
     , m_changingPageForSearch(false)
     , m_gradientUnitCombo(nullptr)
     , m_slewUnitCombo(nullptr)
+    , m_rfUnitCombo(nullptr)
     , m_timeUnitCombo(nullptr)
     , m_gammaCombo(nullptr)
     , m_logLevelCombo(nullptr)
@@ -164,6 +165,11 @@ void SettingsDialog::setupUI()
     m_slewUnitCombo = new QComboBox(displayUnitsTab);
     m_slewUnitCombo->addItems({"Hz/m/s", "mT/m/ms", "T/m/s", "rad/ms/mm/ms", "G/cm/ms", "G/cm/s"});
     unitsLayout->addRow("Slew Rate Unit:", m_slewUnitCombo);
+
+    // RF amplitude unit combo
+    m_rfUnitCombo = new QComboBox(displayUnitsTab);
+    m_rfUnitCombo->addItems({"Hz", "uT"});
+    unitsLayout->addRow("RF Unit:", m_rfUnitCombo);
     
     // Gamma combo box with common nuclei (moved from Physics Parameters)
     m_gammaCombo = new QComboBox(displayUnitsTab);
@@ -685,6 +691,7 @@ void SettingsDialog::loadCurrentSettings()
     // Store original settings
     m_originalGradientUnit = settings.getGradientUnit();
     m_originalSlewUnit = settings.getSlewUnit();
+    m_originalRfUnit = settings.getRfUnit();
     m_originalTimeUnit = settings.getTimeUnit();
     m_originalTrajectoryUnit = settings.getTrajectoryUnit();
     m_originalTrajectoryColormap = settings.getTrajectoryColormap();
@@ -723,6 +730,7 @@ void SettingsDialog::loadCurrentSettings()
 
     m_gradientUnitCombo->setCurrentIndex(static_cast<int>(m_originalGradientUnit));
     m_slewUnitCombo->setCurrentIndex(static_cast<int>(m_originalSlewUnit));
+    m_rfUnitCombo->setCurrentIndex(static_cast<int>(m_originalRfUnit));
     m_trajectoryUnitCombo->setCurrentIndex(static_cast<int>(m_originalTrajectoryUnit));
     // Trajectory colormap (select by enum ordinal)
     {
@@ -850,6 +858,9 @@ bool SettingsDialog::applySettings()
     // Apply slew unit
     Settings::SlewUnit slewUnit = static_cast<Settings::SlewUnit>(m_slewUnitCombo->currentIndex());
     settings.setSlewUnit(slewUnit);
+
+    // Apply RF unit
+    settings.setRfUnit(static_cast<Settings::RfUnit>(m_rfUnitCombo->currentIndex()));
 
     // Apply trajectory unit
     Settings::TrajectoryUnit trajUnit = static_cast<Settings::TrajectoryUnit>(m_trajectoryUnitCombo->currentIndex());
@@ -1007,6 +1018,7 @@ void SettingsDialog::onCancelClicked()
     Settings& settings = Settings::getInstance();
     settings.setGradientUnit(m_originalGradientUnit);
     settings.setSlewUnit(m_originalSlewUnit);
+    settings.setRfUnit(m_originalRfUnit);
     settings.setTimeUnit(m_originalTimeUnit);
     settings.setTrajectoryUnit(m_originalTrajectoryUnit);
     settings.setTrajectoryColormap(m_originalTrajectoryColormap);

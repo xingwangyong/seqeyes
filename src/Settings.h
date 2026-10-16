@@ -82,6 +82,12 @@ public:
         GPerCmPerS      // G/cm/s
     };
 
+    // RF (B1) amplitude units
+    enum class RfUnit {
+        Hz,     // Hz
+        uT      // uT
+    };
+
     // Time units for UI/plot display
     enum class TimeUnit {
         Milliseconds,
@@ -162,6 +168,11 @@ public:
    SlewUnit getSlewUnit() const;
    QString getSlewUnitString() const;
 
+    // RF amplitude unit settings
+    void setRfUnit(RfUnit unit);
+    RfUnit getRfUnit() const;
+    QString getRfUnitString() const;
+
     void setTimeUnit(TimeUnit unit);
     TimeUnit getTimeUnit() const;
     QString getTimeUnitString() const;
@@ -204,6 +215,7 @@ public:
     // Unit conversion functions
     double convertGradient(double value, const QString& fromUnit, const QString& toUnit) const;
     double convertSlew(double value, const QString& fromUnit, const QString& toUnit) const;
+    double convertRf(double value, const QString& fromUnit, const QString& toUnit) const;
     
     // Old time-based LOD settings removed - replaced with complexity-based LOD system
 
@@ -215,6 +227,7 @@ public:
     // Get all available units
     static QStringList getAvailableGradientUnits();
     static QStringList getAvailableSlewUnits();
+    static QStringList getAvailableRfUnits();
     static QStringList getAvailableTimeUnits();
     static QStringList getAvailableTrajectoryUnits();
 
@@ -282,6 +295,7 @@ private:
     QString m_panRightKey;
     GradientUnit m_gradientUnit;
     SlewUnit m_slewUnit;
+    RfUnit m_rfUnit;
     TimeUnit m_timeUnit;
     TrajectoryUnit m_trajectoryUnit;
     TrajectoryColormap m_trajectoryColormap;
@@ -307,6 +321,7 @@ private:
     // String to enum conversion helpers
     GradientUnit stringToGradientUnit(const QString& unitString) const;
     SlewUnit stringToSlewUnit(const QString& unitString) const;
+    RfUnit stringToRfUnit(const QString& unitString) const;
     ZoomInputMode stringToZoomInputMode(const QString& s) const;
     WheelAction stringToWheelAction(const QString& s) const;
     TimeUnit stringToTimeUnit(const QString& unitString) const;

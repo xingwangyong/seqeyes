@@ -34,6 +34,7 @@ Settings::Settings(QObject* parent)
     , m_altWheelAction(WheelAction::Unassigned)
     , m_gradientUnit(GradientUnit::mTPerM)
     , m_slewUnit(SlewUnit::TPerMPerS)
+    , m_rfUnit(RfUnit::Hz)
     , m_timeUnit(TimeUnit::Milliseconds)
     , m_trajectoryUnit(TrajectoryUnit::PerM)
     , m_trajectoryColormap(TrajectoryColormap::Jet)
@@ -305,6 +306,29 @@ QString Settings::getSlewUnitString() const
     }
 }
 
+void Settings::setRfUnit(RfUnit unit)
+{
+    if (m_rfUnit != unit) {
+        m_rfUnit = unit;
+        saveSettings();
+        emit settingsChanged();
+    }
+}
+
+Settings::RfUnit Settings::getRfUnit() const
+{
+    return m_rfUnit;
+}
+
+QString Settings::getRfUnitString() const
+{
+    switch (m_rfUnit) {
+        case RfUnit::Hz: return "Hz";
+        case RfUnit::uT: return "uT";
+        default: return "Hz";
+    }
+}
+
 void Settings::setTimeUnit(TimeUnit unit)
 {
     if (m_timeUnit != unit) {
@@ -493,6 +517,17 @@ double Settings::convertSlew(double value, const QString& fromUnit, const QStrin
     return convertFromStandardSlew(standard, toUnit);
 }
 
+double Settings::convertRf(double value, const QString& fromUnit, const QString& toUnit) const
+{
+    // Standard unit is Hz (B1 * gamma), same as mr.convert
+    double standard = value;
+    if (fromUnit == "uT")
+        standard = value * 1e-6 * m_gamma;
+    if (toUnit == "uT")
+        return 1e6 * standard / m_gamma;
+    return standard;
+}
+
 double Settings::convertToStandardGradient(double value, const QString& fromUnit) const
 {
     if (fromUnit == "Hz/m") {
@@ -560,6 +595,7 @@ void Settings::saveSettings()
     // Save units in human-readable format
     obj["gradientUnit"] = getGradientUnitString();
     obj["slewUnit"] = getSlewUnitString();
+    obj["rfUnit"] = getRfUnitString();
     obj["timeUnit"] = getTimeUnitString();
     obj["trajectoryUnit"] = getTrajectoryUnitString();
     obj["trajectoryColormap"] = getTrajectoryColormapString();
@@ -689,6 +725,9 @@ void Settings::loadSettings()
         m_slewUnit = static_cast<SlewUnit>(slewUnitInt);
     }
     
+    // Load RF unit (string format only; default Hz)
+    m_rfUnit = stringToRfUnit(obj.value("rfUnit").toString("Hz"));
+
     // Load time unit
     QString timeUnitStr = obj.value("timeUnit").toString("ms");
     m_timeUnit = stringToTimeUnit(timeUnitStr);
@@ -847,6 +886,7 @@ void Settings::resetToDefaults()
     m_statusBarFields = defaultStatusBarFields();
     m_gradientUnit = GradientUnit::mTPerM;
     m_slewUnit = SlewUnit::TPerMPerS;
+    m_rfUnit = RfUnit::Hz;
     m_timeUnit = TimeUnit::Milliseconds;
     m_trajectoryUnit = TrajectoryUnit::PerM;
     m_trajectoryColormap = TrajectoryColormap::Jet;
@@ -887,6 +927,11 @@ QStringList Settings::getAvailableGradientUnits()
 QStringList Settings::getAvailableSlewUnits()
 {
     return {"Hz/m/s", "mT/m/ms", "T/m/s", "rad/ms/mm/ms", "G/cm/ms", "G/cm/s"};
+}
+
+QStringList Settings::getAvailableRfUnits()
+{
+    return {"Hz", "uT"};
 }
 
 QStringList Settings::getAvailableTimeUnits()
@@ -946,6 +991,12 @@ Settings::GradientUnit Settings::stringToGradientUnit(const QString& unitString)
     if (unitString == "rad/ms/mm") return GradientUnit::radPerMsPerMm;
     if (unitString == "G/cm") return GradientUnit::GPerCm;
     return GradientUnit::HzPerM; // Default fallback
+}
+
+Settings::RfUnit Settings::stringToRfUnit(const QString& unitString) const
+{
+    if (unitString == "uT") return RfUnit::uT;
+    return RfUnit::Hz; // Default fallback
 }
 
 Settings::SlewUnit Settings::stringToSlewUnit(const QString& unitString) const

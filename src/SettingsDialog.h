@@ -85,6 +85,7 @@ private:
     // Display Units tab
     QComboBox* m_gradientUnitCombo;
     QComboBox* m_slewUnitCombo;
+    QComboBox* m_rfUnitCombo;
     QComboBox* m_timeUnitCombo;
     QComboBox* m_trajectoryUnitCombo;
     QComboBox* m_trajectoryColormapCombo;
@@ -145,6 +146,7 @@ private:
     // Store original settings for cancel functionality
     Settings::GradientUnit m_originalGradientUnit;
     Settings::SlewUnit m_originalSlewUnit;
+    Settings::RfUnit m_originalRfUnit;
     Settings::TimeUnit m_originalTimeUnit;
     Settings::TrajectoryUnit m_originalTrajectoryUnit;
     Settings::TrajectoryColormap m_originalTrajectoryColormap;
